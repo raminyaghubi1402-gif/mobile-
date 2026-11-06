@@ -29,6 +29,7 @@ DEFAULT_TAKE_PROFIT_STAGES = (
 class PartialExitState:
     original_position: LeveragedPosition
     stop: SmartStopState
+    stages: tuple[TakeProfitStage, ...]
     remaining_quantity: float
     remaining_collateral: float
     remaining_entry_fee: float
@@ -80,7 +81,7 @@ def start_partial_exit_plan(
             or not isfinite(managed.entry_fee) or managed.entry_fee < 0):
         raise PartialExitError("موقعیت پایه نامعتبر است.")
     return PartialExitState(
-        original_position=p, stop=managed.stop,
+        original_position=p, stop=managed.stop, stages=stages,
         remaining_quantity=p.quantity, remaining_collateral=p.collateral,
         remaining_entry_fee=managed.entry_fee,
     )
@@ -90,7 +91,6 @@ def update_partial_exit(
     state: PartialExitState,
     market_price: float,
     *,
-    stages: tuple[TakeProfitStage, ...] = DEFAULT_TAKE_PROFIT_STAGES,
     close_fee_rate: float = 0.0006,
 ) -> PartialExitUpdate:
     """Process one price observation; no broker calls or live orders.
@@ -157,7 +157,7 @@ def update_partial_exit(
     completed = list(state.completed_stages)
     fills: list[tuple[float, float]] = []
 
-    for index, stage in enumerate(stages):
+    for index, stage in enumerate(state.stages):
         if index in completed:
             continue
         target = p.entry_price + stage.target_r * risk if p.side == "long" else p.entry_price - stage.target_r * risk
@@ -213,7 +213,7 @@ def update_partial_exit(
         return PartialExitUpdate(closed, stop_update, "stopped", tuple(fills))
 
     updated = PartialExitState(
-        original_position=p, stop=stop_update.state,
+        original_position=p, stop=stop_update.state, stages=state.stages,
         remaining_quantity=new_remaining, remaining_collateral=new_collateral,
         remaining_entry_fee=new_entry_fee, realized_gross_pnl=realized,
         exit_fees_paid=fees, completed_stages=tuple(completed),

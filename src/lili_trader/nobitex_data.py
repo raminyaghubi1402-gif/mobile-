@@ -56,8 +56,6 @@ class NobitexAdapter:
                 break
             for candle in batch:
                 collected[candle.timestamp] = candle
-            if len(batch) < 500:
-                break
         return sorted(collected.values(), key=lambda item: item.timestamp)[-count:]
 
     def fetch_recent(self, symbol: str = "BTCIRT", resolution: str = "60",

@@ -157,7 +157,9 @@ def run_three_timeframe_backtest(
         cash += gross - exit_fee
         total_gross = pos['realized_gross'] + gross
         total_fees = pos['entry_fee'] + pos['exit_fees'] + exit_fee
-        trades.append(PriceActionTrade(direction=pos['direction'], entry_timestamp=pos['entry_timestamp'], exit_timestamp=bar['timestamp'], entry_price=pos['entry_price'], exit_price=fill, quantity=pos['original_quantity'], gross_pnl=total_gross, fees=total_fees, net_pnl=total_gross-total_fees, exit_reason=reason))
+        total_exit_value = pos['realized_exit_value'] + fill * qty
+        average_exit_price = total_exit_value / pos['original_quantity']
+        trades.append(PriceActionTrade(direction=pos['direction'], entry_timestamp=pos['entry_timestamp'], exit_timestamp=bar['timestamp'], entry_price=pos['entry_price'], exit_price=average_exit_price, quantity=pos['original_quantity'], gross_pnl=total_gross, fees=total_fees, net_pnl=total_gross-total_fees, exit_reason=reason))
         position = None
 
     def check_existing_stop(bar: dict) -> bool:
@@ -190,6 +192,7 @@ def run_three_timeframe_backtest(
             fee = fill * qty * fee_rate
             cash += gross - fee
             pos['realized_gross'] += gross
+            pos['realized_exit_value'] += fill * qty
             pos['exit_fees'] += fee
             pos['remaining_quantity'] -= qty
             pos['completed_targets'].add(stage_index)
@@ -249,7 +252,8 @@ def run_three_timeframe_backtest(
                         "entry_price": entry, "original_quantity": quantity,
                         "remaining_quantity": quantity, "entry_fee": entry_fee,
                         "initial_risk": distance, "stop_state": stop_state,
-                        "realized_gross": 0.0, "exit_fees": 0.0, "completed_targets": set(),
+                        "realized_gross": 0.0, "realized_exit_value": 0.0,
+                        "exit_fees": 0.0, "completed_targets": set(),
                     }
                     stop_hit = bar["low"] <= stop if side == 1 else bar["high"] >= stop
                     if stop_hit:

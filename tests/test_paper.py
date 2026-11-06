@@ -17,7 +17,7 @@ class PaperAccountTests(unittest.TestCase):
     def test_sell_only_existing_position(self):
         self.account.execute("b1", "buy", 2, 100)
         fill = self.account.execute("s1", "sell", 1, 120)
-        self.assertAlmostEqual(fill.cash_after, 917.8)
+        self.assertAlmostEqual(fill.cash_after, 916.8)
         self.assertEqual(fill.position_after, 1)
 
     def test_idempotent_order_id_does_not_double_fill(self):

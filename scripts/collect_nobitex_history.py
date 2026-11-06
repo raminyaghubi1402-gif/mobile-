@@ -13,7 +13,7 @@ from lili_trader.nobitex_data import NobitexAdapter
 
 
 SYMBOLS = ("BTCIRT", "ETHIRT")
-RESOLUTIONS = ("5", "15", "60", "240", "D")
+FETCH_COUNTS = {"5": 5000, "15": 2000, "60": 2000, "240": 1000, "D": 1000}
 MAX_ROWS = 20_000
 
 
@@ -22,9 +22,9 @@ def main() -> int:
     history_dir = ROOT / "data" / "history"
     failures = []
     for symbol in SYMBOLS:
-        for resolution in RESOLUTIONS:
+        for resolution, fetch_count in FETCH_COUNTS.items():
             try:
-                incoming = adapter.fetch_history(symbol, resolution, 5000)
+                incoming = adapter.fetch_history(symbol, resolution, fetch_count)
                 if not incoming:
                     print(f"{symbol} {resolution}: no new public candles; kept existing history")
                     continue

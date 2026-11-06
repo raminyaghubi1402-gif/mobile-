@@ -62,10 +62,12 @@ def run_sma_backtest(
         ("risk_fraction", risk_fraction, 1.0),
         ("stop_loss_fraction", stop_loss_fraction, 1.0),
         ("take_profit_fraction", take_profit_fraction, 10.0),
-        ("fee_rate", fee_rate, 1.0),
-        ("slippage_rate", slippage_rate, 0.1),
     ):
         if not isfinite(value) or value <= 0 or value >= upper:
+            raise ValueError(f"{name} is outside its allowed range")
+    for name, value, upper in (("fee_rate", fee_rate, 1.0),
+                               ("slippage_rate", slippage_rate, 0.1)):
+        if not isfinite(value) or value < 0 or value >= upper:
             raise ValueError(f"{name} is outside its allowed range")
 
     bars = []

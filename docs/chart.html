@@ -56,7 +56,10 @@ const candleSeries=priceChart.addCandlestickSeries({upColor:'#22c55e',downColor:
 const sma7=priceChart.addLineSeries({color:'#f59e0b',lineWidth:2,title:'SMA 7'});
 const sma25=priceChart.addLineSeries({color:'#60a5fa',lineWidth:2,title:'SMA 25'});
 const tradeLines=[];
-let currentCandles=[];\nlet mtfZones={};\nlet mtfReady=false;\nconst mtfOrder=[["M","ماهانه"],["W","هفتگی"],["D","روزانه"],["240","۴ ساعته"],["60","۱ ساعته"],["15","۱۵ دقیقه"],["5","۵ دقیقه"]];
+let currentCandles=[];
+let mtfZones={};
+let mtfReady=false;
+const mtfOrder=[["M","ماهانه"],["W","هفتگی"],["D","روزانه"],["240","۴ ساعته"],["60","۱ ساعته"],["15","۱۵ دقیقه"],["5","۵ دقیقه"]];
 function clearTradeLines(){tradeLines.forEach(line=>candleSeries.removePriceLine(line));tradeLines.length=0;}
 function updateRiskReward(){
  const e=Number($('trade-entry').value),s=Number($('trade-sl').value),t1=Number($('trade-tp1').value),t2=Number($('trade-tp2').value),side=$('trade-side').value;

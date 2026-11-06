@@ -73,8 +73,7 @@ def open_isolated_position(
     # Long: C + Q(P-E) = Q*P*m -> P = (Q*E-C)/(Q*(1-m))
     # Short: C + Q(E-P) = Q*P*m -> P = (C+Q*E)/(Q*(1+m))
     if side == "long":
-        liquidation = (usable_collateral + quantity * entry_price) / (quantity * (1 + maintenance_margin_rate))
-        # Conservative long-side formula solving equity against maintenance:
+        # Solve equity = maintenance margin for an approximate threshold.
         liquidation = (quantity * entry_price - usable_collateral) / (quantity * (1 - maintenance_margin_rate))
     else:
         liquidation = (usable_collateral + quantity * entry_price) / (quantity * (1 + maintenance_margin_rate))

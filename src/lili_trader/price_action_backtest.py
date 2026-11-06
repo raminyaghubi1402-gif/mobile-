@@ -109,7 +109,6 @@ def run_three_timeframe_backtest(
     starting_cash: float = 1_000_000.0,
     risk_fraction: float = 0.005,
     stop_atr_multiple: float = 2.0,
-    reward_r_multiple: float = 2.0,
     fee_rate: float = 0.001,
     slippage_rate: float = 0.001,
     trend_lookback: int = 120,
@@ -127,8 +126,6 @@ def run_three_timeframe_backtest(
         raise ValueError("risk_fraction must be > 0 and <= 2%")
     if not isfinite(stop_atr_multiple) or not 0.1 <= stop_atr_multiple <= 10:
         raise ValueError("stop_atr_multiple outside safe research bounds")
-    if not isfinite(reward_r_multiple) or not 0.25 <= reward_r_multiple <= 10:
-        raise ValueError("reward_r_multiple outside safe research bounds")
     if not isfinite(fee_rate) or not 0 <= fee_rate < 0.05:
         raise ValueError("fee_rate outside allowed bounds")
     if not isfinite(slippage_rate) or not 0 <= slippage_rate < 0.05:
@@ -200,8 +197,9 @@ def run_three_timeframe_backtest(
         update = update_smart_stop(pos['stop_state'], favorable)
         pos['stop_state'] = update.state
         new_stop = update.state.current_stop
-        crossed = bar['low'] <= new_stop if side == 1 else bar['high'] >= new_stop
-        if crossed: finish_position(bar, new_stop, 'smart_stop')
+        # OHLC candles do not reveal whether the favorable extreme happened
+        # before the adverse extreme. Activate the tightened stop on the next
+        # candle; never use same-candle high/low ordering to claim a stop fill.
     # i is the 5m candle on which a signal was confirmed; execution is at i+1 open.
     for i in range(1, len(five)):
         bar = five[i]
@@ -264,7 +262,7 @@ def run_three_timeframe_backtest(
         else:
             side = 1 if position["direction"] == "BUY" else -1
             unrealized = (bar["close"] - position["entry_price"]) * position["remaining_quantity"] * side
-            estimated_exit_fee = bar["close"] * position["quantity"] * fee_rate
+            estimated_exit_fee = bar["close"] * position["remaining_quantity"] * fee_rate
             mark = cash + unrealized - estimated_exit_fee
         curve.append(mark)
         peak = max(peak, mark)

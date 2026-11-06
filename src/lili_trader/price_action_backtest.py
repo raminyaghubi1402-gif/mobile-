@@ -205,7 +205,8 @@ def run_three_timeframe_backtest(
     # i is the 5m candle on which a signal was confirmed; execution is at i+1 open.
     for i in range(1, len(five)):
         bar = five[i]
-        check_exit(bar)
+        if not check_existing_stop(bar):
+            manage_open_position(bar)
 
         signal_bar = five[i - 1]
         signal_close_time = signal_bar["timestamp"] + 300
@@ -262,7 +263,7 @@ def run_three_timeframe_backtest(
             mark = cash
         else:
             side = 1 if position["direction"] == "BUY" else -1
-            unrealized = (bar["close"] - position["entry_price"]) * position["quantity"] * side
+            unrealized = (bar["close"] - position["entry_price"]) * position["remaining_quantity"] * side
             estimated_exit_fee = bar["close"] * position["quantity"] * fee_rate
             mark = cash + unrealized - estimated_exit_fee
         curve.append(mark)
@@ -272,7 +273,7 @@ def run_three_timeframe_backtest(
 
     if position is not None:
         last = five[-1]
-        close_position(last, last["close"], "end_of_data")
+        finish_position(last, last["close"], "end_of_data")
         curve.append(cash)
         peak = max(peak, cash)
         if peak > 0:

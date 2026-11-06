@@ -11,7 +11,7 @@ def main() -> None:
     parser.add_argument("--backtest-cash", type=float, default=1000000.0, help="موجودی فرضی بک‌تست")
     parser.add_argument("--symbol", default="BTCIRT", help="نماد نوبیتکس، مثل BTCIRT یا ETHIRT")
     parser.add_argument("--resolution", default="60", help="بازه: 1, 5, 15, 30, 60, 240 یا D")
-    parser.add_argument("--count", type=int, default=100, help="تعداد کندل (۱ تا ۵۰۰)")
+    parser.add_argument("--count", type=int, default=100, help="تعداد کندل؛ بک‌تست ساختار قیمت تا ۵۰۰۰، سایر حالت‌ها تا ۵۰۰")
     args = parser.parse_args()
 
     if args.price_action_backtest:
@@ -19,9 +19,9 @@ def main() -> None:
         from .price_action_backtest import run_three_timeframe_backtest
         adapter = NobitexAdapter()
         # Each timeframe is fetched independently from the public, read-only API.
-        hourly = adapter.fetch_recent(args.symbol, "60", args.count)
-        fifteen = adapter.fetch_recent(args.symbol, "15", args.count)
-        five = adapter.fetch_recent(args.symbol, "5", args.count)
+        hourly = adapter.fetch_history(args.symbol, "60", args.count)
+        fifteen = adapter.fetch_history(args.symbol, "15", args.count)
+        five = adapter.fetch_history(args.symbol, "5", args.count)
         result = run_three_timeframe_backtest(
             hourly, fifteen, five, starting_cash=args.backtest_cash
         )

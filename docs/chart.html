@@ -150,7 +150,8 @@ function getClosedCandles(bars,resolution=$('resolution').value){
 }
 // تحلیل خودکار با SMA/RSI و حدضرر مبتنی بر ATR؛ بدون سفارش واقعی.
 function autoAnalysis(){
- if(!mtfReady){$('status').textContent='تحلیل ورود متوقف است: هنوز نقشه کامل ۷ تایم‌فریم آماده نیست.';return;}\n const candles=getClosedCandles(currentCandles);
+ if(!mtfReady){$('status').textContent='تحلیل ورود متوقف است: هنوز نقشه کامل ۷ تایم‌فریم آماده نیست.';return;}
+ const candles=getClosedCandles(currentCandles);
  if(candles.length<30){$('status').textContent='برای تحلیل معتبر حداقل ۳۰ کندل بسته‌شده لازم است؛ کمی بعد دوباره تلاش کن.';return;}
  const closes=candles.map(c=>c.close),fast=sma(closes,7),slow=sma(closes,25),rsi=rsiSeriesValue(closes,14),atrValue=calculateAtr(candles,14);
  const last=candles[candles.length-1],f=fast[fast.length-1],m=slow[slow.length-1],rv=rsi;

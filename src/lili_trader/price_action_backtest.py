@@ -144,6 +144,7 @@ def run_three_timeframe_backtest(
     peak = cash
     max_drawdown = 0.0
     gate_counts: dict[str, int] = {}
+    previous_gate_ready = False
 
     def finish_position(bar: dict, raw_price: float, reason: str) -> None:
         nonlocal cash, position
@@ -229,7 +230,12 @@ def run_three_timeframe_backtest(
                 gate_status = "invalid_data"
         gate_counts[gate_status] = gate_counts.get(gate_status, 0) + 1
 
-        if position is None and decision is not None and decision.allowed:
+        new_setup = bool(decision is not None and decision.allowed and not previous_gate_ready)
+        previous_gate_ready = bool(decision is not None and decision.allowed)
+
+        # One entry per uninterrupted READY signal. If a stop closes a trade
+        # while the gate remains READY, do not immediately re-enter the same setup.
+        if position is None and new_setup:
             try:
                 atr_value = _atr(closed_fifteen, atr_period)
             except ValueError:

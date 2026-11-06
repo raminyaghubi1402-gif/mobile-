@@ -10,13 +10,13 @@
 *{box-sizing:border-box}body{margin:0;padding:14px;max-width:1200px;margin-inline:auto}
 h1{font-size:1.35rem;margin:8px 0}p{color:#9ca3af;font-size:.9rem}
 .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:14px 0}
-select,button{background:#172033;color:#e5e7eb;border:1px solid #334155;border-radius:8px;padding:10px;font:inherit}
+select,input,button{background:#172033;color:#e5e7eb;border:1px solid #334155;border-radius:8px;padding:10px;font:inherit;max-width:100%}\nselect,button{background:#172033;color:#e5e7eb;border:1px solid #334155;border-radius:8px;padding:10px;font:inherit}
 button{cursor:pointer;background:#14532d;border-color:#166534}
 #status{font-size:.9rem;color:#fbbf24;min-height:24px;margin:8px 0}
 .chart{height:420px;width:100%;border:1px solid #263449;border-radius:10px;overflow:hidden;background:#0b1220}
 #rsi{height:150px;margin-top:10px}
 .note{font-size:.8rem;line-height:1.8;border:1px solid #334155;border-radius:8px;padding:10px;margin-top:12px}
-@media(max-width:600px){body{padding:8px}.chart{height:330px}}
+@media(max-width:600px){body{padding:8px}.chart{height:330px}#levels-panel label{display:flex;flex-direction:column;gap:4px;flex:1 1 135px;min-width:0}#levels-panel input,#levels-panel select{width:100%;min-width:0}button{min-height:44px}}
 </style>
 </head>
 <body>
@@ -73,7 +73,6 @@ function updateRiskReward(){
 ['trade-entry','trade-sl','trade-tp1','trade-tp2','trade-side'].forEach(id=>$(id).addEventListener('input',updateRiskReward));
 
 function drawTradeLines(){
- clearTradeLines();
  const side=$('trade-side').value;
  const specs=[['trade-entry','Entry','#facc15'],['trade-sl','SL','#ef4444'],['trade-tp1','TP1','#22c55e'],['trade-tp2','TP2','#34d399']];
  const levels=[];
@@ -93,6 +92,7 @@ function drawTradeLines(){
  if(tp1&&(side==='long'?tp1.price<=entry.price:tp1.price>=entry.price)){$('status').textContent='TP1 باید در سمت سود ورود باشد.';return;}
  if(tp2&&(side==='long'?tp2.price<=entry.price:tp2.price>=entry.price)){$('status').textContent='TP2 باید در سمت سود ورود باشد.';return;}
  if(tp1&&tp2&&(side==='long'?tp2.price<tp1.price:tp2.price>tp1.price)){$('status').textContent='ترتیب TP1 و TP2 صحیح نیست.';return;}
+ clearTradeLines();
  levels.forEach(level=>{
   const line=candleSeries.createPriceLine({price:level.price,color:level.color,lineWidth:level.label==='Entry'?2:1,lineStyle:0,axisLabelVisible:true,title:level.label});
   tradeLines.push(line);

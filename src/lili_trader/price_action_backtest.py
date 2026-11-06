@@ -224,7 +224,7 @@ def run_three_timeframe_backtest(
                 entry = raw_entry * (1 + slippage_rate if side == 1 else 1 - slippage_rate)
                 distance = atr_value * stop_atr_multiple
                 risk_cash = cash * risk_fraction
-                quantity = min(risk_cash / distance, cash / entry)
+                quantity = min(risk_cash / distance, cash / (entry * (1 + fee_rate)))
                 if quantity > 0 and isfinite(quantity):
                     entry_fee = entry * quantity * fee_rate
                     cash -= entry_fee

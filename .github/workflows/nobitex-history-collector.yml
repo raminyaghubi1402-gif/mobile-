@@ -17,7 +17,7 @@ permissions:
   actions: write
 
 concurrency:
-  group: nobitex-history-collector
+  group: nobitex-public-api
   cancel-in-progress: false
 
 jobs:

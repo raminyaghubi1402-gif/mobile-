@@ -253,9 +253,15 @@ function evaluateTradeGate(){
  if(!fifteen||!five)return {status:'wait',allowed:false,direction:hourly.direction,reason:'داده ۱۵ یا ۵ دقیقه کامل نیست.'};
  const fifteenBars=mtfCandles['15']||[],last15=fifteenBars[fifteenBars.length-1];
  if(!last15)return {status:'wait',allowed:false,direction:hourly.direction,reason:'کندل بسته‌شده ۱۵ دقیقه موجود نیست.'};
- if(hourly.direction==='up'&&hourly.last_two_swing_lows?.length===2&&last15.close<hourly.last_two_swing_lows[1])
+ const close15=Number(last15.close);
+ if(!Number.isFinite(close15)||close15<=0)
+  return {status:'wait',allowed:false,direction:hourly.direction,reason:'قیمت بسته‌شدن کندل ۱۵ دقیقه معتبر نیست.'};
+ const pivots=hourly.direction==='up'?hourly.last_two_swing_lows:hourly.last_two_swing_highs;
+ if(!Array.isArray(pivots)||pivots.length!==2||!pivots.every(v=>Number.isFinite(Number(v))&&Number(v)>0))
+  return {status:'blocked',allowed:false,direction:hourly.direction,reason:'سقف‌ها یا کف‌های ساختاری یک‌ساعته ناقص یا نامعتبرند؛ ورود ممنوع.'};
+ if(hourly.direction==='up'&&close15<Number(pivots[1]))
   return {status:'invalidated',allowed:false,direction:hourly.direction,reason:'ساختار صعودی ۱ ساعته با بسته‌شدن ۱۵ دقیقه زیر آخرین کف تأییدشده شکسته است.'};
- if(hourly.direction==='down'&&hourly.last_two_swing_highs?.length===2&&last15.close>hourly.last_two_swing_highs[1])
+ if(hourly.direction==='down'&&close15>Number(pivots[1]))
   return {status:'invalidated',allowed:false,direction:hourly.direction,reason:'ساختار نزولی ۱ ساعته با بسته‌شدن ۱۵ دقیقه بالای آخرین سقف تأییدشده شکسته است.'};
  const opposite=hourly.direction==='up'?'down':'up';
  if(fifteen.direction===opposite)return {status:'pullback',allowed:false,direction:hourly.direction,reason:'اصلاح ۱۵ دقیقه خلاف روند اصلی است؛ لی‌لی صبر می‌کند و معامله خلاف‌روند نمی‌سازد.'};

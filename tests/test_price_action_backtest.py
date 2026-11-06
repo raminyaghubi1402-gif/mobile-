@@ -62,7 +62,7 @@ class ThreeTimeframeBacktestTests(unittest.TestCase):
         fifteen = rising_bars(80, 900, 0)
         five = rising_bars(100, 300, 0)
         with self.assertRaises(ValueError):
-            run_three_timeframe_backtest(hourly[:-1], fifteen, five)
+            run_three_timeframe_backtest(hourly[:9], fifteen, five)
         five[30].timestamp += 300
         with self.assertRaises(ValueError):
             run_three_timeframe_backtest(hourly, fifteen, five)

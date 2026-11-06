@@ -295,29 +295,50 @@ function renderMtfTable(){
  }
 }
 async function refreshMtfAnalysis(symbol){
- mtfReady=false;$('mtf-status').textContent='در حال بررسی ماهانه تا ۵ دقیقه…';
+ mtfReady=false;$('mtf-status').textContent='در حال دریافت دادهٔ سه تایم‌فریم اصلی و زمینه‌های بالاتر…';
+ const nextZones={},nextCandles={},nextTrends={};
+ const keys=['M','W','D','240','60','15','5'];
+ keys.forEach(key=>{nextZones[key]={support:[],resistance:[],atr:null};nextCandles[key]=[];nextTrends[key]={direction:'unknown',label:'نامشخص',reason:'داده زمینه‌ای در دسترس نیست'};});
  try{
-  const daily=await fetchCandles(symbol,'D',500);
-  const jobs=[
-   ['M',Promise.resolve(aggregateDaily(getClosedCandles(daily,'D'),'M'))],
-   ['W',Promise.resolve(aggregateDaily(getClosedCandles(daily,'D'),'W'))],
-   ['D',Promise.resolve(getClosedCandles(daily,'D'))],
-   ['240',fetchCandles(symbol,'240',500)],['60',fetchCandles(symbol,'60',500)],
-   ['15',fetchCandles(symbol,'15',500)],['5',fetchCandles(symbol,'5',500)]
-  ];
-  const values=await Promise.all(jobs.map(async([key,promise])=>[key,await promise]));
-  const next={},nextCandles={};
-  for(const [key,bars] of values){
-   const closed=getClosedCandles(bars,key);
-   const minimum=key==='M'?12:20;
-   if(closed.length<minimum)throw new Error('داده بسته‌شده کافی برای '+key+' وجود ندارد ('+closed.length+' کندل)');
-   next[key]=findZones(closed);nextCandles[key]=closed;
-   mtfTrends[key]=detectPriceActionTrend(closed,(key==='M'||key==='W')?1:2);
+  const core=await Promise.all([
+   fetchCandles(symbol,'60',500),fetchCandles(symbol,'15',500),fetchCandles(symbol,'5',500)
+  ]);
+  for(const [index,key] of ['60','15','5'].entries()){
+   const closed=getClosedCandles(core[index],key);
+   if(closed.length<30)throw new Error('داده بسته‌شدهٔ کافی برای '+key+' دقیقه وجود ندارد ('+closed.length+' کندل)');
+   nextCandles[key]=closed;nextZones[key]=findZones(closed);
+   nextTrends[key]=detectPriceActionTrend(closed,2);
   }
-  mtfZones=next;mtfCandles=nextCandles;mtfReady=true;renderMtfTable();renderTrendTable();drawSelectedZones();
-  $('mtf-status').textContent='هر ۷ تایم‌فریم بررسی شد. زمان به‌روزرسانی: '+new Date().toLocaleTimeString('fa-IR')+' — داده ناقص یا قدیمی باعث توقف تحلیل ورود می‌شود.';
+  mtfReady=true;
+  const contextJobs=await Promise.allSettled([fetchCandles(symbol,'D',500),fetchCandles(symbol,'240',500)]);
+  const dailyResult=contextJobs[0],fourHourResult=contextJobs[1],contextWarnings=[];
+  if(dailyResult.status==='fulfilled'){
+   const daily=getClosedCandles(dailyResult.value,'D');
+   const derived=[
+    ['D',daily],
+    ['W',aggregateDaily(daily,'W')],
+    ['M',aggregateDaily(daily,'M')]
+   ];
+   for(const [key,bars] of derived){
+    const closed=key==='D'?bars:bars.filter(c=>c.time+(key==='W'?604800:2678400)<=Math.floor(Date.now()/1000));
+    const minimum=key==='M'?6:key==='W'?12:20;
+    if(closed.length>=minimum){
+     nextCandles[key]=closed;nextZones[key]=findZones(closed);
+     nextTrends[key]=detectPriceActionTrend(closed,(key==='M'||key==='W')?1:2);
+    }else contextWarnings.push('دادهٔ '+key+' برای زمینه کافی نیست');
+   }
+  }else contextWarnings.push('دادهٔ روزانه/هفتگی/ماهانه دریافت نشد');
+  if(fourHourResult.status==='fulfilled'){
+   const closed=getClosedCandles(fourHourResult.value,'240');
+   if(closed.length>=20){nextCandles['240']=closed;nextZones['240']=findZones(closed);nextTrends['240']=detectPriceActionTrend(closed,2);}
+   else contextWarnings.push('دادهٔ ۴ ساعته کافی نیست');
+  }else contextWarnings.push('دادهٔ ۴ ساعته دریافت نشد');
+  mtfZones=nextZones;mtfCandles=nextCandles;mtfTrends=nextTrends;
+  renderMtfTable();renderTrendTable();drawSelectedZones();
+  $('mtf-status').textContent='سه تایم‌فریم اصلی (۱h، ۱۵m، ۵m) آماده‌اند. '+(contextWarnings.length?'زمینهٔ بالاتر ناقص است: '+contextWarnings.join('؛ ')+'؛ تحلیل اصلی با هشدار زمینه‌ای ادامه دارد.':'داده‌های زمینه‌ای ماهانه تا ۴ ساعته نیز دریافت شدند.')+' — '+new Date().toLocaleTimeString('fa-IR');
  }catch(error){
-  mtfReady=false;mtfZones={};mtfCandles={};mtfTrends={};renderTrendTable();drawSelectedZones();$('mtf-status').textContent='⚠️ نقشه چندتایم‌فریمی کامل نیست: '+error.message+'؛ لی‌لی تا تکمیل داده‌ها سناریوی ورود خودکار نمی‌سازد.';
+  mtfReady=false;mtfZones={};mtfCandles={};mtfTrends={};renderTrendTable();drawSelectedZones();
+  $('mtf-status').textContent='⚠️ دادهٔ یکی از سه تایم‌فریم اصلی ناقص است: '+error.message+'؛ تحلیل ورود متوقف شد.';
  }
 }
 function breakoutRetestConfirmed(bars,zone,side,atr){

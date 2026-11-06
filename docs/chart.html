@@ -36,6 +36,7 @@ button{cursor:pointer;background:#14532d;border-color:#166534}
 <label>هدف اول <input id="trade-tp1" type="number" step="any" placeholder="TP1"></label>
 <label>هدف دوم <input id="trade-tp2" type="number" step="any" placeholder="TP2"></label>
 <button id="trade-draw" type="button">رسم روی نمودار</button>
+<button id="auto-analysis" type="button">تحلیل خودکار لی‌لی</button>
 <button id="trade-clear" type="button">پاک کردن خطوط</button>
 </div>
 <div id="rr-summary" style="margin:8px 0;padding:10px;border:1px solid #334155;border-radius:8px;color:#d1d5db">نسبت ریسک به سود پس از واردکردن ورود، حد ضرر و اهداف نمایش داده می‌شود.</div>
@@ -52,6 +53,7 @@ const candleSeries=priceChart.addCandlestickSeries({upColor:'#22c55e',downColor:
 const sma7=priceChart.addLineSeries({color:'#f59e0b',lineWidth:2,title:'SMA 7'});
 const sma25=priceChart.addLineSeries({color:'#60a5fa',lineWidth:2,title:'SMA 25'});
 const tradeLines=[];
+let currentCandles=[];
 function clearTradeLines(){tradeLines.forEach(line=>candleSeries.removePriceLine(line));tradeLines.length=0;}
 function updateRiskReward(){
  const e=Number($('trade-entry').value),s=Number($('trade-sl').value),t1=Number($('trade-tp1').value),t2=Number($('trade-tp2').value),side=$('trade-side').value;
@@ -102,6 +104,44 @@ function drawTradeLines(){
 $('trade-draw').addEventListener('click',drawTradeLines);
 $('trade-clear').addEventListener('click',()=>{clearTradeLines();$('status').textContent='خطوط پاک شدند.';});
 
+
+// تحلیل خودکار ساده و قابل توضیح بر پایه SMA و RSI؛ بدون سفارش واقعی
+function autoAnalysis(){
+ const candles=currentCandles;
+ if(candles.length<30){$('status').textContent='برای تحلیل خودکار حداقل ۳۰ کندل لازم است.';return;}
+ const closes=candles.map(c=>c.close), fast=sma(closes,7), slow=sma(closes,25), rsi=calcRsi(closes,14);
+ const last=candles[candles.length-1], f=fast[fast.length-1], m=slow[slow.length-1], rv=rsi[rsi.length-1];
+ if(![last.close,f,m,rv].every(Number.isFinite)){$('status').textContent='داده کافی برای تحلیل معتبر نیست.';return;}
+ let side=null,reason='';
+ if(f>m && rv>=50 && rv<70){side='long';reason='SMA7 بالاتر از SMA25 است و RSI بالای ۵۰، مومنتوم صعودی را تأیید می‌کند.';}
+ else if(f<m && rv<=50 && rv>30){side='short';reason='SMA7 پایین‌تر از SMA25 است و RSI زیر ۵۰، مومنتوم نزولی را تأیید می‌کند.';}
+ if(!side){
+  $('levels-note').textContent='تحلیل لی‌لی: فعلاً سیگنال روشن نیست؛ از ورود فرضی خودداری کن. SMA7: '+f.toLocaleString('fa-IR')+' | SMA25: '+m.toLocaleString('fa-IR')+' | RSI: '+rv.toFixed(1);
+  $('status').textContent='تحلیل انجام شد؛ سیگنال روشن نیست و خطوط ورود/حدضرر/هدف ساخته نشد.';
+  return;
+ }
+ const recent=candles.slice(-20);
+ const swingLow=Math.min(...recent.map(c=>c.low)), swingHigh=Math.max(...recent.map(c=>c.high));
+ const entry=last.close;
+ let sl=side==='long'?swingLow:swingHigh;
+ // جلوگیری از حدضرر خیلی نزدیک یا هم‌قیمت
+ if(side==='long' && sl>=entry) sl=entry-(entry*0.005);
+ if(side==='short' && sl<=entry) sl=entry+(entry*0.005);
+ const risk=Math.abs(entry-sl);
+ if(!Number.isFinite(risk)||risk<=0){$('status').textContent='محاسبه حد ضرر خودکار ممکن نشد.';return;}
+ const tp1=side==='long'?entry+risk:entry-risk;
+ const tp2=side==='long'?entry+2*risk:entry-2*risk;
+ $('trade-side').value=side;
+ $('trade-entry').value=entry.toFixed(8);
+ $('trade-sl').value=sl.toFixed(8);
+ $('trade-tp1').value=tp1.toFixed(8);
+ $('trade-tp2').value=tp2.toFixed(8);
+ updateRiskReward();drawTradeLines();
+ $('levels-note').textContent='تحلیل خودکار لی‌لی: '+(side==='long'?'سناریوی صعودی (Long)':'سناریوی نزولی (Short)')+' — '+reason+' حدضرر بر اساس سقف/کف ۲۰ کندل اخیر و اهداف بر مبنای ۱R و ۲R محاسبه شده‌اند. این فقط سناریوی آموزشی است، نه توصیه معامله.';
+ $('status').textContent='تحلیل خودکار روی نمودار رسم شد؛ این سیگنال تضمین‌شده نیست.';
+}
+$('auto-analysis').addEventListener('click',autoAnalysis);
+
 const rsiChart=LightweightCharts.createChart($('rsi-chart'),{...common,height:160,timeScale:{visible:false},rightPriceScale:{borderColor:'#334155',scaleMargins:{top:.1,bottom:.1}}});
 const rsiSeries=rsiChart.addLineSeries({color:'#c084fc',lineWidth:2,title:'RSI 14'});
 function sma(vals,n){return vals.map((_,i)=>i+1<n?null:vals.slice(i-n+1,i+1).reduce((a,b)=>a+b,0)/n)}
@@ -116,6 +156,7 @@ const response=await fetch(url,{cache:'no-store'});
 if(!response.ok)throw new Error('HTTP '+response.status);
 const data=await response.json();if(data.s!=='ok'||!Array.isArray(data.t)||!data.t.length)throw new Error(data.errmsg||data.s||'داده‌ای پیدا نشد');
 const candles=data.t.map((t,i)=>({time:Number(t),open:Number(data.o[i]),high:Number(data.h[i]),low:Number(data.l[i]),close:Number(data.c[i])}));
+currentCandles=candles;
 if(candles.some(c=>![c.time,c.open,c.high,c.low,c.close].every(Number.isFinite)))throw new Error('داده نامعتبر است');
 candleSeries.setData(candles);
 const closes=candles.map(c=>c.close);

@@ -29,6 +29,8 @@ button{cursor:pointer;background:#14532d;border-color:#166534}
 <button id="load">بارگذاری نمودار</button>
 </div>
 <div id="status">در حال آماده‌سازی نمودار…</div>
+<div id="market-snapshot" style="margin:10px 0;padding:12px;border:1px solid #475569;border-radius:10px;background:#111827;line-height:1.9">آخرین قیمت و زمان کندل پس از بارگذاری نمایش داده می‌شود.</div>
+<div id="analysis-values" style="margin:10px 0;padding:12px;border:1px solid #475569;border-radius:10px;background:#111827;line-height:1.9">مقادیر ورود، حد ضرر و اهداف تحلیل در این قسمت نمایش داده می‌شوند.</div>
 <div id="levels-panel" style="display:flex;flex-wrap:wrap;gap:8px;margin:12px 0;padding:10px;border:1px solid #334155;border-radius:8px">
 <label>نوع سناریو <select id="trade-side"><option value="long">صعودی (Long)</option><option value="short">نزولی (Short)</option></select></label>
 <label>ورود <input id="trade-entry" type="number" step="any" placeholder="Entry"></label>
@@ -101,17 +103,29 @@ function drawTradeLines(){
   tradeLines.push(line);
  });
  $('status').textContent='Entry، SL و TP روی نمودار مشخص شدند (صرفاً آموزشی).';
+ showTradeValues('سطوح دستی');
 }
 $('trade-draw').addEventListener('click',drawTradeLines);
 $('trade-clear').addEventListener('click',()=>{clearTradeLines();$('status').textContent='خطوط پاک شدند.';});
 
 
+// نمایش قیمت و مقادیر به‌صورت خوانا؛ برای اهدافی که ممکن است خارج از محدوده نمودار باشند
+function showTradeValues(source){
+ const fmt=v=>Number.isFinite(Number(v))?Number(v).toLocaleString('fa-IR',{maximumFractionDigits:8}):'—';
+ const e=Number($('trade-entry').value),s=Number($('trade-sl').value),t1=Number($('trade-tp1').value),t2=Number($('trade-tp2').value);
+ $('analysis-values').innerHTML='<b>'+source+'</b><br>سناریو: '+($('trade-side').value==='long'?'صعودی (Long)':'نزولی (Short)')+'<br>Entry: '+fmt(e)+' | SL: '+fmt(s)+'<br>TP1: '+fmt(t1)+' | TP2: '+fmt(t2);
+ if(currentCandles.length){const last=currentCandles[currentCandles.length-1];const diff=Math.abs(e-last.close)/last.close*100;
+ const warning=Number.isFinite(e)&&last.close>0&&diff>1?'⚠️ هشدار: ورود فرضی '+diff.toFixed(2)+'٪ با آخرین قیمت کندل اختلاف دارد. قبل از هر استفاده، نمودار را تازه‌سازی و مقادیر را بررسی کن.':'';
+ $('analysis-values').innerHTML+= '<br>آخرین قیمت کندل: '+fmt(last.close)+'<br>'+warning;
+ }
+}
 // تحلیل خودکار ساده و قابل توضیح بر پایه SMA و RSI؛ بدون سفارش واقعی
 function autoAnalysis(){
  const candles=currentCandles;
  if(candles.length<30){$('status').textContent='برای تحلیل خودکار حداقل ۳۰ کندل لازم است.';return;}
  const closes=candles.map(c=>c.close), fast=sma(closes,7), slow=sma(closes,25), rsi=calcRsi(closes,14);
  const last=candles[candles.length-1], f=fast[fast.length-1], m=slow[slow.length-1], rv=rsi[rsi.length-1];
+ $('market-snapshot').innerHTML='<b>آخرین کندل</b><br>قیمت بسته‌شدن: '+last.close.toLocaleString('fa-IR',{maximumFractionDigits:8})+'<br>زمان کندل: '+new Date(last.time*1000).toLocaleString('fa-IR')+'<br>زمان اجرای تحلیل: '+new Date().toLocaleString('fa-IR');
  if(![last.close,f,m,rv].every(Number.isFinite)){$('status').textContent='داده کافی برای تحلیل معتبر نیست.';return;}
  let side=null,reason='';
  if(f>m && rv>=50 && rv<70){side='long';reason='SMA7 بالاتر از SMA25 است و RSI بالای ۵۰، مومنتوم صعودی را تأیید می‌کند.';}
@@ -137,7 +151,9 @@ function autoAnalysis(){
  $('trade-sl').value=sl.toFixed(8);
  $('trade-tp1').value=tp1.toFixed(8);
  $('trade-tp2').value=tp2.toFixed(8);
- updateRiskReward();drawTradeLines();
+ updateRiskReward();drawTradeLines();showTradeValues('تحلیل خودکار لی‌لی');
+ const priceGap=Math.abs(entry-last.close)/last.close*100;
+ if(priceGap>1){$('status').textContent='هشدار: قیمت ورود بیش از '+priceGap.toFixed(2)+'٪ با آخرین قیمت کندل اختلاف دارد؛ مقادیر را بررسی کن.';}
  $('levels-note').textContent='تحلیل خودکار لی‌لی: '+(side==='long'?'سناریوی صعودی (Long)':'سناریوی نزولی (Short)')+' — '+reason+' حدضرر بر اساس سقف/کف ۲۰ کندل اخیر و اهداف بر مبنای ۱R و ۲R محاسبه شده‌اند. این فقط سناریوی آموزشی است، نه توصیه معامله.';
  $('status').textContent='تحلیل خودکار روی نمودار رسم شد؛ این سیگنال تضمین‌شده نیست.';
 }
@@ -158,6 +174,8 @@ if(!response.ok)throw new Error('HTTP '+response.status);
 const data=await response.json();if(data.s!=='ok'||!Array.isArray(data.t)||!data.t.length)throw new Error(data.errmsg||data.s||'داده‌ای پیدا نشد');
 const candles=data.t.map((t,i)=>({time:Number(t),open:Number(data.o[i]),high:Number(data.h[i]),low:Number(data.l[i]),close:Number(data.c[i])}));
 currentCandles=candles;
+const latest=candles[candles.length-1];
+$('market-snapshot').innerHTML='<b>آخرین کندل بارگذاری‌شده</b><br>قیمت بسته‌شدن: '+latest.close.toLocaleString('fa-IR',{maximumFractionDigits:8})+'<br>زمان کندل: '+new Date(latest.time*1000).toLocaleString('fa-IR')+'<br>زمان دریافت داده: '+new Date().toLocaleString('fa-IR');
 if(candles.some(c=>![c.time,c.open,c.high,c.low,c.close].every(Number.isFinite)))throw new Error('داده نامعتبر است');
 candleSeries.setData(candles);
 const closes=candles.map(c=>c.close);

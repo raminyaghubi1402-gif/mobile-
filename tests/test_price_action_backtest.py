@@ -123,6 +123,23 @@ class ThreeTimeframeBacktestTests(unittest.TestCase):
         self.assertAlmostEqual(trade.exit_price, 101.0)
         self.assertAlmostEqual(trade.fees, 25.125)
         self.assertAlmostEqual(trade.net_pnl, 99.875)
+    def test_does_not_reenter_same_continuous_ready_setup_after_stop(self):
+        def flat_bars(count, seconds):
+            return [Bar(i * seconds, 100.0, 101.0, 99.0, 100.0)
+                    for i in range(count)]
+
+        trend = SimpleNamespace(direction="up",
+            last_two_swing_highs=(110.0, 115.0),
+            last_two_swing_lows=(90.0, 95.0))
+        five = flat_bars(125, 300)
+        five[120] = Bar(120 * 300, 100.0, 101.0, 95.0, 100.0)
+        with patch("lili_trader.price_action_backtest.classify_price_action_trend",
+                   return_value=trend):
+            result = run_three_timeframe_backtest(
+                flat_bars(80, 3600), flat_bars(220, 900), five,
+                starting_cash=100_000, slippage_rate=0.0)
+        self.assertEqual(result.trade_count, 1)
+        self.assertEqual(result.trades[0].exit_reason, "stop_loss_entry_bar")
     def test_downtrend_can_only_create_sell_positions(self):
         hourly = falling_bars(80, 3600, 0)
         fifteen = falling_bars(220, 900, 0)

@@ -29,7 +29,16 @@ button{cursor:pointer;background:#14532d;border-color:#166534}
 <button id="load">بارگذاری نمودار</button>
 </div>
 <div id="status">در حال آماده‌سازی نمودار…</div>
-<div id="levels-note">سطوح ورود و حد ضرر/حد سود در نسخه بعد اضافه می‌شوند.</div>
+<div id="levels-panel" style="display:flex;flex-wrap:wrap;gap:8px;margin:12px 0;padding:10px;border:1px solid #334155;border-radius:8px">
+<label>نوع سناریو <select id="trade-side"><option value="long">صعودی (Long)</option><option value="short">نزولی (Short)</option></select></label>
+<label>ورود <input id="trade-entry" type="number" step="any" placeholder="Entry"></label>
+<label>حد ضرر <input id="trade-sl" type="number" step="any" placeholder="SL"></label>
+<label>هدف اول <input id="trade-tp1" type="number" step="any" placeholder="TP1"></label>
+<label>هدف دوم <input id="trade-tp2" type="number" step="any" placeholder="TP2"></label>
+<button id="trade-draw" type="button">رسم روی نمودار</button>
+<button id="trade-clear" type="button">پاک کردن خطوط</button>
+</div>
+<div id="levels-note">این سطوح دستی و آموزشی هستند؛ معامله واقعی اجرا نمی‌شود.</div>
 <div id="price-chart" class="chart"></div>
 <div id="rsi-chart" class="chart" style="height:160px;margin-top:10px"></div>
 <div class="note">توجه: این نمودار از API عمومی نوبیتکس استفاده می‌کند. دسترسی شبکه و محدودیت‌های منطقه‌ای ممکن است مانع بارگذاری شود. اعداد و اندیکاتورها برای آموزش‌اند و توصیه خرید یا فروش نیستند. اگر داده دریافت نشد، اتصال اینترنت یا دسترسی API را بررسی کنید.</div>

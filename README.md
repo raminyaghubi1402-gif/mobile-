@@ -24,6 +24,14 @@
 - `--resolution`: بازهٔ کندل؛ نمونه `60` یعنی ۶۰ دقیقه.
 - `--count`: تعداد کندل، از ۱ تا ۵۰۰.
 
+## شبیه‌سازی اهرمی و کنترل ریسک
+- شبیه‌ساز اهرمی لانگ/شورت در `src/lili_trader/leverage_paper.py` فقط محاسبات آموزشی انجام می‌دهد.
+- `src/lili_trader/leverage_guard.py` پیش از ساخت موقعیت فرضی، دروازهٔ ریسک را روی ارزش کل موقعیت اهرمی (وثیقه × اهرم) اجرا می‌کند.
+- آزمون‌های این محافظ در `tests/test_leverage_guard.py` قرار دارد.
+- سقف اهرم شبیه‌ساز ۳ برابر است؛ قیمت لیکوییدیشن تخمینی است و فرمول رسمی صرافی محسوب نمی‌شود.
+- هیچ سفارش واقعی، اتصال حساب، برداشت یا انتقال وجهی انجام نمی‌شود.
+- جزئیات و محدودیت‌ها: [راهنمای فارسی شبیه‌سازی اهرمی](docs/LEVERAGE_PAPER_FA.md).
+
 ## اجرا و تست
     python -m unittest discover -s tests -v
     PYTHONPATH=src python -m lili_trader
@@ -49,10 +57,10 @@ https://github.com/raminyaghubi1402-gif/mobile-/actions
 - `src/lili_trader/nobitex_report.py`: گزارش فارسی
 - `src/lili_trader/indicators.py`: SMA، EMA و RSI
 - `src/lili_trader/analysis.py`: تحلیل کندل
+- `src/lili_trader/leverage_guard.py`: کنترل ریسک پیش از شبیه‌سازی اهرمی
 - `tests/`: آزمون‌های خودکار
 - `.github/workflows/ci.yml`: تست GitHub Actions
 - `docs/ROADMAP_FA.md`: نقشه‌راه فارسی
-
 
 ## سطوح ورود، حد ضرر و حد سود روی نمودار
 

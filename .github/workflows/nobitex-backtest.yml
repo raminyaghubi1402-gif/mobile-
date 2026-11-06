@@ -14,6 +14,10 @@ permissions:
 jobs:
   historical-backtest:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        symbol: [BTCIRT, ETHIRT]
     timeout-minutes: 5
     steps:
       - name: Checkout repository
@@ -26,12 +30,12 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          PYTHONPATH=src python -m lili_trader --price-action-backtest --symbol BTCIRT --count 500 2>&1 | tee nobitex-backtest-report.txt
+          PYTHONPATH=src python -m lili_trader --price-action-backtest --symbol ${{ matrix.symbol }} --count 500 2>&1 | tee nobitex-backtest-report.txt
       - name: Save report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: lili-nobitex-price-action-backtest
+          name: lili-${{ matrix.symbol }}-price-action-backtest
           path: nobitex-backtest-report.txt
           if-no-files-found: ignore
           retention-days: 7

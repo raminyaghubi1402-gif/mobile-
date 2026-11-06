@@ -201,7 +201,7 @@ def update_partial_exit(
         total_gross = realized + rem_pnl
         total_fees = fees + new_entry_fee + rem_fee
         closed = PartialExitState(
-            original_position=p, stop=stop_update.state, remaining_quantity=0.0,
+            original_position=p, stop=stop_update.state, stages=state.stages, remaining_quantity=0.0,
             remaining_collateral=0.0, remaining_entry_fee=0.0,
             realized_gross_pnl=total_gross, exit_fees_paid=fees + rem_fee,
             completed_stages=tuple(completed), status="closed",

@@ -3,7 +3,7 @@ import unittest
 from lili_trader.leverage_paper import open_isolated_position
 from lili_trader.managed_leverage import open_managed_leverage_paper_position
 from lili_trader.partial_leverage import (
-    PartialExitError, start_partial_exit_plan, update_partial_exit,
+    PartialExitError, TakeProfitStage, start_partial_exit_plan, update_partial_exit,
 )
 
 CANDLES = [
@@ -67,8 +67,8 @@ class PartialLeverageTests(unittest.TestCase):
         with self.assertRaises(PartialExitError):
             start_partial_exit_plan(
                 managed(), stages=(
-                    __import__("lili_trader.partial_leverage", fromlist=["TakeProfitStage"]).TakeProfitStage(1, .6),
-                    __import__("lili_trader.partial_leverage", fromlist=["TakeProfitStage"]).TakeProfitStage(2, .5),
+                    TakeProfitStage(1, .6),
+                    TakeProfitStage(2, .5),
                 ),
             )
 

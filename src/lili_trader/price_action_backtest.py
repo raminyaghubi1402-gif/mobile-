@@ -238,7 +238,7 @@ def run_three_timeframe_backtest(
                 )
                 f_trend = classify_price_action_trend(closed_five)
                 decision = evaluate_timeframe_gate(h_trend, m_trend, f_trend,
-                                                   closed_fifteen[-1]["close"])
+                                                   fifteen[fifteen_closed_count - 1]["close"])
                 gate_status = decision.status
             except (ValueError, TypeError, OverflowError):
                 gate_status = "invalid_data"

@@ -320,7 +320,7 @@ async function refreshMtfAnalysis(symbol){
     ['M',aggregateDaily(daily,'M')]
    ];
    for(const [key,bars] of derived){
-    const closed=key==='D'?bars:bars.filter(c=>c.time+(key==='W'?604800:2678400)<=Math.floor(Date.now()/1000));
+    const closed=getClosedCandles(bars,key);
     const minimum=key==='M'?6:key==='W'?12:20;
     if(closed.length>=minimum){
      nextCandles[key]=closed;nextZones[key]=findZones(closed);

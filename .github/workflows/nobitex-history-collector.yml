@@ -42,5 +42,7 @@ jobs:
             echo "No new candles to store."
           else
             git commit -m "data: collect public Nobitex candle history"
+            # Other source commits may land while the public-data job is running.
+            git pull --rebase origin main
             git push
           fi

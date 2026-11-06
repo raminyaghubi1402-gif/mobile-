@@ -100,7 +100,7 @@ def run_sma_backtest(
         exit_fee = fill * qty * fee_rate
         gross = (fill - entry) * qty
         net = gross - entry_fee - exit_fee
-        cash += gross - exit_fee
+        cash += fill * qty - exit_fee
         trades.append(BacktestTrade(
             entry_timestamp=entry[0], exit_timestamp=ts,
             entry_price=entry[1], exit_price=fill, quantity=qty,
@@ -139,7 +139,7 @@ def run_sma_backtest(
             qty = min(qty, cash / (entry_fill * (1 + fee_rate)))
             entry_fee = entry_fill * qty * fee_rate
             if qty > 0 and isfinite(qty):
-                cash -= entry_fee
+                cash -= entry_fill * qty + entry_fee
                 position = ((ts, entry_fill), qty, entry_fee, stop, target)
                 # Conservative intrabar check also applies to the entry candle.
                 if low <= stop:

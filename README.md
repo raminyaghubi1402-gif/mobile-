@@ -18,6 +18,7 @@
     PYTHONPATH=src python -m lili_trader --nobitex
     PYTHONPATH=src python -m lili_trader --nobitex --symbol BTCIRT --resolution 60 --count 100
     PYTHONPATH=src python -m lili_trader --nobitex --symbol ETHIRT --resolution 240 --count 100
+    PYTHONPATH=src python -m lili_trader --backtest --symbol BTCIRT --resolution 60 --count 500
 
 پارامترها:
 - `--symbol`: نماد بازار نوبیتکس، مثل `BTCIRT` یا `ETHIRT`؛ باید در بازار نوبیتکس موجود باشد.

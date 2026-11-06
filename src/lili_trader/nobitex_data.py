@@ -41,8 +41,27 @@ class NobitexAdapter:
         self.timeout_seconds = timeout_seconds
         self.opener = opener
 
+    def fetch_history(self, symbol: str = "BTCIRT", resolution: str = "60",
+                      count: int = 2000) -> list[NobitexCandle]:
+        """Fetch up to 5,000 recent candles using Nobitex's 500-bar pages."""
+        if not isinstance(count, int) or not 1 <= count <= 5000:
+            raise ValueError("count must be between 1 and 5000")
+        collected: dict[int, NobitexCandle] = {}
+        page_count = (count + 499) // 500
+        for page in range(1, page_count + 1):
+            batch = self.fetch_recent(
+                symbol, resolution, min(500, count - len(collected)), page=page
+            )
+            if not batch:
+                break
+            for candle in batch:
+                collected[candle.timestamp] = candle
+            if len(batch) < 500:
+                break
+        return sorted(collected.values(), key=lambda item: item.timestamp)[-count:]
+
     def fetch_recent(self, symbol: str = "BTCIRT", resolution: str = "60",
-                     count: int = 100) -> list[NobitexCandle]:
+                     count: int = 100, *, page: int = 1) -> list[NobitexCandle]:
         symbol = symbol.strip().upper()
         if not symbol or not symbol.isalnum():
             raise ValueError("symbol must contain only letters and numbers")
@@ -50,10 +69,12 @@ class NobitexAdapter:
             raise ValueError("unsupported Nobitex resolution")
         if not isinstance(count, int) or not 1 <= count <= 500:
             raise ValueError("count must be between 1 and 500")
+        if not isinstance(page, int) or page < 1:
+            raise ValueError("page must be a positive integer")
 
         now = int(time.time())
         url = (f"{self.BASE_URL}?symbol={symbol}&resolution={resolution}"
-               f"&to={now}&countback={count}")
+               f"&to={now}&countback={count}&page={page}")
         request = Request(url, headers={"User-Agent": "LiLiTrader/0.2"})
         try:
             with self.opener(request, timeout=self.timeout_seconds) as response:
@@ -65,6 +86,8 @@ class NobitexAdapter:
 
         if not isinstance(payload, dict):
             raise NobitexDataError("unexpected Nobitex response")
+        if payload.get("s") == "no_data":
+            return []
         if payload.get("s") != "ok":
             raise NobitexDataError(f"Nobitex history status: {payload.get('s', 'unknown')}")
 

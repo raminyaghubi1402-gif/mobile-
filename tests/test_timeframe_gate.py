@@ -40,7 +40,20 @@ class TimeframeGateTests(unittest.TestCase):
         self.assertFalse(result.allowed)
 
     def test_missing_15m_close_fails_closed(self):
-        result = evaluate_timeframe_gate(self.up, self.up, self.up, None)
+        for invalid in (None, float("nan"), float("inf"), 0, "not-a-price"):
+            result = evaluate_timeframe_gate(self.up, self.up, self.up, invalid)
+            self.assertFalse(result.allowed)
+
+    def test_missing_hourly_structural_lows_fails_closed(self):
+        malformed = state("up", lows=None)
+        result = evaluate_timeframe_gate(malformed, self.up, self.up, 105)
+        self.assertEqual(result.status, "blocked")
+        self.assertFalse(result.allowed)
+
+    def test_missing_hourly_structural_highs_fails_closed(self):
+        malformed = state("down", highs=None, lows=(90.0, 80.0))
+        result = evaluate_timeframe_gate(malformed, self.down, self.down, 85)
+        self.assertEqual(result.status, "blocked")
         self.assertFalse(result.allowed)
 
 

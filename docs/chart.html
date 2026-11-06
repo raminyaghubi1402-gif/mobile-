@@ -58,6 +58,8 @@ const sma25=priceChart.addLineSeries({color:'#60a5fa',lineWidth:2,title:'SMA 25'
 const tradeLines=[];
 let currentCandles=[];
 let mtfZones={};
+let mtfCandles={};
+let zoneLines=[];
 let mtfReady=false;
 const mtfOrder=[["M","ماهانه"],["W","هفتگی"],["D","روزانه"],["240","۴ ساعته"],["60","۱ ساعته"],["15","۱۵ دقیقه"],["5","۵ دقیقه"]];
 function clearTradeLines(){tradeLines.forEach(line=>candleSeries.removePriceLine(line));tradeLines.length=0;}
@@ -169,7 +171,7 @@ function autoAnalysis(){
  const entry=last.close,risk=atrValue*2;
  if(!Number.isFinite(risk)||risk<=0||risk/entry*100>5){clearTradeLines();$('status').textContent='فاصله حدضرر ATR بیش از حد مجاز است؛ ورود متوقف شد.';return;}
  const danger=opposingZoneWarning(side,entry,risk);
- if(danger){clearTradeLines();$('levels-note').textContent='ورود متوقف شد: '+danger+' — لی‌لی منتظر فاصله‌گرفتن قیمت یا شکست و بازآزمایی تأییدشده می‌ماند.';$('status').textContent='⚠️ خطر برخورد با ناحیه مخالف؛ سناریوی ورود ساخته نشد.';return;}
+ if(danger){clearTradeLines();$('levels-note').textContent='ورود متوقف شد: '+danger+' — تا دورشدن قیمت از ناحیه یا تأیید شکست و بازآزمایی با کندل‌های بسته‌شده، سناریو ساخته نمی‌شود.';$('status').textContent='⚠️ خطر برخورد با ناحیه مخالف؛ سناریوی ورود ساخته نشد.';return;}
  const sl=side==='long'?entry-risk:entry+risk;
  const tp1=side==='long'?entry+risk:entry-risk;
  const tp2=side==='long'?entry+2*risk:entry-2*risk;
@@ -258,33 +260,56 @@ async function refreshMtfAnalysis(symbol){
    ['15',fetchCandles(symbol,'15',500)],['5',fetchCandles(symbol,'5',500)]
   ];
   const values=await Promise.all(jobs.map(async([key,promise])=>[key,await promise]));
-  const next={};
+  const next={},nextCandles={};
   for(const [key,bars] of values){
    const closed=getClosedCandles(bars,key);
    const minimum=key==='M'?12:20;
    if(closed.length<minimum)throw new Error('داده بسته‌شده کافی برای '+key+' وجود ندارد ('+closed.length+' کندل)');
-   next[key]=findZones(closed);
+   next[key]=findZones(closed);nextCandles[key]=closed;
   }
-  mtfZones=next;mtfReady=true;renderMtfTable();
+  mtfZones=next;mtfCandles=nextCandles;mtfReady=true;renderMtfTable();drawSelectedZones();
   $('mtf-status').textContent='هر ۷ تایم‌فریم بررسی شد. زمان به‌روزرسانی: '+new Date().toLocaleTimeString('fa-IR')+' — داده ناقص یا قدیمی باعث توقف تحلیل ورود می‌شود.';
  }catch(error){
-  mtfReady=false;mtfZones={};$('mtf-status').textContent='⚠️ نقشه چندتایم‌فریمی کامل نیست: '+error.message+'؛ لی‌لی تا تکمیل داده‌ها سناریوی ورود خودکار نمی‌سازد.';
+  mtfReady=false;mtfZones={};mtfCandles={};drawSelectedZones();$('mtf-status').textContent='⚠️ نقشه چندتایم‌فریمی کامل نیست: '+error.message+'؛ لی‌لی تا تکمیل داده‌ها سناریوی ورود خودکار نمی‌سازد.';
+ }
+}
+function breakoutRetestConfirmed(bars,zone,side,atr){
+ if(!bars||bars.length<3)return false;
+ const a=bars[bars.length-3],b=bars[bars.length-2],last=bars[bars.length-1],buffer=Math.max((atr||0)*.2,zone.mid*.001);
+ if(side==='long')return a.low<=zone.upper+buffer&&a.close>=zone.upper&&b.close>zone.upper&&last.close>zone.upper;
+ return a.high>=zone.lower-buffer&&a.close<=zone.lower&&b.close<zone.lower&&last.close<zone.lower;
+}
+function drawSelectedZones(){
+ zoneLines.forEach(line=>candleSeries.removePriceLine(line));zoneLines=[];
+ if(!mtfReady)return;
+ const key=$('resolution').value,z=mtfZones[key];if(!z)return;
+ for(const zone of z.support.concat(z.resistance)){
+  const support=zone.kind==='support';
+  zoneLines.push(candleSeries.createPriceLine({price:zone.mid,color:support?'#22c55e':'#f97316',lineWidth:2,lineStyle:2,axisLabelVisible:true,title:(support?'حمایت ':'مقاومت ')+key+' ×'+zone.touches}));
  }
 }
 function opposingZoneWarning(side,entry,risk){
  if(!mtfReady)return 'داده هر ۷ تایم‌فریم کامل نیست.';
  const kind=side==='long'?'resistance':'support',hits=[];
  for(const [key,label] of mtfOrder){
-  const candidates=(mtfZones[key]?.[kind]||[]).filter(zone=>side==='long'?zone.upper>=entry:zone.lower<=entry);
-  if(!candidates.length)continue;
-  const zone=candidates.reduce((best,item)=>{
-   const d=item.mid-entry,bd=best.mid-entry;
-   return Math.abs(d)<Math.abs(bd)?item:best;
-  });
-  const distance=side==='long'?Math.max(0,zone.lower-entry):Math.max(0,entry-zone.upper);
-  if(distance<=risk*1.5){hits.push(label+' ('+formatPrice(zone.lower)+' تا '+formatPrice(zone.upper)+')');}
+  const list=mtfZones[key]?.[kind]||[];
+  if(!list.length&&['M','W','D','240'].includes(key)){hits.push(label+' (ناحیه مخالف قابل‌تأیید نیست)');continue;}
+  for(const zone of list){
+   const bars=mtfCandles[key]||[];
+   if(side==='long'&&zone.upper<entry){
+    if(!breakoutRetestConfirmed(bars,zone,side,mtfZones[key].atr))hits.push(label+' (شکست مقاومت هنوز با بازآزمایی تأیید نشده)');
+    continue;
+   }
+   if(side==='short'&&zone.lower>entry){
+    if(!breakoutRetestConfirmed(bars,zone,side,mtfZones[key].atr))hits.push(label+' (شکست حمایت هنوز با بازآزمایی تأیید نشده)');
+    continue;
+   }
+   const overlaps=zone.lower<=entry&&zone.upper>=entry;
+   const distance=side==='long'?zone.lower-entry:entry-zone.upper;
+   if(overlaps||distance>=0&&distance<=risk*1.5)hits.push(label+' ('+formatPrice(zone.lower)+' تا '+formatPrice(zone.upper)+')');
+  }
  }
- return hits.length?'نزدیک ناحیه مخالف در '+hits.join('، '):'';
+ return hits.length?'ریسک ناحیه مخالف/شکست تأییدنشده در '+hits.join('، '):'';
 }
 function rsiSeriesValue(values,period=14){
  const valuesOut=calcRsi(values,period);
@@ -301,7 +326,7 @@ async function load(){
 $('status').textContent='در حال دریافت داده از نوبیتکس…';
 try{
 const symbol=$('symbol').value,res=$('resolution').value,count=Number($('count').value);
-const raw=await fetchCandles(symbol,(res==='W'||res==='M')?'D':res,count);
+const raw=await fetchCandles(symbol,(res==='W'||res==='M')?'D':res,(res==='W'||res==='M')?500:count);
 const candles=(res==='W'||res==='M')?aggregateDaily(getClosedCandles(raw,'D'),res):raw;
 currentCandles=candles;
 const latest=candles[candles.length-1];

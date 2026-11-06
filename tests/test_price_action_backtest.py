@@ -1,6 +1,8 @@
 import unittest
 from dataclasses import dataclass
-from math import sin
+from math import sin, isfinite
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from lili_trader.price_action_backtest import run_three_timeframe_backtest
 
@@ -53,6 +55,22 @@ class ThreeTimeframeBacktestTests(unittest.TestCase):
         self.assertLessEqual(first.trade_count, len(five))
         self.assertGreaterEqual(first.ending_equity, 0)
 
+    def test_open_position_equity_mark_uses_remaining_quantity(self):
+        trend = SimpleNamespace(
+            direction="up",
+            last_two_swing_highs=(110.0, 115.0),
+            last_two_swing_lows=(90.0, 95.0),
+        )
+        with patch("lili_trader.price_action_backtest.classify_price_action_trend",
+                   return_value=trend):
+            result = run_three_timeframe_backtest(
+                rising_bars(80, 3600, 0),
+                rising_bars(220, 900, 0),
+                rising_bars(650, 300, 0),
+                starting_cash=100_000,
+            )
+        self.assertGreater(result.trade_count, 0)
+        self.assertTrue(all(isfinite(value) for value in result.equity_curve))
     def test_downtrend_can_only_create_sell_positions(self):
         hourly = falling_bars(80, 3600, 0)
         fifteen = falling_bars(220, 900, 0)

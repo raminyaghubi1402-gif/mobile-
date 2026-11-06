@@ -69,6 +69,27 @@ class NobitexPaginationTests(unittest.TestCase):
         self.assertEqual(len(timestamps), 501)
         self.assertEqual(timestamps, list(range(500, 1001)))
 
+    def test_fetch_history_continues_after_a_short_intermediate_page(self):
+        seen_pages = []
+
+        def opener(request, timeout):
+            query = parse_qs(urlparse(request.full_url).query)
+            page = int(query["page"][0])
+            seen_pages.append(page)
+            if page == 1:
+                return FakeResponse(payload(list(range(1001, 1501))))
+            if page == 2:
+                return FakeResponse(payload(list(range(830, 1001))))
+            return FakeResponse(payload(list(range(330, 830))))
+
+        candles = NobitexAdapter(opener=opener).fetch_history(
+            "BTCIRT", "15", 1500
+        )
+        self.assertEqual(seen_pages, [1, 2, 3])
+        self.assertEqual(len(candles), 1171)
+        self.assertEqual(candles[0].timestamp, 330)
+        self.assertEqual(candles[-1].timestamp, 1500)
+
     def test_fetch_history_stops_when_older_page_has_no_data(self):
         seen_pages = []
 

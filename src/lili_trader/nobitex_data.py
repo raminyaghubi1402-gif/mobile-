@@ -48,18 +48,27 @@ class NobitexAdapter:
             raise ValueError("count must be between 1 and 5000")
         collected: dict[int, NobitexCandle] = {}
         page_count = (count + 499) // 500
+        # Keep a single snapshot boundary across all pages so candles cannot
+        # shift between requests while the market is moving.
+        snapshot_to = int(time.time())
         for page in range(1, page_count + 1):
             batch = self.fetch_recent(
-                symbol, resolution, 500, page=page
+                symbol, resolution, 500, page=page, to_timestamp=snapshot_to
             )
             if not batch:
                 break
-            for candle in batch:
+            new_candles = [candle for candle in batch if candle.timestamp not in collected]
+            if not new_candles:
+                # Some upstream responses may ignore the page cursor. Stop
+                # rather than silently pretending repeated rows are history.
+                break
+            for candle in new_candles:
                 collected[candle.timestamp] = candle
         return sorted(collected.values(), key=lambda item: item.timestamp)[-count:]
 
     def fetch_recent(self, symbol: str = "BTCIRT", resolution: str = "60",
-                     count: int = 100, *, page: int = 1) -> list[NobitexCandle]:
+                     count: int = 100, *, page: int = 1,
+                     to_timestamp: int | None = None) -> list[NobitexCandle]:
         symbol = symbol.strip().upper()
         if not symbol or not symbol.isalnum():
             raise ValueError("symbol must contain only letters and numbers")
@@ -70,9 +79,12 @@ class NobitexAdapter:
         if not isinstance(page, int) or page < 1:
             raise ValueError("page must be a positive integer")
 
-        now = int(time.time())
+        if to_timestamp is None:
+            to_timestamp = int(time.time())
+        if not isinstance(to_timestamp, int) or to_timestamp <= 0:
+            raise ValueError("to_timestamp must be a positive Unix timestamp")
         url = (f"{self.BASE_URL}?symbol={symbol}&resolution={resolution}"
-               f"&to={now}&countback={count}&page={page}")
+               f"&to={to_timestamp}&countback={count}&page={page}")
         request = Request(url, headers={"User-Agent": "LiLiTrader/0.2"})
         try:
             with self.opener(request, timeout=self.timeout_seconds) as response:

@@ -145,6 +145,8 @@ def run_three_timeframe_backtest(
     max_drawdown = 0.0
     gate_counts: dict[str, int] = {}
     previous_gate_ready = False
+    hourly_closed_count = 0
+    fifteen_closed_count = 0
 
     def finish_position(bar: dict, raw_price: float, reason: str) -> None:
         nonlocal cash, position
@@ -212,17 +214,29 @@ def run_three_timeframe_backtest(
 
         signal_bar = five[i - 1]
         signal_close_time = signal_bar["timestamp"] + 300
-        closed_hourly = [c for c in hourly if c["timestamp"] + 3600 <= signal_close_time]
-        closed_fifteen = [c for c in fifteen if c["timestamp"] + 900 <= signal_close_time]
-        closed_five = five[:i]
+        # Advance closed-bar cursors instead of rescanning the entire history
+        # on every 5m iteration. This keeps long collected histories practical.
+        while (hourly_closed_count < len(hourly)
+               and hourly[hourly_closed_count]["timestamp"] + 3600 <= signal_close_time):
+            hourly_closed_count += 1
+        while (fifteen_closed_count < len(fifteen)
+               and fifteen[fifteen_closed_count]["timestamp"] + 900 <= signal_close_time):
+            fifteen_closed_count += 1
+        closed_five = five[max(0, i - trend_lookback):i]
 
         gate_status = "insufficient_data"
         decision = None
-        if len(closed_hourly) >= 10 and len(closed_fifteen) >= max(20, atr_period) and len(closed_five) >= 10:
+        if (hourly_closed_count >= 10
+                and fifteen_closed_count >= max(20, atr_period)
+                and len(closed_five) >= 10):
             try:
-                h_trend = classify_price_action_trend(closed_hourly[-trend_lookback:])
-                m_trend = classify_price_action_trend(closed_fifteen[-trend_lookback:])
-                f_trend = classify_price_action_trend(closed_five[-trend_lookback:])
+                h_trend = classify_price_action_trend(
+                    hourly[max(0, hourly_closed_count - trend_lookback):hourly_closed_count]
+                )
+                m_trend = classify_price_action_trend(
+                    fifteen[max(0, fifteen_closed_count - trend_lookback):fifteen_closed_count]
+                )
+                f_trend = classify_price_action_trend(closed_five)
                 decision = evaluate_timeframe_gate(h_trend, m_trend, f_trend,
                                                    closed_fifteen[-1]["close"])
                 gate_status = decision.status
@@ -237,7 +251,7 @@ def run_three_timeframe_backtest(
         # while the gate remains READY, do not immediately re-enter the same setup.
         if position is None and new_setup:
             try:
-                atr_value = _atr(closed_fifteen, atr_period)
+                atr_value = _atr(fifteen[:fifteen_closed_count], atr_period)
             except ValueError:
                 atr_value = 0.0
             if atr_value > 0 and cash > 0:

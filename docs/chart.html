@@ -45,7 +45,7 @@ button{cursor:pointer;background:#14532d;border-color:#166534}
 <div id="rr-summary" style="margin:8px 0;padding:10px;border:1px solid #334155;border-radius:8px;color:#d1d5db">نسبت ریسک به سود پس از واردکردن ورود، حد ضرر و اهداف نمایش داده می‌شود.</div>
 <div style="margin:14px 0;padding:12px;border:2px solid #22c55e;border-radius:12px;background:#10251b"><button id="auto-analysis" type="button" style="display:block;width:100%;min-height:54px;font-size:1.1rem;font-weight:bold;background:#15803d;border:2px solid #4ade80">🤖 تحلیل خودکار لی‌لی — رسم ورود، SL و TP</button><p style="margin:8px 0 0;color:#bbf7d0">برای تحلیل روند بازار و نمایش سناریوی فرضی روی نمودار، این دکمه را بزن.</p></div>
 <div id="levels-note">این سطوح دستی و آموزشی هستند؛ معامله واقعی اجرا نمی‌شود.</div>
-<div id="mtf-panel" style="margin:12px 0;padding:12px;border:1px solid #475569;border-radius:10px;background:#111827;line-height:1.9"><b>نقشه حمایت و مقاومت چندتایم‌فریمی</b><div id="mtf-status">در انتظار دریافت داده از ۷ تایم‌فریم…</div><div id="trend-status" style="margin-top:10px;padding:10px;border:1px solid #475569;border-radius:8px">تشخیص روند قیمتی بدون اندیکاتور در انتظار داده‌هاست.</div><div style="overflow-x:auto"><table id="trend-table" style="width:100%;border-collapse:collapse;font-size:.85rem"><thead><tr><th>تایم‌فریم</th><th>ساختار قیمت</th><th>مبنای تشخیص</th></tr></thead><tbody></tbody></table></div><div style="overflow-x:auto"><table id="mtf-table" style="width:100%;border-collapse:collapse;font-size:.85rem"><thead><tr><th>بازه</th><th>حمایت نزدیک</th><th>مقاومت نزدیک</th><th>وضعیت قیمت</th></tr></thead><tbody></tbody></table></div><p style="font-size:.78rem;color:#9ca3af">سطوح از پیوت‌های تأییدشده و برخوردهای تکراری ساخته می‌شوند. نزدیکی به ناحیه یعنی احتیاط، نه پیش‌بینی قطعی برگشت.</p></div><div id="price-chart" class="chart"></div>
+<div id="mtf-panel" style="margin:12px 0;padding:12px;border:1px solid #475569;border-radius:10px;background:#111827;line-height:1.9"><b>نقشه حمایت و مقاومت چندتایم‌فریمی</b><div id="mtf-status">در انتظار دریافت داده از ۷ تایم‌فریم…</div><div id="trend-status" style="margin-top:10px;padding:10px;border:1px solid #475569;border-radius:8px">تشخیص روند قیمتی بدون اندیکاتور در انتظار داده‌هاست.</div><div style="overflow-x:auto"><table id="trend-table" style="width:100%;border-collapse:collapse;font-size:.85rem"><thead><tr><th>تایم‌فریم</th><th>نقش در تصمیم</th><th>ساختار قیمت</th><th>مبنای تشخیص</th></tr></thead><tbody></tbody></table></div><div style="overflow-x:auto"><table id="mtf-table" style="width:100%;border-collapse:collapse;font-size:.85rem"><thead><tr><th>بازه</th><th>حمایت نزدیک</th><th>مقاومت نزدیک</th><th>وضعیت قیمت</th></tr></thead><tbody></tbody></table></div><p style="font-size:.78rem;color:#9ca3af">سطوح از پیوت‌های تأییدشده و برخوردهای تکراری ساخته می‌شوند. نزدیکی به ناحیه یعنی احتیاط، نه پیش‌بینی قطعی برگشت.</p></div><div id="price-chart" class="chart"></div>
 <div id="rsi-chart" class="chart" style="height:160px;margin-top:10px"></div>
 <div class="note">توجه: این نمودار از API عمومی نوبیتکس استفاده می‌کند. دسترسی شبکه و محدودیت‌های منطقه‌ای ممکن است مانع بارگذاری شود. اعداد و اندیکاتورها برای آموزش‌اند و توصیه خرید یا فروش نیستند. اگر داده دریافت نشد، اتصال اینترنت یا دسترسی API را بررسی کنید.</div>
 <script>
@@ -151,44 +151,39 @@ function getClosedCandles(bars,resolution=$('resolution').value){
  });
 }
 // تحلیل خودکار با SMA/RSI و حدضرر مبتنی بر ATR؛ بدون سفارش واقعی.
+// تحلیل سه‌تایم‌فریمی: ۱h جهت، ۱۵m ستاپ، ۵m ماشه؛ بدون سفارش واقعی.
 function autoAnalysis(){
- if(!mtfReady){$('status').textContent='تحلیل متوقف است: داده کامل هفت تایم‌فریم آماده نیست.';return;}
- const candles=getClosedCandles(currentCandles);
- if(candles.length<30){$('status').textContent='برای محاسبه حد ضرر و تحلیل حداقل ۳۰ کندل بسته‌شده لازم است.';return;}
- const last=candles[candles.length-1],closes=candles.map(c=>c.close);
- const fast=sma(closes,7),slow=sma(closes,25),rv=rsiSeriesValue(closes,14),atrValue=calculateAtr(candles,14);
- $('market-snapshot').innerHTML='<b>آخرین کندل بسته‌شده</b><br>قیمت بسته‌شدن: '+last.close.toLocaleString('fa-IR',{maximumFractionDigits:8})+'<br>زمان کندل: '+new Date(last.time*1000).toLocaleString('fa-IR')+'<br>زمان اجرای تحلیل: '+new Date().toLocaleString('fa-IR');
- if(![last.close,atrValue].every(Number.isFinite)||atrValue<=0){$('status').textContent='داده کافی یا معتبر برای محاسبه حد ضرر وجود ندارد.';return;}
- const trendList=mtfOrder.map(([key,label])=>({key,label,state:mtfTrends[key]}));
- const unknown=trendList.filter(x=>!x.state||x.state.direction==='unknown');
- const ranging=trendList.filter(x=>!x.state||x.state.direction==='range');
- const directions=new Set(trendList.filter(x=>x.state).map(x=>x.state.direction));
- if(unknown.length||ranging.length||directions.size!==1||directions.has('unknown')||directions.has('range')){
+ if(!mtfReady){$('status').textContent='تحلیل متوقف است: داده چندتایم‌فریمی کامل نیست.';return;}
+ const hourly=mtfCandles['60']||[],fifteen=mtfCandles['15']||[],five=mtfCandles['5']||[];
+ if(hourly.length<30||fifteen.length<30||five.length<30){$('status').textContent='برای تحلیل سه‌تایم‌فریمی، حداقل ۳۰ کندل بسته‌شده در هرکدام از ۱h، ۱۵m و ۵m لازم است.';return;}
+ const gate=evaluateTradeGate(),last=five[five.length-1],atrValue=calculateAtr(fifteen,14);
+ $('market-snapshot').innerHTML='<b>مبنای تحلیل</b><br>جهت اصلی: ۱ ساعت | ستاپ: ۱۵ دقیقه | ماشه: ۵ دقیقه<br>آخرین بسته‌شدن ۵ دقیقه: '+last.close.toLocaleString('fa-IR',{maximumFractionDigits:8})+'<br>زمان کندل: '+new Date(last.time*1000).toLocaleString('fa-IR')+'<br>زمان اجرای تحلیل: '+new Date().toLocaleString('fa-IR');
+ if(!gate.allowed){
   clearTradeLines();
-  const details=trendList.map(x=>x.label+': '+(x.state?x.state.label:'نامشخص')).join(' | ');
-  $('trend-status').textContent='⛔ ورود ممنوع؛ هر ۷ تایم‌فریم باید روند یکسان و تأییدشده داشته باشند. '+details;
-  $('levels-note').textContent='لی‌لی بازار را رنج، نامشخص یا چندجهته تشخیص داد. هیچ سناریوی خرید یا فروشی ساخته نشد.';
-  $('analysis-values').textContent='ورود مسدود شد: بازار رنج/نامشخص است یا تایم‌فریم‌ها هم‌جهت نیستند.';
-  $('status').textContent='فیلتر ساختار قیمت اجازه ورود نداد.';
+  $('trend-status').textContent='⛔ '+(gate.direction==='up'?'فقط BUY مجاز است':gate.direction==='down'?'فقط SELL مجاز است':'معامله ممنوع')+' — '+gate.reason;
+  $('levels-note').textContent='فعلاً ورود ساخته نشد: '+gate.reason;
+  $('analysis-values').textContent='سناریوی ورود ساخته نشد؛ لی‌لی منتظر تأیید ساختار قیمت می‌ماند.';
+  $('status').textContent='ورود انجام نشد: '+gate.reason;
   return;
  }
- const direction=[...directions][0],side=direction==='up'?'long':'short';
- const atrPct=atrValue/last.close*100;
- if(atrPct>5){clearTradeLines();$('levels-note').textContent='نوسان بازار بسیار بالاست (ATR حدود '+atrPct.toFixed(2)+'٪ قیمت). ورود متوقف شد.';$('status').textContent='به‌دلیل نوسان زیاد، سناریو ساخته نشد.';return;}
- const reason=direction==='up'?'ساختار سقف بالاتر (HH) و کف بالاتر (HL) در تمام هفت تایم‌فریم':'ساختار سقف پایین‌تر (LH) و کف پایین‌تر (LL) در تمام هفت تایم‌فریم';
- const entry=last.close,risk=atrValue*2;
- if(!Number.isFinite(risk)||risk<=0||risk/entry*100>5){clearTradeLines();$('status').textContent='فاصله حدضرر ATR بیش از حد مجاز است؛ ورود متوقف شد.';return;}
- const danger=opposingZoneWarning(side,entry,risk);
- if(danger){clearTradeLines();$('levels-note').textContent='ورود متوقف شد: '+danger+' — تا دورشدن قیمت یا تأیید شکست و بازآزمایی، سناریو ساخته نمی‌شود.';$('status').textContent='⚠️ خطر ناحیه مخالف؛ سناریوی ورود ساخته نشد.';return;}
+ const side=gate.direction==='up'?'long':'short',entry=last.close;
+ if(!Number.isFinite(atrValue)||atrValue<=0||!Number.isFinite(entry)||entry<=0){clearTradeLines();$('status').textContent='داده معتبر برای حد ضرر در دسترس نیست.';return;}
+ const atrPct=atrValue/entry*100;
+ if(atrPct>5){clearTradeLines();$('levels-note').textContent='نوسان ۱۵ دقیقه بسیار بالاست (ATR حدود '+atrPct.toFixed(2)+'٪ قیمت). ورود فرضی متوقف شد.';$('status').textContent='به‌دلیل نوسان زیاد، سناریو ساخته نشد.';return;}
+ const risk=atrValue*2;
+ if(!Number.isFinite(risk)||risk<=0||risk/entry*100>5){clearTradeLines();$('status').textContent='فاصله حد ضرر بر اساس ATR بیش از حد مجاز است؛ ورود متوقف شد.';return;}
+ const zoneAssessment=opposingZoneWarning(side,entry,risk);
+ if(zoneAssessment.block){clearTradeLines();$('levels-note').textContent='ورود متوقف شد: '+zoneAssessment.block;$('status').textContent='⚠️ خطر ناحیه نزدیک در تایم‌فریم معاملاتی؛ سناریو ساخته نشد.';return;}
  const sl=side==='long'?entry-risk:entry+risk;
  const tp1=side==='long'?entry+risk:entry-risk,tp2=side==='long'?entry+2*risk:entry-2*risk;
  $('trade-side').value=side;
  $('trade-entry').value=entry.toFixed(8);$('trade-sl').value=sl.toFixed(8);
  $('trade-tp1').value=tp1.toFixed(8);$('trade-tp2').value=tp2.toFixed(8);
- updateRiskReward();drawTradeLines();showTradeValues('تحلیل خودکار ساختار قیمت');
- $('levels-note').textContent='تحلیل لی‌لی: فقط سناریوی '+(side==='long'?'خرید (BUY)':'فروش (SELL)')+' مجاز است. '+reason+'. SMA و RSI در تعیین جهت دخالت ندارند؛ ATR فقط برای فاصله حد ضرر استفاده شده است. هیچ سفارشی ثبت نمی‌شود.';
- $('analysis-values').innerHTML+='<br>ساختار بازار: '+(direction==='up'?'صعودی':'نزولی')+' در ۷ تایم‌فریم<br>ATR(14) فقط برای فاصله SL: '+atrValue.toLocaleString('fa-IR',{maximumFractionDigits:8})+' ('+atrPct.toFixed(2)+'٪)';
- $('status').textContent='سناریوی هم‌جهت با روند روی نمودار رسم شد؛ فقط تحلیل آموزشی است.';
+ updateRiskReward();drawTradeLines();showTradeValues('تحلیل خودکار سه‌تایم‌فریمی');
+ const context=zoneAssessment.warnings.length?' هشدار زمینه‌ای تایم‌فریم بالاتر: '+zoneAssessment.warnings.join('؛ '):'';
+ $('levels-note').textContent='سناریوی فرضی '+(side==='long'?'خرید (BUY)':'فروش (SELL)')+'؛ ۱h جهت، ۱۵m ستاپ و ۵m ماشه را تأیید کرده‌اند. حد ضرر با ۲ برابر ATR تایم‌فریم ۱۵ دقیقه محاسبه شده است. '+context+' هیچ سفارشی ثبت نمی‌شود.';
+ $('analysis-values').innerHTML+='<br>جهت ۱h: '+(gate.direction==='up'?'صعودی':'نزولی')+'<br>ستاپ ۱۵m: تأیید شد<br>ماشه ۵m: تأیید شد<br>ATR(14) پانزده‌دقیقه فقط برای فاصله SL: '+atrValue.toLocaleString('fa-IR',{maximumFractionDigits:8})+' ('+atrPct.toFixed(2)+'٪)';
+ $('status').textContent='سناریوی فرضی هم‌جهت با روند رسم شد؛ فقط تحلیل آموزشی است.';
 }
 function aggregateDaily(daily,period){
  const groups=new Map();
@@ -240,33 +235,48 @@ function findZones(bars){
  return result;
 }
 function detectPriceActionTrend(bars,windowSize){
- if(!Array.isArray(bars)||bars.length<2*windowSize+5)return {direction:'unknown',label:'داده ناکافی',reason:'کندل کافی نیست'};
+ if(!Array.isArray(bars)||bars.length<2*windowSize+5)return {direction:'unknown',label:'داده ناکافی',reason:'کندل کافی نیست',last_two_swing_highs:null,last_two_swing_lows:null};
  const highs=[],lows=[];
  for(let i=windowSize;i<bars.length-windowSize;i++){
   const b=bars[i],neighbors=bars.slice(i-windowSize,i).concat(bars.slice(i+1,i+windowSize+1));
   if(neighbors.every(x=>b.high>x.high))highs.push(b.high);
   if(neighbors.every(x=>b.low<x.low))lows.push(b.low);
  }
- if(highs.length<2||lows.length<2)return {direction:'unknown',label:'داده ناکافی',reason:'دو سقف و دو کف تأییدشده لازم است'};
- const h1=highs[highs.length-2],h2=highs[highs.length-1],l1=lows[lows.length-2],l2=lows[lows.length-1];
- if(h2>h1&&l2>l1)return {direction:'up',label:'صعودی',reason:'HH + HL'};
- if(h2<h1&&l2<l1)return {direction:'down',label:'نزولی',reason:'LH + LL'};
- return {direction:'range',label:'رنج / تغییرساختار',reason:'سقف و کف هم‌جهت نیستند'};
+ if(highs.length<2||lows.length<2)return {direction:'unknown',label:'داده ناکافی',reason:'دو سقف و دو کف تأییدشده لازم است',last_two_swing_highs:highs.slice(-2),last_two_swing_lows:lows.slice(-2)};
+ const lastHighs=highs.slice(-2),lastLows=lows.slice(-2),h1=lastHighs[0],h2=lastHighs[1],l1=lastLows[0],l2=lastLows[1];
+ if(h2>h1&&l2>l1)return {direction:'up',label:'صعودی',reason:'HH + HL',last_two_swing_highs:lastHighs,last_two_swing_lows:lastLows};
+ if(h2<h1&&l2<l1)return {direction:'down',label:'نزولی',reason:'LH + LL',last_two_swing_highs:lastHighs,last_two_swing_lows:lastLows};
+ return {direction:'range',label:'رنج / تغییرساختار',reason:'سقف و کف هم‌جهت نیستند',last_two_swing_highs:lastHighs,last_two_swing_lows:lastLows};
+}
+function evaluateTradeGate(){
+ const hourly=mtfTrends['60'],fifteen=mtfTrends['15'],five=mtfTrends['5'];
+ if(!hourly||!['up','down'].includes(hourly.direction))return {status:'blocked',allowed:false,direction:null,reason:'روند ۱ ساعته رنج یا نامشخص است؛ معامله ممنوع.'};
+ if(!fifteen||!five)return {status:'wait',allowed:false,direction:hourly.direction,reason:'داده ۱۵ یا ۵ دقیقه کامل نیست.'};
+ const fifteenBars=mtfCandles['15']||[],last15=fifteenBars[fifteenBars.length-1];
+ if(!last15)return {status:'wait',allowed:false,direction:hourly.direction,reason:'کندل بسته‌شده ۱۵ دقیقه موجود نیست.'};
+ if(hourly.direction==='up'&&hourly.last_two_swing_lows?.length===2&&last15.close<hourly.last_two_swing_lows[1])
+  return {status:'invalidated',allowed:false,direction:hourly.direction,reason:'ساختار صعودی ۱ ساعته با بسته‌شدن ۱۵ دقیقه زیر آخرین کف تأییدشده شکسته است.'};
+ if(hourly.direction==='down'&&hourly.last_two_swing_highs?.length===2&&last15.close>hourly.last_two_swing_highs[1])
+  return {status:'invalidated',allowed:false,direction:hourly.direction,reason:'ساختار نزولی ۱ ساعته با بسته‌شدن ۱۵ دقیقه بالای آخرین سقف تأییدشده شکسته است.'};
+ const opposite=hourly.direction==='up'?'down':'up';
+ if(fifteen.direction===opposite)return {status:'pullback',allowed:false,direction:hourly.direction,reason:'اصلاح ۱۵ دقیقه خلاف روند اصلی است؛ لی‌لی صبر می‌کند و معامله خلاف‌روند نمی‌سازد.'};
+ if(fifteen.direction!==hourly.direction)return {status:'wait_setup',allowed:false,direction:hourly.direction,reason:'ساختار ۱۵ دقیقه هنوز ادامه روند اصلی را تأیید نکرده است.'};
+ if(five.direction!==hourly.direction)return {status:'wait_trigger',allowed:false,direction:hourly.direction,reason:'ساختار ۵ دقیقه هنوز ماشه ورود هم‌جهت را تأیید نکرده است.'};
+ return {status:'ready',allowed:true,direction:hourly.direction,reason:'۱ ساعت جهت را تأیید کرد؛ ۱۵ دقیقه ادامه روند و ۵ دقیقه ماشه ورود را تأیید کردند.'};
 }
 function renderTrendTable(){
  const tbody=$('trend-table').querySelector('tbody');tbody.innerHTML='';
- const rows=mtfOrder.map(([key,label])=>({key,label,state:mtfTrends[key]}));
- for(const row of rows){
-  const state=row.state||{label:'نامشخص',reason:'داده در دسترس نیست'};
+ const roles={M:'زمینه بلندمدت',W:'زمینه بلندمدت',D:'زمینه روزانه',240:'زمینه ۴ساعته',60:'جهت اصلی',15:'پایان اصلاح / ستاپ',5:'تأیید ورود'};
+ for(const [key,label] of mtfOrder){
+  const state=mtfTrends[key]||{label:'نامشخص',reason:'داده در دسترس نیست',direction:'unknown'};
   const color=state.direction==='up'?'#22c55e':state.direction==='down'?'#f97316':'#fbbf24';
   const tr=document.createElement('tr');
-  tr.innerHTML='<td style="padding:7px;border-top:1px solid #334155">'+row.label+'</td><td style="padding:7px;border-top:1px solid #334155;color:'+color+'">'+state.label+'</td><td style="padding:7px;border-top:1px solid #334155">'+state.reason+'</td>';
+  tr.innerHTML='<td style="padding:7px;border-top:1px solid #334155">'+label+'</td><td style="padding:7px;border-top:1px solid #334155">'+roles[key]+'</td><td style="padding:7px;border-top:1px solid #334155;color:'+color+'">'+state.label+'</td><td style="padding:7px;border-top:1px solid #334155">'+state.reason+'</td>';
   tbody.appendChild(tr);
  }
- const values=rows.map(x=>x.state?.direction).filter(Boolean),unique=new Set(values);
- $('trend-status').textContent=rows.length===7&&values.length===7&&unique.size===1&&!unique.has('range')&&!unique.has('unknown')
-  ?'روند هماهنگ در هر ۷ بازه: '+(unique.has('up')?'صعودی؛ فقط BUY مجاز است.':'نزولی؛ فقط SELL مجاز است.')
-  :'⛔ معامله ممنوع: بازار رنج/نامشخص است یا روند تایم‌فریم‌ها با هم اختلاف دارد.';
+ const gate=evaluateTradeGate();
+ const directionLabel=gate.direction==='up'?'صعودی؛ فقط BUY':gate.direction==='down'?'نزولی؛ فقط SELL':'نامشخص';
+ $('trend-status').textContent=(gate.allowed?'✅ ':'⏸️ ')+directionLabel+' — '+gate.reason;
 }
 function nearestMtfZone(zones,price,kind){
  const list=zones?.[kind]||[];
@@ -326,27 +336,26 @@ function drawSelectedZones(){
  }
 }
 function opposingZoneWarning(side,entry,risk){
- if(!mtfReady)return 'داده هر ۷ تایم‌فریم کامل نیست.';
- const kind=side==='long'?'resistance':'support',hits=[];
- for(const [key,label] of mtfOrder){
-  const list=mtfZones[key]?.[kind]||[];
-  if(!list.length&&['M','W','D','240'].includes(key)){hits.push(label+' (ناحیه مخالف قابل‌تأیید نیست)');continue;}
+ if(!mtfReady)return {block:'داده چندتایم‌فریمی کامل نیست.',warnings:[]};
+ const kind=side==='long'?'resistance':'support',hardKeys=['60','15','5'],contextKeys=['M','W','D','240'],hits=[],warnings=[];
+ for(const key of hardKeys.concat(contextKeys)){
+  const label=mtfOrder.find(x=>x[0]===key)?.[1]||key,list=mtfZones[key]?.[kind]||[];
   for(const zone of list){
    const bars=mtfCandles[key]||[];
    if(side==='long'&&zone.upper<entry){
-    if(!breakoutRetestConfirmed(bars,zone,side,mtfZones[key].atr))hits.push(label+' (شکست مقاومت هنوز با بازآزمایی تأیید نشده)');
+    if(!breakoutRetestConfirmed(bars,zone,side,mtfZones[key].atr))(hardKeys.includes(key)?hits:warnings).push(label+' (شکست مقاومت هنوز با بازآزمایی تأیید نشده)');
     continue;
    }
    if(side==='short'&&zone.lower>entry){
-    if(!breakoutRetestConfirmed(bars,zone,side,mtfZones[key].atr))hits.push(label+' (شکست حمایت هنوز با بازآزمایی تأیید نشده)');
+    if(!breakoutRetestConfirmed(bars,zone,side,mtfZones[key].atr))(hardKeys.includes(key)?hits:warnings).push(label+' (شکست حمایت هنوز با بازآزمایی تأیید نشده)');
     continue;
    }
    const overlaps=zone.lower<=entry&&zone.upper>=entry;
    const distance=side==='long'?zone.lower-entry:entry-zone.upper;
-   if(overlaps||distance>=0&&distance<=risk*1.5)hits.push(label+' ('+formatPrice(zone.lower)+' تا '+formatPrice(zone.upper)+')');
+   if(overlaps||distance>=0&&distance<=risk*1.5)(hardKeys.includes(key)?hits:warnings).push(label+' ('+formatPrice(zone.lower)+' تا '+formatPrice(zone.upper)+')');
   }
  }
- return hits.length?'ریسک ناحیه مخالف/شکست تأییدنشده در '+hits.join('، '):'';
+ return {block:hits.length?'ناحیه مخالف/شکست تأییدنشده در '+hits.join('، '):'',warnings};
 }
 function rsiSeriesValue(values,period=14){
  const valuesOut=calcRsi(values,period);

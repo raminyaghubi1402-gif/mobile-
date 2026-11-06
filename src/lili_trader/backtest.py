@@ -100,7 +100,7 @@ def run_sma_backtest(
         entry, qty, entry_fee, stop, target = position
         fill = raw_price * (1 - slippage_rate)
         exit_fee = fill * qty * fee_rate
-        gross = (fill - entry) * qty
+        gross = (fill - entry[1]) * qty
         net = gross - entry_fee - exit_fee
         cash += fill * qty - exit_fee
         trades.append(BacktestTrade(

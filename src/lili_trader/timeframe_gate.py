@@ -42,7 +42,11 @@ def evaluate_timeframe_gate(hourly, fifteen_minute, five_minute, latest_15m_clos
         lows = field(hourly, "last_two_swing_lows")
         if not isinstance(lows, (tuple, list)) or len(lows) != 2:
             return GateDecision("blocked", False, direction, "کف‌های ساختاری یک‌ساعته معتبر نیستند.")
-        if not all(isfinite(float(x)) and float(x) > 0 for x in lows):
+        try:
+            valid_lows = all(isfinite(float(x)) and float(x) > 0 for x in lows)
+        except (TypeError, ValueError, OverflowError):
+            valid_lows = False
+        if not valid_lows:
             return GateDecision("blocked", False, direction, "مقادیر کف ساختاری یک‌ساعته نامعتبرند.")
         if close < lows[-1]:
             return GateDecision("invalidated", False, direction,
@@ -51,7 +55,11 @@ def evaluate_timeframe_gate(hourly, fifteen_minute, five_minute, latest_15m_clos
         highs = field(hourly, "last_two_swing_highs")
         if not isinstance(highs, (tuple, list)) or len(highs) != 2:
             return GateDecision("blocked", False, direction, "سقف‌های ساختاری یک‌ساعته معتبر نیستند.")
-        if not all(isfinite(float(x)) and float(x) > 0 for x in highs):
+        try:
+            valid_highs = all(isfinite(float(x)) and float(x) > 0 for x in highs)
+        except (TypeError, ValueError, OverflowError):
+            valid_highs = False
+        if not valid_highs:
             return GateDecision("blocked", False, direction, "مقادیر سقف ساختاری یک‌ساعته نامعتبرند.")
         if close > highs[-1]:
             return GateDecision("invalidated", False, direction,

@@ -21,10 +21,12 @@ def main() -> int:
     adapter = NobitexAdapter()
     history_dir = ROOT / "data" / "history"
     failures = []
+    completed_requests = 0
     for symbol in SYMBOLS:
         for resolution, fetch_count in FETCH_COUNTS.items():
             try:
                 incoming = adapter.fetch_history(symbol, resolution, fetch_count)
+                completed_requests += 1
                 if not incoming:
                     print(f"{symbol} {resolution}: no new public candles; kept existing history")
                     continue
@@ -39,8 +41,11 @@ def main() -> int:
                 failures.append(f"{symbol} {resolution}: {type(exc).__name__}: {exc}")
                 print(f"ERROR {failures[-1]}", file=sys.stderr)
     if failures:
-        print(f"Collection finished with {len(failures)} failure(s).", file=sys.stderr)
-        return 1
+        print(f"Collection finished with {len(failures)} failure(s) after {completed_requests} successful request group(s).", file=sys.stderr)
+        if completed_requests == 0:
+            return 1
+        print("Partial history was saved; failed timeframes will be retried on the next scheduled run.")
+        return 0
     print("Public Nobitex history collection completed.")
     return 0
 

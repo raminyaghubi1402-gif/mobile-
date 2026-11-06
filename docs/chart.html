@@ -10,7 +10,8 @@
 *{box-sizing:border-box}body{margin:0;padding:14px;max-width:1200px;margin-inline:auto}
 h1{font-size:1.35rem;margin:8px 0}p{color:#9ca3af;font-size:.9rem}
 .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:14px 0}
-select,input,button{background:#172033;color:#e5e7eb;border:1px solid #334155;border-radius:8px;padding:10px;font:inherit;max-width:100%}\nselect,button{background:#172033;color:#e5e7eb;border:1px solid #334155;border-radius:8px;padding:10px;font:inherit}
+select,input,button{background:#172033;color:#e5e7eb;border:1px solid #334155;border-radius:8px;padding:10px;font:inherit;max-width:100%}
+select,button{background:#172033;color:#e5e7eb;border:1px solid #334155;border-radius:8px;padding:10px;font:inherit}
 button{cursor:pointer;background:#14532d;border-color:#166534}
 #status{font-size:.9rem;color:#fbbf24;min-height:24px;margin:8px 0}
 .chart{height:420px;width:100%;border:1px solid #263449;border-radius:10px;overflow:hidden;background:#0b1220}
@@ -60,7 +61,8 @@ let currentCandles=[];
 let mtfZones={};
 let mtfCandles={};
 let zoneLines=[];
-let mtfReady=false;\nlet mtfTrends={};
+let mtfReady=false;
+let mtfTrends={};
 const mtfOrder=[["M","ماهانه"],["W","هفتگی"],["D","روزانه"],["240","۴ ساعته"],["60","۱ ساعته"],["15","۱۵ دقیقه"],["5","۵ دقیقه"]];
 function clearTradeLines(){tradeLines.forEach(line=>candleSeries.removePriceLine(line));tradeLines.length=0;}
 function updateRiskReward(){
@@ -299,7 +301,8 @@ async function refreshMtfAnalysis(symbol){
    const closed=getClosedCandles(bars,key);
    const minimum=key==='M'?12:20;
    if(closed.length<minimum)throw new Error('داده بسته‌شده کافی برای '+key+' وجود ندارد ('+closed.length+' کندل)');
-   next[key]=findZones(closed);nextCandles[key]=closed;\n   mtfTrends[key]=detectPriceActionTrend(closed,(key==='M'||key==='W')?1:2);
+   next[key]=findZones(closed);nextCandles[key]=closed;
+   mtfTrends[key]=detectPriceActionTrend(closed,(key==='M'||key==='W')?1:2);
   }
   mtfZones=next;mtfCandles=nextCandles;mtfReady=true;renderMtfTable();renderTrendTable();drawSelectedZones();
   $('mtf-status').textContent='هر ۷ تایم‌فریم بررسی شد. زمان به‌روزرسانی: '+new Date().toLocaleTimeString('fa-IR')+' — داده ناقص یا قدیمی باعث توقف تحلیل ورود می‌شود.';

@@ -28,10 +28,11 @@ jobs:
           import re
           from pathlib import Path
           html = Path("docs/chart.html").read_text(encoding="utf-8")
-          scripts = re.findall(r"<script>([\\s\\S]*?)</script>", html)
+          scripts = re.findall(r"<script[^>]*>(.*?)</script>", html, re.S)
+          scripts = [script for script in scripts if script.strip()]
           if not scripts:
               raise SystemExit("No inline chart script found")
-          Path("/tmp/lili-chart.js").write_text("\\n".join(scripts), encoding="utf-8")
+          Path("/tmp/lili-chart.js").write_text("\n".join(scripts), encoding="utf-8")
           PY
           node --check /tmp/lili-chart.js
       - name: Run unit tests

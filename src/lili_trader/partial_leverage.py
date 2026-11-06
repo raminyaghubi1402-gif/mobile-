@@ -108,7 +108,6 @@ def update_partial_exit(
         raise PartialExitError("نرخ کارمزد خروج نامعتبر است.")
 
     p = state.original_position
-    remaining_fraction = state.remaining_quantity / p.quantity
     remaining_position = LeveragedPosition(
         side=p.side,
         collateral=state.remaining_collateral,
@@ -130,7 +129,7 @@ def update_partial_exit(
         total_gross = realized + remainder_pnl
         total_fees = exit_fees + final_exit_fee + entry_fees
         closed = PartialExitState(
-            original_position=p, stop=stop, remaining_quantity=0.0,
+            original_position=p, stop=stop, stages=state.stages, remaining_quantity=0.0,
             remaining_collateral=0.0, remaining_entry_fee=0.0,
             realized_gross_pnl=total_gross, exit_fees_paid=exit_fees + final_exit_fee,
             completed_stages=state.completed_stages, status="liquidated" if reason == "liquidation" else "closed",
@@ -171,7 +170,7 @@ def update_partial_exit(
         # Target price, not the better observed gap price: conservative fill.
         pnl = (1.0 if p.side == "long" else -1.0) * qty * (target - p.entry_price)
         fee = qty * target * close_fee_rate
-        entry_fee_alloc = state.remaining_entry_fee * (qty / new_remaining)
+        entry_fee_alloc = new_entry_fee * (qty / new_remaining)
         realized += pnl
         fees += fee
         new_entry_fee -= entry_fee_alloc
@@ -191,13 +190,12 @@ def update_partial_exit(
     stop_update = update_smart_stop(state.stop, market_price)
     if stop_update.stop_triggered and new_remaining > 0:
         next_state = PartialExitState(
-            original_position=p, stop=stop_update.state,
+            original_position=p, stop=stop_update.state, stages=state.stages,
             remaining_quantity=new_remaining, remaining_collateral=new_collateral,
             remaining_entry_fee=new_entry_fee, realized_gross_pnl=realized,
             exit_fees_paid=fees, completed_stages=tuple(completed),
         )
         # Close the runner at the observed price, preserving all partial fills.
-        temp = next_state
         rem_pnl = (1.0 if p.side == "long" else -1.0) * new_remaining * (market_price - p.entry_price)
         rem_fee = new_remaining * market_price * close_fee_rate
         total_gross = realized + rem_pnl

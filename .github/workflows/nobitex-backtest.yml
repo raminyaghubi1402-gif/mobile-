@@ -15,6 +15,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: nobitex-public-api
+  cancel-in-progress: false
+
 jobs:
   historical-backtest:
     runs-on: ubuntu-latest

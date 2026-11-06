@@ -27,14 +27,17 @@ def main() -> None:
         from .price_action_backtest import run_three_timeframe_backtest
         adapter = NobitexAdapter()
         # Each timeframe is fetched independently from the public, read-only API.
-        hourly = adapter.fetch_history(args.symbol, "60", args.count)
-        fifteen = adapter.fetch_history(args.symbol, "15", args.count)
+        from .timeframe_resample import extend_fifteen_with_five
+        hourly = adapter.fetch_history(args.symbol, "60", min(args.count, 2000))
+        native_fifteen = adapter.fetch_history(args.symbol, "15", min(args.count, 2000))
         five = adapter.fetch_history(args.symbol, "5", args.count)
+        fifteen = extend_fifteen_with_five(native_fifteen, five)
         result = run_three_timeframe_backtest(
             hourly, fifteen, five, starting_cash=args.backtest_cash
         )
         print("لی‌لی تریدر — بک‌تست ساختار قیمت ۱h / ۱۵m / ۵m (فقط شبیه‌سازی)")
-        print(f"نماد: {args.symbol} | کندل‌ها: ۱h={len(hourly)}، ۱۵m={len(fifteen)}، ۵m={len(five)}")
+        derived_fifteen = max(0, len(fifteen) - len(native_fifteen))
+        print(f"نماد: {args.symbol} | کندل‌ها: ۱h={len(hourly)}، ۱۵m={len(fifteen)} (نوبیتکس={len(native_fifteen)}، تکمیل‌شده از ۵m={derived_fifteen})، ۵m={len(five)}")
         for label, rows in (("۱h", hourly), ("۱۵m", fifteen), ("۵m", five)):
             print(f"بازهٔ {label}: {_format_market_time(rows[0].timestamp)} تا {_format_market_time(rows[-1].timestamp)}")
         overlap_start = max(hourly[0].timestamp, fifteen[0].timestamp, five[0].timestamp)

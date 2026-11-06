@@ -56,6 +56,17 @@ class TimeframeGateTests(unittest.TestCase):
         self.assertEqual(result.status, "blocked")
         self.assertFalse(result.allowed)
 
+    def test_non_numeric_hourly_pivots_fail_closed_without_crashing(self):
+        malformed_up = state("up", lows=(90.0, "bad"))
+        malformed_down = state("down", highs=(110.0, None))
+        for hourly, direction_state, close in (
+            (malformed_up, self.up, 105),
+            (malformed_down, self.down, 85),
+        ):
+            result = evaluate_timeframe_gate(hourly, direction_state, direction_state, close)
+            self.assertEqual(result.status, "blocked")
+            self.assertFalse(result.allowed)
+
 
 if __name__ == "__main__":
     unittest.main()

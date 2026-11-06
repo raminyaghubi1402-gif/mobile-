@@ -72,11 +72,7 @@ def merge_history_csv(
     file_path = Path(path)
     incoming_rows = list(incoming)
     if not incoming_rows:
-        return load_history_csv(
-            file_path,
-            symbol="UNKNOWN",
-            resolution="UNKNOWN",
-        ) if file_path.exists() else []
+        return []
     symbol, resolution = incoming_rows[0].symbol, incoming_rows[0].resolution
     existing = load_history_csv(file_path, symbol=symbol, resolution=resolution)
     merged = merge_candle_history(existing, incoming_rows, max_rows=max_rows)

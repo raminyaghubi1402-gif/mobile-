@@ -96,6 +96,7 @@ class ThreeTimeframeBacktestTests(unittest.TestCase):
             self.assertEqual(trade.direction, "BUY" if direction == "up" else "SELL")
             self.assertAlmostEqual(trade.quantity, 125.0)
             self.assertAlmostEqual(trade.gross_pnl, 375.0)
+            self.assertAlmostEqual(trade.exit_price, 103.0 if direction == "up" else 97.0)
             expected_fees = 25.375 if direction == "up" else 24.625
             self.assertAlmostEqual(trade.fees, expected_fees)
             self.assertAlmostEqual(trade.net_pnl, 375.0 - expected_fees)

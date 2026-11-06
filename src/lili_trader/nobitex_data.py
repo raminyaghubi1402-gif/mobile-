@@ -50,7 +50,7 @@ class NobitexAdapter:
         page_count = (count + 499) // 500
         for page in range(1, page_count + 1):
             batch = self.fetch_recent(
-                symbol, resolution, min(500, count - len(collected)), page=page
+                symbol, resolution, 500, page=page
             )
             if not batch:
                 break

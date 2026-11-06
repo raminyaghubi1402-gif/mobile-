@@ -117,7 +117,7 @@ def run_sma_backtest(
         if position is not None:
             _, _, _, stop, target = position
             if low <= stop:
-                close_position(ts, stop, "stop_loss")
+                close_position(ts, min(o, stop), "stop_loss")
             elif h >= target:
                 close_position(ts, target, "take_profit")
 

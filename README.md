@@ -19,6 +19,7 @@
     PYTHONPATH=src python -m lili_trader --nobitex --symbol BTCIRT --resolution 60 --count 100
     PYTHONPATH=src python -m lili_trader --nobitex --symbol ETHIRT --resolution 240 --count 100
     PYTHONPATH=src python -m lili_trader --backtest --symbol BTCIRT --resolution 60 --count 500
+    PYTHONPATH=src python -m lili_trader --price-action-backtest --symbol BTCIRT --count 500
 
 پارامترها:
 - `--symbol`: نماد بازار نوبیتکس، مثل `BTCIRT` یا `ETHIRT`؛ باید در بازار نوبیتکس موجود باشد.
@@ -64,6 +65,14 @@
 - این نسخه فقط Long و فقط دادهٔ تاریخی را پشتیبانی می‌کند؛ Funding، اثر بازار و اجرای واقعی را شبیه‌سازی نمی‌کند.
 - راهنما: [راهنمای فارسی بک‌تست](docs/BACKTEST_FA.md).
 - نتیجهٔ بک‌تست تضمین‌کنندهٔ سود آینده نیست و هیچ سفارش واقعی ثبت نمی‌شود.
+
+## بک‌تست اختصاصی ساختار قیمت ۱h / ۱۵m / ۵m
+
+- فرمان `--price-action-backtest` داده‌های عمومی BTCIRT (یا نماد انتخابی) را جداگانه در سه تایم‌فریم دریافت می‌کند.
+- جهت ۱h، ستاپ ۱۵m و ماشهٔ ۵m را مطابق راهبرد بدون اندیکاتور ارزیابی می‌کند؛ BUY و SELL هر دو فقط در شبیه‌ساز و بدون اهرم هستند.
+- ورود پس از بسته‌شدن سیگنال و در بازشدن کندل بعدی انجام می‌شود؛ کندل‌های بالاتر تا پیش از بسته‌شدنشان استفاده نمی‌شوند.
+- راهنما و محدودیت‌ها: [بک‌تست اختصاصی سه‌تایم‌فریمی](docs/PRICE_ACTION_BACKTEST_FA.md).
+- برای نمونهٔ تاریخی بهتر، `--count 500` را انتخاب کنید؛ API عمومی حداکثر ۵۰۰ کندل در هر تایم‌فریم می‌دهد. این بازه‌ها از نظر زمانی هم‌اندازه نیستند و برای نتیجه‌گیری آماری بلندمدت کافی نیستند.
 
 ## اجرا و تست
     python -m unittest discover -s tests -v

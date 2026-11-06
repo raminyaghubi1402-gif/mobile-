@@ -31,7 +31,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          PYTHONPATH=src python -m lili_trader --price-action-backtest --symbol ${{ matrix.symbol }} --count 2000 2>&1 | tee nobitex-backtest-report.txt
+          PYTHONPATH=src python -m lili_trader --price-action-backtest --symbol ${{ matrix.symbol }} --count 5000 2>&1 | tee nobitex-backtest-report.txt
       - name: Save report
         if: always()
         uses: actions/upload-artifact@v4

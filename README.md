@@ -52,3 +52,15 @@ https://github.com/raminyaghubi1402-gif/mobile-/actions
 - `tests/`: آزمون‌های خودکار
 - `.github/workflows/ci.yml`: تست GitHub Actions
 - `docs/ROADMAP_FA.md`: نقشه‌راه فارسی
+
+
+## نمودار تحت وب
+
+صفحهٔ نمودار تعاملی نوبیتکس در `docs/chart.html` قرار دارد و روی مرورگر موبایل/تبلت اجرا می‌شود. برای انتشار آن با GitHub Pages:
+1. در مخزن وارد **Settings → Pages** شوید.
+2. در بخش **Build and deployment**، گزینهٔ **Deploy from a branch** را انتخاب کنید.
+3. Branch را روی `main` و Folder را روی `/docs` بگذارید و Save کنید.
+4. پس از فعال‌شدن Pages، نمودار در آدرس زیر در دسترس خواهد بود:
+   `https://raminyaghubi1402-gif.github.io/mobile-/chart.html`
+
+نمودار از API عمومی نوبیتکس در مرورگر داده می‌گیرد؛ ممکن است در برخی شبکه‌ها به علت محدودیت دسترسی/CORS بارگذاری نشود. فایل از کتابخانهٔ Lightweight Charts با CDN استفاده می‌کند، بنابراین برای بارگذاری اولیه اینترنت لازم است.

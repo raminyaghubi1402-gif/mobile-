@@ -110,7 +110,7 @@ class ThreeTimeframeBacktestTests(unittest.TestCase):
             last_two_swing_lows=(90.0, 95.0))
         five = flat_bars(122, 300)
         five[120] = Bar(120 * 300, 100.0, 104.5, 99.5, 104.0)
-        five[121] = Bar(121 * 300, 100.0, 100.5, 99.5, 100.0)
+        five[121] = Bar(121 * 300, 100.2, 100.5, 99.5, 100.0)
         with patch("lili_trader.price_action_backtest.classify_price_action_trend",
                    return_value=trend):
             result = run_three_timeframe_backtest(

@@ -54,6 +54,19 @@ class BacktestTests(unittest.TestCase):
         )
         self.assertEqual(result.trades[0].exit_reason, "stop_loss")
 
+    def test_stop_gap_fills_at_worse_open_price(self):
+        bars = sample_bars()
+        # Entry is around 10; stop is around 9.8. A gap below stop
+        # must not be optimistically filled at the stop price.
+        bars[9] = Bar(9, 9.5, 11, 9.0, 10)
+        result = run_sma_backtest(
+            bars, fast_period=2, slow_period=3,
+            stop_loss_fraction=0.02, take_profit_fraction=0.04,
+            fee_rate=0.0, slippage_rate=0.0,
+        )
+        self.assertEqual(result.trades[0].exit_reason, "stop_loss")
+        self.assertAlmostEqual(result.trades[0].exit_price, 9.5)
+
     def test_deterministic_results(self):
         first = run_sma_backtest(sample_bars(), fast_period=2, slow_period=3)
         second = run_sma_backtest(sample_bars(), fast_period=2, slow_period=3)

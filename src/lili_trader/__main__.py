@@ -1,6 +1,14 @@
 """CLI for Li-Li Trader. Demo mode is synthetic; Nobitex mode reads public data only."""
 import argparse
+from datetime import datetime, timedelta, timezone
 from .analysis import Candle, analyze_candle
+
+
+_TEHRAN = timezone(timedelta(hours=3, minutes=30))
+
+
+def _format_market_time(timestamp: int) -> str:
+    return datetime.fromtimestamp(timestamp, _TEHRAN).strftime("%Y-%m-%d %H:%M")
 
 
 def main() -> None:
@@ -27,6 +35,16 @@ def main() -> None:
         )
         print("لی‌لی تریدر — بک‌تست ساختار قیمت ۱h / ۱۵m / ۵m (فقط شبیه‌سازی)")
         print(f"نماد: {args.symbol} | کندل‌ها: ۱h={len(hourly)}، ۱۵m={len(fifteen)}، ۵m={len(five)}")
+        for label, rows in (("۱h", hourly), ("۱۵m", fifteen), ("۵m", five)):
+            print(f"بازهٔ {label}: {_format_market_time(rows[0].timestamp)} تا {_format_market_time(rows[-1].timestamp)}")
+        overlap_start = max(hourly[0].timestamp, fifteen[0].timestamp, five[0].timestamp)
+        overlap_end = min(hourly[-1].timestamp + 3600,
+                          fifteen[-1].timestamp + 900, five[-1].timestamp + 300)
+        if overlap_end > overlap_start:
+            overlap_days = (overlap_end - overlap_start) / 86400
+            print(f"بازهٔ مشترک سه تایم‌فریم: {_format_market_time(overlap_start)} تا {_format_market_time(overlap_end)} ({overlap_days:.1f} روز)")
+        else:
+            print("هشدار: سه تایم‌فریم بازهٔ زمانی مشترک ندارند.")
         print(f"موجودی آغازین: {result.starting_cash:,.2f} | ارزش پایانی: {result.ending_equity:,.2f}")
         print(f"سود/زیان خالص: {result.net_profit:,.2f} ({result.return_pct:.2f}٪)")
         print(f"بیشترین افت سرمایه: {result.max_drawdown_pct:.2f}٪")
@@ -34,6 +52,13 @@ def main() -> None:
         pf = "نامشخص" if result.profit_factor is None else ("بی‌نهایت/بدون زیان" if result.profit_factor == float("inf") else f"{result.profit_factor:.2f}")
         print(f"ضریب سود: {pf}")
         print("وضعیت دروازه‌ها: " + ", ".join(f"{key}={value}" for key, value in result.gate_counts))
+        for index, trade in enumerate(result.trades, 1):
+            print(
+                f"معاملهٔ {index}: {trade.direction} | "
+                f"ورود {_format_market_time(trade.entry_timestamp)} @ {trade.entry_price:,.2f} | "
+                f"خروج {_format_market_time(trade.exit_timestamp)} @ {trade.exit_price:,.2f} | "
+                f"خالص {trade.net_pnl:,.2f} | علت {trade.exit_reason}"
+            )
         for warning in result.warnings:
             print(f"هشدار: {warning}")
         return

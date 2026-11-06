@@ -100,6 +100,29 @@ class ThreeTimeframeBacktestTests(unittest.TestCase):
             expected_fees = 25.375 if direction == "up" else 24.625
             self.assertAlmostEqual(trade.fees, expected_fees)
             self.assertAlmostEqual(trade.net_pnl, 375.0 - expected_fees)
+    def test_break_even_stop_after_first_partial_activates_next_candle(self):
+        def flat_bars(count, seconds):
+            return [Bar(i * seconds, 100.0, 101.0, 99.0, 100.0)
+                    for i in range(count)]
+
+        trend = SimpleNamespace(direction="up",
+            last_two_swing_highs=(110.0, 115.0),
+            last_two_swing_lows=(90.0, 95.0))
+        five = flat_bars(122, 300)
+        five[120] = Bar(120 * 300, 100.0, 104.5, 99.5, 104.0)
+        five[121] = Bar(121 * 300, 100.0, 100.5, 99.5, 100.0)
+        with patch("lili_trader.price_action_backtest.classify_price_action_trend",
+                   return_value=trend):
+            result = run_three_timeframe_backtest(
+                flat_bars(80, 3600), flat_bars(220, 900), five,
+                starting_cash=100_000, fee_rate=0.001, slippage_rate=0.0)
+        self.assertEqual(result.trade_count, 1)
+        trade = result.trades[0]
+        self.assertEqual(trade.exit_reason, "smart_stop")
+        self.assertAlmostEqual(trade.gross_pnl, 125.0)
+        self.assertAlmostEqual(trade.exit_price, 101.0)
+        self.assertAlmostEqual(trade.fees, 25.125)
+        self.assertAlmostEqual(trade.net_pnl, 99.875)
     def test_downtrend_can_only_create_sell_positions(self):
         hourly = falling_bars(80, 3600, 0)
         fifteen = falling_bars(220, 900, 0)

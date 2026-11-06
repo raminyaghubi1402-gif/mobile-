@@ -52,11 +52,13 @@ class NobitexPaginationTests(unittest.TestCase):
 
     def test_fetch_history_combines_pages_and_returns_latest_count(self):
         seen_pages = []
+        seen_to = []
 
         def opener(request, timeout):
             query = parse_qs(urlparse(request.full_url).query)
             page = int(query["page"][0])
             seen_pages.append(page)
+            seen_to.append(query["to"][0])
             if page == 1:
                 return FakeResponse(payload(list(range(501, 1001))))
             return FakeResponse(payload(list(range(1, 501))))
@@ -66,6 +68,7 @@ class NobitexPaginationTests(unittest.TestCase):
         )
         timestamps = [candle.timestamp for candle in candles]
         self.assertEqual(seen_pages, [1, 2])
+        self.assertEqual(len(set(seen_to)), 1, "all pages must share one snapshot timestamp")
         self.assertEqual(len(timestamps), 501)
         self.assertEqual(timestamps, list(range(500, 1001)))
 
@@ -90,6 +93,19 @@ class NobitexPaginationTests(unittest.TestCase):
         self.assertEqual(candles[0].timestamp, 330)
         self.assertEqual(candles[-1].timestamp, 1500)
 
+    def test_fetch_history_stops_when_page_cursor_repeats_same_data(self):
+        seen_pages = []
+
+        def opener(request, timeout):
+            query = parse_qs(urlparse(request.full_url).query)
+            seen_pages.append(int(query["page"][0]))
+            return FakeResponse(payload(list(range(501, 1001))))
+
+        candles = NobitexAdapter(opener=opener).fetch_history(
+            "BTCIRT", "5", 1500
+        )
+        self.assertEqual(seen_pages, [1, 2])
+        self.assertEqual(len(candles), 500)
     def test_fetch_history_stops_when_older_page_has_no_data(self):
         seen_pages = []
 

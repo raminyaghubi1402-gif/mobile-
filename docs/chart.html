@@ -38,7 +38,7 @@ button{cursor:pointer;background:#14532d;border-color:#166534}
 <button id="trade-draw" type="button">رسم روی نمودار</button>
 <button id="trade-clear" type="button">پاک کردن خطوط</button>
 </div>
-<div id="levels-note">این سطوح دستی و آموزشی هستند؛ معامله واقعی اجرا نمی‌شود.</div>
+<div id="rr-summary" style="margin:8px 0;padding:10px;border:1px solid #334155;border-radius:8px;color:#d1d5db">نسبت ریسک به سود پس از واردکردن ورود، حد ضرر و اهداف نمایش داده می‌شود.</div>\n<div id="levels-note">این سطوح دستی و آموزشی هستند؛ معامله واقعی اجرا نمی‌شود.</div>
 <div id="price-chart" class="chart"></div>
 <div id="rsi-chart" class="chart" style="height:160px;margin-top:10px"></div>
 <div class="note">توجه: این نمودار از API عمومی نوبیتکس استفاده می‌کند. دسترسی شبکه و محدودیت‌های منطقه‌ای ممکن است مانع بارگذاری شود. اعداد و اندیکاتورها برای آموزش‌اند و توصیه خرید یا فروش نیستند. اگر داده دریافت نشد، اتصال اینترنت یا دسترسی API را بررسی کنید.</div>
@@ -52,7 +52,25 @@ const sma7=priceChart.addLineSeries({color:'#f59e0b',lineWidth:2,title:'SMA 7'})
 const sma25=priceChart.addLineSeries({color:'#60a5fa',lineWidth:2,title:'SMA 25'});
 const tradeLines=[];
 function clearTradeLines(){tradeLines.forEach(line=>candleSeries.removePriceLine(line));tradeLines.length=0;}
-function drawTradeLines(){
+function updateRiskReward(){
+ const e=Number($('trade-entry').value),s=Number($('trade-sl').value),t1=Number($('trade-tp1').value),t2=Number($('trade-tp2').value),side=$('trade-side').value;
+ const out=$('rr-summary');
+ if(!Number.isFinite(e)||e<=0||!Number.isFinite(s)||s<=0){out.textContent='برای محاسبه نسبت ریسک به سود، ورود و حد ضرر معتبر را وارد کن.';return;}
+ const risk=Math.abs(e-s);
+ if(risk===0){out.textContent='ورود و حد ضرر نباید برابر باشند.';return;}
+ const validSL=side==='long'?s<e:s>e;
+ if(!validSL){out.textContent='هشدار: حد ضرر در جهت مناسب سناریو نیست؛ نسبت محاسبه‌شده قابل اتکا نیست.';return;}
+ const parts=[];
+ for(const [name,target] of [['TP1',t1],['TP2',t2]]){
+  if(!Number.isFinite(target)||target<=0)continue;
+  const reward=side==='long'?target-e:e-target;
+  if(reward<=0){parts.push(name+': هدف در سمت سود نیست.');continue;}
+  parts.push(name+': 1 به '+(reward/risk).toFixed(2)+' (ریسک '+risk.toLocaleString('fa-IR')+'، سود بالقوه '+reward.toLocaleString('fa-IR')+')');
+ }
+ out.textContent=parts.length?'ریسک به سود تقریبی — '+parts.join(' | '):'ورود و حد ضرر ثبت شد؛ برای نسبت ریسک به سود، TP1 یا TP2 را وارد کن.';
+}
+['trade-entry','trade-sl','trade-tp1','trade-tp2','trade-side'].forEach(id=>$(id).addEventListener('input',updateRiskReward));
+\nfunction drawTradeLines(){
  clearTradeLines();
  const side=$('trade-side').value;
  const specs=[['trade-entry','Entry','#facc15'],['trade-sl','SL','#ef4444'],['trade-tp1','TP1','#22c55e'],['trade-tp2','TP2','#34d399']];

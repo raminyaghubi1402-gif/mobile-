@@ -1,0 +1,37 @@
+name: Nobitex public historical backtest
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/nobitex-backtest.yml"
+      - "src/lili_trader/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  historical-backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run read-only Nobitex historical backtest
+        shell: bash
+        run: |
+          set -o pipefail
+          PYTHONPATH=src python -m lili_trader --price-action-backtest --symbol BTCIRT --count 500 2>&1 | tee nobitex-backtest-report.txt
+      - name: Save report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lili-nobitex-price-action-backtest
+          path: nobitex-backtest-report.txt
+          if-no-files-found: ignore
+          retention-days: 7

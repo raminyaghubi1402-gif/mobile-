@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>نمودار لی‌لی تریدر | نوبیتکس</title>
+<script src="https://unpkg.com/lightweight-charts@4.2.2/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+:root{color-scheme:dark;font-family:Tahoma,Arial,sans-serif;background:#0b1220;color:#e5e7eb}
+*{box-sizing:border-box}body{margin:0;padding:14px;max-width:1200px;margin-inline:auto}
+h1{font-size:1.35rem;margin:8px 0}p{color:#9ca3af;font-size:.9rem}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:14px 0}
+select,button{background:#172033;color:#e5e7eb;border:1px solid #334155;border-radius:8px;padding:10px;font:inherit}
+button{cursor:pointer;background:#14532d;border-color:#166534}
+#status{font-size:.9rem;color:#fbbf24;min-height:24px;margin:8px 0}
+.chart{height:420px;width:100%;border:1px solid #263449;border-radius:10px;overflow:hidden;background:#0b1220}
+#rsi{height:150px;margin-top:10px}
+.note{font-size:.8rem;line-height:1.8;border:1px solid #334155;border-radius:8px;padding:10px;margin-top:12px}
+@media(max-width:600px){body{padding:8px}.chart{height:330px}}
+</style>
+</head>
+<body>
+<h1>📈 نمودار لی‌لی تریدر</h1>
+<p>نمودار زنده‌خوانی از داده‌های عمومی نوبیتکس — فقط مشاهده و تحلیل، بدون معامله.</p>
+<div class="toolbar">
+<label>بازار <select id="symbol"><option value="BTCIRT">BTC / تومان؟ (BTCIRT)</option><option value="ETHIRT">ETH / ریال (ETHIRT)</option><option value="BTCUSDT">BTC / USDT</option><option value="ETHUSDT">ETH / USDT</option><option value="USDTIRT">USDT / ریال (USDTIRT)</option></select></label>
+<label>بازه <select id="resolution"><option value="1">۱ دقیقه</option><option value="5">۵ دقیقه</option><option value="15">۱۵ دقیقه</option><option value="30">۳۰ دقیقه</option><option value="60" selected>۱ ساعت</option><option value="240">۴ ساعت</option><option value="D">روزانه</option></select></label>
+<label>تعداد کندل <select id="count"><option>100</option><option selected>200</option><option>300</option><option>500</option></select></label>
+<button id="load">بارگذاری نمودار</button>
+</div>
+<div id="status">در حال آماده‌سازی نمودار…</div>
+<div id="price-chart" class="chart"></div>
+<div id="rsi-chart" class="chart" style="height:160px;margin-top:10px"></div>
+<div class="note">توجه: این نمودار از API عمومی نوبیتکس استفاده می‌کند. دسترسی شبکه و محدودیت‌های منطقه‌ای ممکن است مانع بارگذاری شود. اعداد و اندیکاتورها برای آموزش‌اند و توصیه خرید یا فروش نیستند. اگر داده دریافت نشد، اتصال اینترنت یا دسترسی API را بررسی کنید.</div>
+<script>
+(function(){
+const $=id=>document.getElementById(id);
+const common={layout:{background:{type:'solid',color:'#0b1220'},textColor:'#d1d5db'},grid:{vertLines:{color:'#1f2937'},horzLines:{color:'#1f2937'}},rightPriceScale:{borderColor:'#334155'},timeScale:{borderColor:'#334155',timeVisible:true,secondsVisible:false}};
+const priceChart=LightweightCharts.createChart($('price-chart'),{...common, height:$('price-chart').clientHeight, localization:{locale:'fa-IR'}});
+const candleSeries=priceChart.addCandlestickSeries({upColor:'#22c55e',downColor:'#ef4444',borderUpColor:'#22c55e',borderDownColor:'#ef4444',wickUpColor:'#22c55e',wickDownColor:'#ef4444'});
+const sma7=priceChart.addLineSeries({color:'#f59e0b',lineWidth:2,title:'SMA 7'});
+const sma25=priceChart.addLineSeries({color:'#60a5fa',lineWidth:2,title:'SMA 25'});
+const rsiChart=LightweightCharts.createChart($('rsi-chart'),{...common,height:160,timeScale:{visible:false},rightPriceScale:{borderColor:'#334155',scaleMargins:{top:.1,bottom:.1}}});
+const rsiSeries=rsiChart.addLineSeries({color:'#c084fc',lineWidth:2,title:'RSI 14'});
+function sma(vals,n){return vals.map((_,i)=>i+1<n?null:vals.slice(i-n+1,i+1).reduce((a,b)=>a+b,0)/n)}
+function calcRsi(vals,n=14){let out=[];for(let i=0;i<vals.length;i++){if(i<n){out.push(null);continue;}let gains=0,losses=0;for(let j=i-n+1;j<=i;j++){let d=vals[j]-vals[j-1];if(d>0)gains+=d;else losses-=d;}let avgG=gains/n,avgL=losses/n;out.push(avgL===0?100:100-(100/(1+avgG/avgL)));}return out}
+function lineData(candles,vals){return candles.map((c,i)=>vals[i]==null?null:{time:c.time,value:vals[i]}).filter(Boolean)}
+async function load(){
+$('status').textContent='در حال دریافت داده از نوبیتکس…';
+try{
+const symbol=$('symbol').value,res=$('resolution').value,count=Number($('count').value),to=Math.floor(Date.now()/1000);
+const url='https://apiv2.nobitex.ir/market/udf/history?symbol='+encodeURIComponent(symbol)+'&resolution='+encodeURIComponent(res)+'&to='+to+'&countback='+count;
+const response=await fetch(url,{cache:'no-store'});
+if(!response.ok)throw new Error('HTTP '+response.status);
+const data=await response.json();if(data.s!=='ok'||!Array.isArray(data.t)||!data.t.length)throw new Error(data.errmsg||data.s||'داده‌ای پیدا نشد');
+const candles=data.t.map((t,i)=>({time:Number(t),open:Number(data.o[i]),high:Number(data.h[i]),low:Number(data.l[i]),close:Number(data.c[i])}));
+if(candles.some(c=>![c.time,c.open,c.high,c.low,c.close].every(Number.isFinite)))throw new Error('داده نامعتبر است');
+candleSeries.setData(candles);
+const closes=candles.map(c=>c.close);
+sma7.setData(lineData(candles,sma(closes,7)));sma25.setData(lineData(candles,sma(closes,25)));
+rsiSeries.setData(lineData(candles,calcRsi(closes,14)));
+priceChart.timeScale().fitContent();rsiChart.timeScale().fitContent();
+$('status').textContent='دریافت شد: '+symbol+' | '+candles.length+' کندل | زمان دریافت '+new Date().toLocaleTimeString('fa-IR');
+}catch(e){$('status').textContent='خطا در دریافت نمودار: '+e.message+' — ممکن است API از مرورگر یا شبکه شما قابل دسترسی نباشد.';}
+}
+$('load').addEventListener('click',load);
+window.addEventListener('resize',()=>{priceChart.applyOptions({width:$('price-chart').clientWidth});rsiChart.applyOptions({width:$('rsi-chart').clientWidth});});
+load();
+})();
+</script>
+</body>
+</html>

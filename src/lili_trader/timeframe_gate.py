@@ -1,5 +1,6 @@
 """Three-timeframe entry gate for indicator-free price-action trading."""
 from dataclasses import dataclass
+from math import isfinite
 from typing import Optional
 
 
@@ -31,16 +32,28 @@ def evaluate_timeframe_gate(hourly, fifteen_minute, five_minute, latest_15m_clos
 
     # A confirmed 15m close through the latest 1h structural swing invalidates
     # the current setup; a normal counter-move without this break is a pullback.
-    if latest_15m_close is None:
-        return GateDecision("wait", False, direction, "قیمت بسته‌شدن کندل ۱۵ دقیقه در دسترس نیست.")
+    try:
+        close = float(latest_15m_close)
+    except (TypeError, ValueError):
+        close = float("nan")
+    if not isfinite(close) or close <= 0:
+        return GateDecision("wait", False, direction, "قیمت بسته‌شدن کندل ۱۵ دقیقه معتبر نیست.")
     if direction == "up":
         lows = field(hourly, "last_two_swing_lows")
-        if lows and latest_15m_close < lows[-1]:
+        if not isinstance(lows, (tuple, list)) or len(lows) != 2:
+            return GateDecision("blocked", False, direction, "کف‌های ساختاری یک‌ساعته معتبر نیستند.")
+        if not all(isfinite(float(x)) and float(x) > 0 for x in lows):
+            return GateDecision("blocked", False, direction, "مقادیر کف ساختاری یک‌ساعته نامعتبرند.")
+        if close < lows[-1]:
             return GateDecision("invalidated", False, direction,
                                 "ساختار صعودی یک‌ساعته با بسته‌شدن ۱۵ دقیقه زیر آخرین کف تأییدشده شکسته است.")
     else:
         highs = field(hourly, "last_two_swing_highs")
-        if highs and latest_15m_close > highs[-1]:
+        if not isinstance(highs, (tuple, list)) or len(highs) != 2:
+            return GateDecision("blocked", False, direction, "سقف‌های ساختاری یک‌ساعته معتبر نیستند.")
+        if not all(isfinite(float(x)) and float(x) > 0 for x in highs):
+            return GateDecision("blocked", False, direction, "مقادیر سقف ساختاری یک‌ساعته نامعتبرند.")
+        if close > highs[-1]:
             return GateDecision("invalidated", False, direction,
                                 "ساختار نزولی یک‌ساعته با بسته‌شدن ۱۵ دقیقه بالای آخرین سقف تأییدشده شکسته است.")
 

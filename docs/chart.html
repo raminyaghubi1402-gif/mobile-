@@ -150,7 +150,6 @@ function getClosedCandles(bars,resolution=$('resolution').value){
   return Number.isFinite(seconds)&&seconds>0&&c.time+seconds<=now;
  });
 }
-// تحلیل خودکار با SMA/RSI و حدضرر مبتنی بر ATR؛ بدون سفارش واقعی.
 // تحلیل سه‌تایم‌فریمی: ۱h جهت، ۱۵m ستاپ، ۵m ماشه؛ بدون سفارش واقعی.
 function autoAnalysis(){
  if(!mtfReady){$('status').textContent='تحلیل متوقف است: داده چندتایم‌فریمی کامل نیست.';return;}

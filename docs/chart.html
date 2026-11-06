@@ -50,6 +50,38 @@ const priceChart=LightweightCharts.createChart($('price-chart'),{...common, heig
 const candleSeries=priceChart.addCandlestickSeries({upColor:'#22c55e',downColor:'#ef4444',borderUpColor:'#22c55e',borderDownColor:'#ef4444',wickUpColor:'#22c55e',wickDownColor:'#ef4444'});
 const sma7=priceChart.addLineSeries({color:'#f59e0b',lineWidth:2,title:'SMA 7'});
 const sma25=priceChart.addLineSeries({color:'#60a5fa',lineWidth:2,title:'SMA 25'});
+const tradeLines=[];
+function clearTradeLines(){tradeLines.forEach(line=>candleSeries.removePriceLine(line));tradeLines.length=0;}
+function drawTradeLines(){
+ clearTradeLines();
+ const side=$('trade-side').value;
+ const specs=[['trade-entry','Entry','#facc15'],['trade-sl','SL','#ef4444'],['trade-tp1','TP1','#22c55e'],['trade-tp2','TP2','#34d399']];
+ const levels=[];
+ for(const spec of specs){
+  const raw=$(spec[0]).value.trim();
+  if(!raw)continue;
+  const value=Number(raw);
+  if(!Number.isFinite(value)||value<=0){$('status').textContent='قیمت '+spec[1]+' معتبر نیست.';return;}
+  levels.push({label:spec[1],price:value,color:spec[2]});
+ }
+ const entry=levels.find(x=>x.label==='Entry');
+ if(!entry){$('status').textContent='قیمت ورود را وارد کن.';return;}
+ const sl=levels.find(x=>x.label==='SL');
+ const tp1=levels.find(x=>x.label==='TP1');
+ const tp2=levels.find(x=>x.label==='TP2');
+ if(sl&&(side==='long'?sl.price>=entry.price:sl.price<=entry.price)){$('status').textContent='حد ضرر در سمت نامناسب ورود قرار دارد.';return;}
+ if(tp1&&(side==='long'?tp1.price<=entry.price:tp1.price>=entry.price)){$('status').textContent='TP1 باید در سمت سود ورود باشد.';return;}
+ if(tp2&&(side==='long'?tp2.price<=entry.price:tp2.price>=entry.price)){$('status').textContent='TP2 باید در سمت سود ورود باشد.';return;}
+ if(tp1&&tp2&&(side==='long'?tp2.price<tp1.price:tp2.price>tp1.price)){$('status').textContent='ترتیب TP1 و TP2 صحیح نیست.';return;}
+ levels.forEach(level=>{
+  const line=candleSeries.createPriceLine({price:level.price,color:level.color,lineWidth:level.label==='Entry'?2:1,lineStyle:0,axisLabelVisible:true,title:level.label});
+  tradeLines.push(line);
+ });
+ $('status').textContent='Entry، SL و TP روی نمودار مشخص شدند (صرفاً آموزشی).';
+}
+$('trade-draw').addEventListener('click',drawTradeLines);
+$('trade-clear').addEventListener('click',()=>{clearTradeLines();$('status').textContent='خطوط پاک شدند.';});
+
 const rsiChart=LightweightCharts.createChart($('rsi-chart'),{...common,height:160,timeScale:{visible:false},rightPriceScale:{borderColor:'#334155',scaleMargins:{top:.1,bottom:.1}}});
 const rsiSeries=rsiChart.addLineSeries({color:'#c084fc',lineWidth:2,title:'RSI 14'});
 function sma(vals,n){return vals.map((_,i)=>i+1<n?null:vals.slice(i-n+1,i+1).reduce((a,b)=>a+b,0)/n)}

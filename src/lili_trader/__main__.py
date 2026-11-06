@@ -65,6 +65,15 @@ def main() -> None:
         pf = "نامشخص" if result.profit_factor is None else ("بی‌نهایت/بدون زیان" if result.profit_factor == float("inf") else f"{result.profit_factor:.2f}")
         print(f"ضریب سود: {pf}")
         print("وضعیت دروازه‌ها: " + ", ".join(f"{key}={value}" for key, value in result.gate_counts))
+        for side in ("BUY", "SELL"):
+            group = [trade for trade in result.trades if trade.direction == side]
+            if group:
+                wins = sum(trade.net_pnl > 0 for trade in group)
+                net = sum(trade.net_pnl for trade in group)
+                print(f"جمع‌بندی {side}: تعداد={len(group)} | برد={wins} | باخت={len(group)-wins} | خالص={net:,.2f}")
+        for reason in sorted({trade.exit_reason for trade in result.trades}):
+            group = [trade for trade in result.trades if trade.exit_reason == reason]
+            print(f"خروج {reason}: تعداد={len(group)} | خالص={sum(t.net_pnl for t in group):,.2f}")
         for index, trade in enumerate(result.trades, 1):
             print(
                 f"معاملهٔ {index}: {trade.direction} | "

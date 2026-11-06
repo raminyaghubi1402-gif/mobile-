@@ -10,6 +10,7 @@ on:
       - ".github/workflows/nobitex-backtest.yml"
       - "src/lili_trader/**"
       - "tests/test_nobitex_data.py"
+      - "data/history/**"
 
 permissions:
   contents: read

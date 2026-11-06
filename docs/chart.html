@@ -272,8 +272,13 @@ function opposingZoneWarning(side,entry,risk){
  if(!mtfReady)return 'داده هر ۷ تایم‌فریم کامل نیست.';
  const kind=side==='long'?'resistance':'support',hits=[];
  for(const [key,label] of mtfOrder){
-  const zone=nearestMtfZone(mtfZones[key],entry,kind);if(!zone)continue;
-  const distance=side==='long'?zone.lower-entry:entry-zone.upper;
+  const candidates=(mtfZones[key]?.[kind]||[]).filter(zone=>side==='long'?zone.upper>=entry:zone.lower<=entry);
+  if(!candidates.length)continue;
+  const zone=candidates.reduce((best,item)=>{
+   const d=item.mid-entry,bd=best.mid-entry;
+   return Math.abs(d)<Math.abs(bd)?item:best;
+  });
+  const distance=side==='long'?Math.max(0,zone.lower-entry):Math.max(0,entry-zone.upper);
   if(distance<=risk*1.5){hits.push(label+' ('+formatPrice(zone.lower)+' تا '+formatPrice(zone.upper)+')');}
  }
  return hits.length?'نزدیک ناحیه مخالف در '+hits.join('، '):'';

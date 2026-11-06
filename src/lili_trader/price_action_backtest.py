@@ -12,6 +12,7 @@ from collections.abc import Sequence
 
 from .price_action_trend import classify_price_action_trend
 from .timeframe_gate import evaluate_timeframe_gate
+from .smart_stop import create_smart_stop, update_smart_stop
 
 
 @dataclass(frozen=True)
@@ -147,46 +148,60 @@ def run_three_timeframe_backtest(
     max_drawdown = 0.0
     gate_counts: dict[str, int] = {}
 
-    def close_position(bar: dict, raw_price: float, reason: str) -> None:
+    def finish_position(bar: dict, raw_price: float, reason: str) -> None:
         nonlocal cash, position
         pos = position
-        side = 1 if pos["direction"] == "BUY" else -1
+        if pos is None: return
+        side = 1 if pos['direction'] == 'BUY' else -1
         fill = raw_price * (1 - slippage_rate if side == 1 else 1 + slippage_rate)
-        exit_fee = fill * pos["quantity"] * fee_rate
-        gross = (fill - pos["entry_price"]) * pos["quantity"] * side
-        net = gross - pos["entry_fee"] - exit_fee
+        qty = pos['remaining_quantity']
+        exit_fee = fill * qty * fee_rate
+        gross = (fill - pos['entry_price']) * qty * side
         cash += gross - exit_fee
-        trades.append(PriceActionTrade(
-            direction=pos["direction"], entry_timestamp=pos["entry_timestamp"],
-            exit_timestamp=bar["timestamp"], entry_price=pos["entry_price"],
-            exit_price=fill, quantity=pos["quantity"], gross_pnl=gross,
-            fees=pos["entry_fee"] + exit_fee, net_pnl=net, exit_reason=reason,
-        ))
+        total_gross = pos['realized_gross'] + gross
+        total_fees = pos['entry_fee'] + pos['exit_fees'] + exit_fee
+        trades.append(PriceActionTrade(direction=pos['direction'], entry_timestamp=pos['entry_timestamp'], exit_timestamp=bar['timestamp'], entry_price=pos['entry_price'], exit_price=fill, quantity=pos['original_quantity'], gross_pnl=total_gross, fees=total_fees, net_pnl=total_gross-total_fees, exit_reason=reason))
         position = None
 
-    def check_exit(bar: dict) -> None:
-        if position is None:
-            return
+    def check_existing_stop(bar: dict) -> bool:
+        if position is None: return False
         pos = position
-        if pos["direction"] == "BUY":
-            if bar["open"] <= pos["stop"]:
-                close_position(bar, bar["open"], "stop_gap")
-            elif bar["low"] <= pos["stop"]:
-                close_position(bar, pos["stop"], "stop_loss")
-            elif bar["open"] >= pos["target"]:
-                close_position(bar, bar["open"], "target_gap")
-            elif bar["high"] >= pos["target"]:
-                close_position(bar, pos["target"], "take_profit")
+        stop = pos['stop_state'].current_stop
+        if pos['direction'] == 'BUY':
+            if bar['open'] <= stop: finish_position(bar, bar['open'], 'stop_gap'); return True
+            if bar['low'] <= stop: finish_position(bar, stop, 'smart_stop' if pos['stop_state'].stage_index >= 0 else 'stop_loss'); return True
         else:
-            if bar["open"] >= pos["stop"]:
-                close_position(bar, bar["open"], "stop_gap")
-            elif bar["high"] >= pos["stop"]:
-                close_position(bar, pos["stop"], "stop_loss")
-            elif bar["open"] <= pos["target"]:
-                close_position(bar, bar["open"], "target_gap")
-            elif bar["low"] <= pos["target"]:
-                close_position(bar, pos["target"], "take_profit")
+            if bar['open'] >= stop: finish_position(bar, bar['open'], 'stop_gap'); return True
+            if bar['high'] >= stop: finish_position(bar, stop, 'smart_stop' if pos['stop_state'].stage_index >= 0 else 'stop_loss'); return True
+        return False
 
+    def manage_open_position(bar: dict) -> None:
+        nonlocal cash
+        if position is None: return
+        pos = position
+        side = 1 if pos['direction'] == 'BUY' else -1
+        risk = pos['initial_risk']
+        for stage_index, (target_r, fraction) in enumerate(((1.0, 0.25), (2.0, 0.25))):
+            if stage_index in pos['completed_targets']: continue
+            target = pos['entry_price'] + side * target_r * risk
+            touched = bar['high'] >= target if side == 1 else bar['low'] <= target
+            if not touched: continue
+            qty = min(pos['original_quantity'] * fraction, pos['remaining_quantity'])
+            if qty <= 0: pos['completed_targets'].add(stage_index); continue
+            fill = target * (1 - slippage_rate if side == 1 else 1 + slippage_rate)
+            gross = (fill - pos['entry_price']) * qty * side
+            fee = fill * qty * fee_rate
+            cash += gross - fee
+            pos['realized_gross'] += gross
+            pos['exit_fees'] += fee
+            pos['remaining_quantity'] -= qty
+            pos['completed_targets'].add(stage_index)
+        favorable = bar['high'] if side == 1 else bar['low']
+        update = update_smart_stop(pos['stop_state'], favorable)
+        pos['stop_state'] = update.state
+        new_stop = update.state.current_stop
+        crossed = bar['low'] <= new_stop if side == 1 else bar['high'] >= new_stop
+        if crossed: finish_position(bar, new_stop, 'smart_stop')
     # i is the 5m candle on which a signal was confirmed; execution is at i+1 open.
     for i in range(1, len(five)):
         bar = five[i]
@@ -229,23 +244,19 @@ def run_three_timeframe_backtest(
                     entry_fee = entry * quantity * fee_rate
                     cash -= entry_fee
                     stop = entry - distance if side == 1 else entry + distance
-                    target = entry + distance * reward_r_multiple if side == 1 else entry - distance * reward_r_multiple
+                    stop_state = create_smart_stop("long" if side == 1 else "short", entry, stop, atr_value)
                     position = {
                         "direction": direction, "entry_timestamp": bar["timestamp"],
-                        "entry_price": entry, "quantity": quantity, "entry_fee": entry_fee,
-                        "stop": stop, "target": target,
+                        "entry_price": entry, "original_quantity": quantity,
+                        "remaining_quantity": quantity, "entry_fee": entry_fee,
+                        "initial_risk": distance, "stop_state": stop_state,
+                        "realized_gross": 0.0, "exit_fees": 0.0, "completed_targets": set(),
                     }
-                    # Same-candle stop/target ambiguity resolves conservatively: stop first.
-                    if side == 1:
-                        if bar["low"] <= stop:
-                            close_position(bar, min(bar["open"], stop), "stop_loss_entry_bar")
-                        elif bar["high"] >= target:
-                            close_position(bar, max(bar["open"], target), "take_profit_entry_bar")
+                    stop_hit = bar["low"] <= stop if side == 1 else bar["high"] >= stop
+                    if stop_hit:
+                        finish_position(bar, min(bar["open"], stop) if side == 1 else max(bar["open"], stop), "stop_loss_entry_bar")
                     else:
-                        if bar["high"] >= stop:
-                            close_position(bar, max(bar["open"], stop), "stop_loss_entry_bar")
-                        elif bar["low"] <= target:
-                            close_position(bar, min(bar["open"], target), "take_profit_entry_bar")
+                        manage_open_position(bar)
 
         if position is None:
             mark = cash
@@ -285,7 +296,8 @@ def run_three_timeframe_backtest(
             "سیگنال فقط پس از بسته‌شدن کندل ۵ دقیقه و ورود در بازشدن کندل بعدی محاسبه می‌شود.",
             "کندل‌های ۱h و ۱۵m فقط پس از زمان بسته‌شدنشان قابل استفاده‌اند؛ نگاه به آینده مجاز نیست.",
             "کارمزد و لغزش قیمت اعمال شده‌اند؛ Funding، مالیات، عمق دفتر سفارش و اثر بازار لحاظ نشده‌اند.",
-            "اگر حد ضرر و حد سود در یک کندل لمس شوند، حد ضرر مقدم فرض شده است.",
+            "حد ضرر هوشمند: در +1R سربه‌سر، +2R قفل +1R، +3R قفل +2R و +4R قفل +3R؛ حد ضرر فقط تنگ‌تر می‌شود.",
+            "حد سود پله‌ای: ۲۵٪ در +1R و ۲۵٪ در +2R؛ ۵۰٪ باقی‌مانده با حد ضرر هوشمند مدیریت می‌شود.",
             "دادهٔ محدود API عمومی نوبیتکس و نتیجهٔ تاریخی تضمین‌کنندهٔ عملکرد آینده نیست.",
         ),
     )

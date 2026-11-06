@@ -67,6 +67,38 @@ class ThreeTimeframeBacktestTests(unittest.TestCase):
             )
         self.assertGreater(result.trade_count, 0)
         self.assertTrue(all(isfinite(value) for value in result.equity_curve))
+    def test_long_and_short_staged_exits_account_for_both_partials_and_runner(self):
+        def flat_bars(count, seconds):
+            return [Bar(i * seconds, 100.0, 101.0, 99.0, 100.0)
+                    for i in range(count)]
+
+        for direction in ("up", "down"):
+            if direction == "up":
+                trend = SimpleNamespace(direction="up",
+                    last_two_swing_highs=(110.0, 115.0),
+                    last_two_swing_lows=(90.0, 95.0))
+            else:
+                trend = SimpleNamespace(direction="down",
+                    last_two_swing_highs=(110.0, 105.0),
+                    last_two_swing_lows=(90.0, 85.0))
+            five = flat_bars(121, 300)
+            if direction == "up":
+                five[-1] = Bar(120 * 300, 100.0, 109.0, 99.5, 100.0)
+            else:
+                five[-1] = Bar(120 * 300, 100.0, 100.5, 91.0, 100.0)
+            with patch("lili_trader.price_action_backtest.classify_price_action_trend",
+                       return_value=trend):
+                result = run_three_timeframe_backtest(
+                    flat_bars(80, 3600), flat_bars(220, 900), five,
+                    starting_cash=100_000, fee_rate=0.001, slippage_rate=0.0)
+            self.assertEqual(result.trade_count, 1)
+            trade = result.trades[0]
+            self.assertEqual(trade.direction, "BUY" if direction == "up" else "SELL")
+            self.assertAlmostEqual(trade.quantity, 125.0)
+            self.assertAlmostEqual(trade.gross_pnl, 375.0)
+            expected_fees = 25.375 if direction == "up" else 24.625
+            self.assertAlmostEqual(trade.fees, expected_fees)
+            self.assertAlmostEqual(trade.net_pnl, 375.0 - expected_fees)
     def test_downtrend_can_only_create_sell_positions(self):
         hourly = falling_bars(80, 3600, 0)
         fifteen = falling_bars(220, 900, 0)

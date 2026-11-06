@@ -23,14 +23,24 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.price_action_backtest:
+        from pathlib import Path
+        from .history_store import load_history_csv, merge_candle_history
         from .nobitex_data import NobitexAdapter
         from .price_action_backtest import run_three_timeframe_backtest
-        adapter = NobitexAdapter()
-        # Each timeframe is fetched independently from the public, read-only API.
         from .timeframe_resample import extend_fifteen_with_five
-        hourly = adapter.fetch_history(args.symbol, "60", min(args.count, 2000))
-        native_fifteen = adapter.fetch_history(args.symbol, "15", min(args.count, 2000))
-        five = adapter.fetch_history(args.symbol, "5", args.count)
+        adapter = NobitexAdapter()
+        history_dir = Path(__file__).resolve().parents[2] / "data" / "history"
+
+        def load_and_refresh(resolution: str, count: int):
+            path = history_dir / f"{args.symbol}_{resolution}.csv"
+            stored = load_history_csv(path, symbol=args.symbol, resolution=resolution)
+            fresh = adapter.fetch_history(args.symbol, resolution, count)
+            return merge_candle_history(stored, fresh, max_rows=20_000)
+
+        # Stored daily-collected history extends beyond the API's short recent window.
+        hourly = load_and_refresh("60", min(args.count, 2000))
+        native_fifteen = load_and_refresh("15", min(args.count, 2000))
+        five = load_and_refresh("5", args.count)
         fifteen = extend_fifteen_with_five(native_fifteen, five)
         result = run_three_timeframe_backtest(
             hourly, fifteen, five, starting_cash=args.backtest_cash

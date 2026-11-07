@@ -2,7 +2,7 @@ import json
 import unittest
 from urllib.parse import parse_qs, urlparse
 
-from lili_trader.nobitex_data import NobitexAdapter
+from lili_trader.nobitex_data import NobitexAdapter, NobitexDataError
 
 
 class FakeResponse:
@@ -129,9 +129,8 @@ class NobitexPaginationTests(unittest.TestCase):
                 def opener(request, timeout):
                     return FakeResponse(payload([bad_timestamp]))
 
-                with self.assertRaises(Exception) as ctx:
+                with self.assertRaises(NobitexDataError):
                     NobitexAdapter(opener=opener).fetch_recent("BTCIRT", "5", 1)
-                self.assertEqual(type(ctx.exception).__name__, "NobitexDataError")
 
     def test_fetch_history_rejects_more_than_supported_limit(self):
         with self.assertRaises(ValueError):

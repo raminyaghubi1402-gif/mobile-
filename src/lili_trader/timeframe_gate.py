@@ -141,7 +141,12 @@ def evaluate_timeframe_gate(
         structure_event = field(five_minute_structure, "last_event")
         expected_events = ("BOS_UP", "CHOCH_UP") if direction == "up" else ("BOS_DOWN", "CHOCH_DOWN")
         event_index = field(structure_event, "candle_index") if structure_event else None
-        latest_index = five_minute_candle_count - 1 if isinstance(five_minute_candle_count, int) and five_minute_candle_count > 0 else None
+        # bool is a subclass of int in Python; do not let True masquerade
+        # as a one-candle history or candle index.
+        valid_count = type(five_minute_candle_count) is int and five_minute_candle_count > 0
+        latest_index = five_minute_candle_count - 1 if valid_count else None
+        if type(event_index) is not int or event_index < 0:
+            event_index = None
         if (structure_bias != direction or structure_event is None
                 or field(structure_event, "kind") not in expected_events
                 or latest_index is None or event_index != latest_index):

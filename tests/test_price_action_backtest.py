@@ -303,6 +303,48 @@ class ThreeTimeframeBacktestTests(unittest.TestCase):
 
 
 
+    def test_backtest_gate_is_always_strict_and_receives_latest_closed_structure(self):
+        trend = SimpleNamespace(
+            direction="up",
+            last_two_swing_highs=(110.0, 115.0),
+            last_two_swing_lows=(90.0, 95.0),
+        )
+        calls = []
+
+        def capture_gate(hourly, fifteen, five, latest_15m_close, **kwargs):
+            calls.append((hourly, fifteen, five, latest_15m_close, kwargs))
+            return GateDecision("wait_zone", False, "up", "test capture")
+
+        with patch("lili_trader.price_action_backtest.classify_price_action_trend",
+                   return_value=trend), \
+             patch("lili_trader.price_action_backtest.evaluate_timeframe_gate",
+                   side_effect=capture_gate):
+            run_three_timeframe_backtest(
+                rising_bars(40, 3600, 0),
+                rising_bars(80, 900, 0),
+                rising_bars(100, 300, 0),
+                starting_cash=100.0,
+            )
+
+        self.assertTrue(calls)
+        for _, _, _, _, kwargs in calls:
+            self.assertTrue(kwargs["require_entry_confirmation"])
+            self.assertTrue(kwargs["require_structure_confirmation"])
+            self.assertIsNotNone(kwargs["five_minute_structure"])
+            self.assertGreater(kwargs["five_minute_candle_count"], 0)
+            self.assertIsNotNone(kwargs["previous_5m_close"])
+            self.assertIsNotNone(kwargs["latest_5m_close"])
+
+    def test_real_gate_blocks_backtest_when_no_confirmed_entry_zone_exists(self):
+        result = run_three_timeframe_backtest(
+            rising_bars(80, 3600, 0),
+            rising_bars(220, 900, 0),
+            rising_bars(650, 300, 0),
+            starting_cash=100_000,
+        )
+        self.assertEqual(result.trade_count, 0)
+        self.assertGreater(dict(result.gate_counts).get("wait_zone", 0), 0)
+
     def test_trend_classifier_never_receives_unclosed_higher_timeframe_bars(self):
         from lili_trader.price_action_trend import classify_price_action_trend as real_classifier
 

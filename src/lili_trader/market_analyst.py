@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 
 from .price_action_trend import classify_price_action_trend
 from .support_resistance import find_support_resistance
-from .timeframe_gate import evaluate_timeframe_gate
+from .timeframe_gate import evaluate_timeframe_gate, GateDecision
 from .market_regime import classify_market_regime, select_strategy_candidates
 from .market_structure import analyze_market_structure
 
@@ -133,12 +133,34 @@ def analyze_market(symbol: str, candles_by_timeframe: Mapping, *, pivot_window: 
             latest_5m_close=latest_5m_close,
         )
         direction = gate.direction
+
+        # Independent 1h BOS/CHoCH is a structural safety veto, not a
+        # replacement for the existing 1h/15m/5m entry gate. If it contradicts
+        # the intended direction, keep the analysis fail-closed.
+        hourly_structure = frames["1h"].structure
+        structural_conflict = bool(
+            direction == "up" and hourly_structure
+            and (hourly_structure.bias == "down"
+                 or (hourly_structure.last_event
+                     and hourly_structure.last_event.kind == "CHOCH_DOWN"))
+            or direction == "down" and hourly_structure
+            and (hourly_structure.bias == "up"
+                 or (hourly_structure.last_event
+                     and hourly_structure.last_event.kind == "CHOCH_UP"))
+        )
+        if structural_conflict:
+            gate = GateDecision(
+                "structure_conflict", False, direction,
+                "ساختار مستقل ۱ساعته با جهت ستاپ تعارض دارد (BOS/CHoCH)؛ تا رفع تعارض ورود ممنوع."
+            )
+            warnings.append(gate.reason)
+
         try:
             regime = classify_market_regime(_closed(candles_by_timeframe, "1h"), hourly)
             candidates = select_strategy_candidates(regime)
         except (ValueError, TypeError, OverflowError):
             warnings.append("تشخیص رژیم بازار به‌علت دادهٔ ناکافی/نامعتبر متوقف شد.")
-        if gate.allowed and regime and regime.trend == direction:
+        if gate.allowed and not structural_conflict and regime and regime.trend == direction:
             decision = "READY_BUY" if direction == "up" else "READY_SELL"
             confidence = "moderate" if regime.confidence == "moderate" else "low"
         else:

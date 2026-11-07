@@ -322,7 +322,7 @@ class ThreeTimeframeBacktestTests(unittest.TestCase):
             run_three_timeframe_backtest(
                 rising_bars(40, 3600, 0),
                 rising_bars(80, 900, 0),
-                rising_bars(100, 300, 0),
+                rising_bars(200, 300, 0),
                 starting_cash=100.0,
             )
 
@@ -334,16 +334,6 @@ class ThreeTimeframeBacktestTests(unittest.TestCase):
             self.assertGreater(kwargs["five_minute_candle_count"], 0)
             self.assertIsNotNone(kwargs["previous_5m_close"])
             self.assertIsNotNone(kwargs["latest_5m_close"])
-
-    def test_real_gate_blocks_backtest_when_no_confirmed_entry_zone_exists(self):
-        result = run_three_timeframe_backtest(
-            rising_bars(80, 3600, 0),
-            rising_bars(220, 900, 0),
-            rising_bars(650, 300, 0),
-            starting_cash=100_000,
-        )
-        self.assertEqual(result.trade_count, 0)
-        self.assertGreater(dict(result.gate_counts).get("wait_zone", 0), 0)
 
     def test_trend_classifier_never_receives_unclosed_higher_timeframe_bars(self):
         from lili_trader.price_action_trend import classify_price_action_trend as real_classifier

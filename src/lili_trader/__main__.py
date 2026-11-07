@@ -87,8 +87,11 @@ def main() -> None:
             print("هشدار: سه تایم‌فریم بازهٔ زمانی مشترک ندارند.")
         print(f"سرمایهٔ مبنا: {args.backtest_cash:,.2f} {args.backtest_currency} | نرخ USD→IRT: {args.usd_irt_rate or 'ندارد'} | سرمایهٔ محاسباتی: {result.starting_cash:,.2f} IRT")
         if args.backtest_currency == "USD" and args.symbol.upper().endswith("IRT"):
-            print("توجه: نرخ تبدیل ورودی کاربر است؛ منبع و زمان نرخ باید در گزارش آزمایش ثبت شود.")
-        print(f"سود/زیان خالص: {result.net_profit:,.2f} ({result.return_pct:.2f}٪)")
+            print("توجه: سود/زیان خام در واحد IRT بازار گزارش می‌شود؛ منبع و زمان نرخ تبدیل باید جداگانه در گزارش اجرا ثبت شود.")
+        print(f"سود/زیان خالص محاسباتی: {result.net_profit:,.2f} IRT ({result.return_pct:.2f}٪)")
+        if args.backtest_currency == "USD" and args.symbol.upper().endswith("IRT"):
+            print(f"معادل تقریبی سود/زیان به USD با نرخ ورودی همین اجرا: {result.net_profit / args.usd_irt_rate:,.4f} USD")
+            print("توجه: نرخ USDT/IRT فقط پروکسی تقریبی USD/IRT است؛ این معادل ارزش‌گذاری دقیق دلاری نیست.")
         print(f"بیشترین افت سرمایه: {result.max_drawdown_pct:.2f}٪")
         print(f"نرخ برد: {result.win_rate_pct:.2f}٪ | معاملات: {result.trade_count} (BUY={result.buy_count}, SELL={result.sell_count})")
         pf = "نامشخص" if result.profit_factor is None else ("بی‌نهایت/بدون زیان" if result.profit_factor == float("inf") else f"{result.profit_factor:.2f}")

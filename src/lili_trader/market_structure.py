@@ -88,14 +88,18 @@ def analyze_market_structure(candles: Sequence, *, pivot_window: int = 2) -> Str
             (confirmed_highs if s.kind == "high" else confirmed_lows).append(s)
 
         previous_bias = active_bias
-        if len(confirmed_highs) >= 2 and len(confirmed_lows) >= 2:
+        # Seed the initial directional bias from confirmed HH/HL or LH/LL.
+        # Once a trend is established, do not flip it merely because the
+        # newest two pivots look opposite: the protected swing close-break
+        # is the structural confirmation of CHoCH and changes the bias below.
+        if active_bias not in ("up", "down") and len(confirmed_highs) >= 2 and len(confirmed_lows) >= 2:
             h1, h2 = confirmed_highs[-2:]
             l1, l2 = confirmed_lows[-2:]
             if h2.price > h1.price and l2.price > l1.price:
                 active_bias = "up"
             elif h2.price < h1.price and l2.price < l1.price:
                 active_bias = "down"
-            elif active_bias not in ("up", "down"):
+            else:
                 active_bias = "range"
 
         latest_high = confirmed_highs[-1] if confirmed_highs else None

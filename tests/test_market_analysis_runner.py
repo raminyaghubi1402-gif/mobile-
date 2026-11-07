@@ -9,7 +9,10 @@ class MarketAnalysisRunnerTests(unittest.TestCase):
     @patch("lili_trader.market_analysis_runner.NobitexAdapter")
     def test_fetches_required_and_context_timeframes(self, adapter_cls, analyze):
         adapter = adapter_cls.return_value
-        adapter.fetch_history.side_effect = lambda **kwargs: [{\n            "timestamp": 1000, "fetched_at": 1000 + {"60": 3600, "15": 900, "5": 300, "240": 14400, "D": 86400}[kwargs["resolution"]],\n            "close": 1,\n        }]
+        adapter.fetch_history.side_effect = lambda **kwargs: [{
+            "timestamp": 1000, "fetched_at": 1000 + {"60": 3600, "15": 900, "5": 300, "240": 14400, "D": 86400}[kwargs["resolution"]],
+            "close": 1,
+        }]
         analyze.return_value.report_fa = "گزارش تست"
         report = fetch_and_analyze("BTCIRT", count=125)
 

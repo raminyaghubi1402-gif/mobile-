@@ -41,7 +41,7 @@ class NobitexReportTests(unittest.TestCase):
     def test_closed_candles_report_tehran_time_and_live_candle_warning(self):
         first = NobitexCandle(
             "BTCIRT", "60", 36000, 100, 110, 90, 105, 10,
-            fetched_at=43200,
+            fetched_at=42000,
         )
         current = NobitexCandle(
             "BTCIRT", "60", 39600, 105, 112, 100, 108, 12,

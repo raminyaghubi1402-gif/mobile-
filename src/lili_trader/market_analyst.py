@@ -127,7 +127,7 @@ def analyze_market(symbol: str, candles_by_timeframe: Mapping, *, pivot_window: 
         )
         direction = gate.direction
         try:
-            regime = classify_market_regime(rows_15m if False else _closed(candles_by_timeframe, "1h"), hourly)
+            regime = classify_market_regime(_closed(candles_by_timeframe, "1h"), hourly)
             candidates = select_strategy_candidates(regime)
         except (ValueError, TypeError, OverflowError):
             warnings.append("تشخیص رژیم بازار به‌علت دادهٔ ناکافی/نامعتبر متوقف شد.")

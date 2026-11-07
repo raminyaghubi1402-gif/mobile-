@@ -46,6 +46,7 @@ def analyze_market_structure(candles: Sequence, *, pivot_window: int = 2) -> Str
         return StructureAnalysis("unknown", None, (), (), None,
                                  "کندل کافی برای تأیید سوئینگ و شکست ساختار وجود ندارد.")
     rows, prev_ts = [], None
+    timestamped_count = 0
     for c in candles:
         try:
             o, h, low, cl = (float(_value(c, k)) for k in ("open", "high", "low", "close"))
@@ -53,16 +54,25 @@ def analyze_market_structure(candles: Sequence, *, pivot_window: int = 2) -> Str
             raise ValueError("OHLC must be numeric")
         if not all(isfinite(x) and x > 0 for x in (o, h, low, cl)) or h < max(o, cl, low) or low > min(o, cl):
             raise ValueError("invalid OHLC candle")
-        ts = _value(c, "timestamp")
-        if ts is not None:
+        raw_ts = _value(c, "timestamp")
+        ts = None
+        if raw_ts is not None:
+            if isinstance(raw_ts, bool):
+                raise ValueError("timestamp must be an integer Unix/index value")
             try:
-                ts = int(ts)
+                numeric_ts = float(raw_ts)
             except (TypeError, ValueError, OverflowError):
-                raise ValueError("timestamp must be an integer")
+                raise ValueError("timestamp must be an integer") from None
+            if not isfinite(numeric_ts) or numeric_ts < 0 or not numeric_ts.is_integer():
+                raise ValueError("timestamp must be a finite non-negative integer")
+            ts = int(numeric_ts)
             if prev_ts is not None and ts <= prev_ts:
                 raise ValueError("timestamps must be strictly increasing")
             prev_ts = ts
+            timestamped_count += 1
         rows.append((o, h, low, cl, ts))
+    if timestamped_count not in (0, len(rows)):
+        raise ValueError("timestamps must be present on every candle or none")
 
     all_swings = []
     pivots_by_confirmation = {}

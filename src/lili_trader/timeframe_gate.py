@@ -22,6 +22,8 @@ def evaluate_timeframe_gate(
     previous_5m_close=None,
     latest_5m_close=None,
     require_entry_confirmation=True,
+    five_minute_structure=None,
+    five_minute_candle_count=None,
 ):
     """Use 1h for bias, 15m for setup, and a confirmed 5m swing break for entry.
 
@@ -129,6 +131,23 @@ def evaluate_timeframe_gate(
     if not crossed:
         return GateDecision("wait_trigger", False, direction,
                             f"بسته‌شدن ۵ دقیقه هنوز {trigger_name} را تأیید نکرده است.")
+
+    # When the independent structure engine is supplied by the market
+    # analyst, require its BOS/CHoCH to confirm this exact latest closed bar.
+    # This prevents a stale old structure event from authorizing an entry.
+    if five_minute_structure is not None:
+        structure_bias = field(five_minute_structure, "bias")
+        structure_event = field(five_minute_structure, "last_event")
+        expected_events = ("BOS_UP", "CHOCH_UP") if direction == "up" else ("BOS_DOWN", "CHOCH_DOWN")
+        event_index = field(structure_event, "candle_index") if structure_event else None
+        latest_index = five_minute_candle_count - 1 if isinstance(five_minute_candle_count, int) and five_minute_candle_count > 0 else None
+        if (structure_bias != direction or structure_event is None
+                or field(structure_event, "kind") not in expected_events
+                or latest_index is None or event_index != latest_index):
+            return GateDecision(
+                "wait_structure", False, direction,
+                "شکست قیمت دیده شده، اما BOS/CHoCH مستقل ۵ دقیقه روی آخرین کندل بسته‌شده تأیید نشده است."
+            )
 
     if is_pullback:
         reason = "اصلاح ۱۵ دقیقه در ناحیه معتبر قرار گرفته و ۵ دقیقه با شکست ساختار به جهت روند ۱ ساعته برگشته؛ فقط سناریوی فرضی."

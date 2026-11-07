@@ -45,7 +45,7 @@ class NobitexReportTests(unittest.TestCase):
         )
         current = NobitexCandle(
             "BTCIRT", "60", 39600, 105, 112, 100, 108, 12,
-            fetched_at=43200,
+            fetched_at=42000,
         )
         report = format_nobitex_report([first, current])
         self.assertIn("زمان آخرین کندل بسته‌شده", report)

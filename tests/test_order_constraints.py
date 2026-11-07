@@ -38,6 +38,17 @@ class OrderConstraintTests(unittest.TestCase):
         self.assertFalse(result.accepted)
         self.assertEqual(result.reason, "below_minimum_notional")
 
+    def test_rule_values_are_normalized_from_config_strings_and_floats(self):
+        rules = MarketOrderRules("0.01", 0.01, "10")
+        self.assertEqual(rules.min_quantity, Decimal("0.01"))
+        self.assertEqual(rules.quantity_step, Decimal("0.01"))
+        self.assertEqual(rules.min_notional, Decimal("10"))
+        self.assertIsInstance(rules.quantity_step, Decimal)
+
+    def test_invalid_rule_types_fail_with_value_error(self):
+        with self.assertRaises(ValueError):
+            MarketOrderRules(None, Decimal("0.1"), Decimal("1"))
+
     def test_invalid_rules_and_nonfinite_values_rejected(self):
         with self.assertRaises(ValueError):
             MarketOrderRules(Decimal("0"), Decimal("0.1"), Decimal("1"))

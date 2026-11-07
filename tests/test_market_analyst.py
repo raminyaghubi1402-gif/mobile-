@@ -10,8 +10,9 @@ def candles_for(direction="up", count=25):
         centers = [34, 36, 32, 35, 30, 33, 28, 31, 26, 29, 24, 27, 22,
                    25, 20, 23, 18, 21, 16, 19, 14, 17, 12, 15, 10]
     else:
-        centers = [10, 8, 13, 9, 12, 7, 14, 8, 13, 6, 12, 7, 14,
-                   8, 13, 6, 12, 7, 14, 8, 13, 6, 12, 7, 14]
+        # Last confirmed highs fall while lows rise: mixed/ranging structure.
+        centers = [10, 8, 13, 7, 12, 8, 14, 9, 13, 10, 12, 11, 11,
+                   12, 10, 13, 9, 14, 8, 15, 7, 16, 6, 17, 5]
     centers = centers[:count]
     return [
         {"timestamp": i, "open": center, "high": center + 0.3,

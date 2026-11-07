@@ -48,8 +48,11 @@ def analyze_market_structure(candles: Sequence, *, pivot_window: int = 2) -> Str
     rows, prev_ts = [], None
     timestamped_count = 0
     for c in candles:
+        raw_ohlc = tuple(_value(c, k) for k in ("open", "high", "low", "close"))
+        if any(isinstance(value, bool) for value in raw_ohlc):
+            raise ValueError("OHLC must be numeric, not boolean")
         try:
-            o, h, low, cl = (float(_value(c, k)) for k in ("open", "high", "low", "close"))
+            o, h, low, cl = (float(value) for value in raw_ohlc)
         except (TypeError, ValueError, OverflowError):
             raise ValueError("OHLC must be numeric")
         if not all(isfinite(x) and x > 0 for x in (o, h, low, cl)) or h < max(o, cl, low) or low > min(o, cl):

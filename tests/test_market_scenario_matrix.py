@@ -154,7 +154,7 @@ class EndToEndDecisionScenarioMatrix(unittest.TestCase):
                             down_rows["5m"][-2] = dict(down_rows["5m"][-2], close=81.)
                             down_rows["5m"][-1] = dict(down_rows["5m"][-1], close=79.)
                             result = analyze_market("TEST", down_rows, pivot_window=1)
-        self.assertEqual(result.decision, "READY_SELL")
+        self.assertEqual(result.decision, "READY_SELL", f"gate={result.gate}; regime={result.regime}; warnings={result.report_fa}")
         self.assertEqual(result.direction, "down")
 
     def test_range_or_unknown_regime_never_becomes_ready(self):

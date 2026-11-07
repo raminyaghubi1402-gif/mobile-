@@ -8,6 +8,7 @@ from .price_action_trend import classify_price_action_trend
 from .support_resistance import find_support_resistance
 from .timeframe_gate import evaluate_timeframe_gate
 from .market_regime import classify_market_regime, select_strategy_candidates
+from .market_structure import analyze_market_structure
 
 
 @dataclass(frozen=True)
@@ -15,6 +16,7 @@ class FrameResult:
     timeframe: str
     trend: object
     zones: tuple
+    structure: object | None = None
 
 
 @dataclass(frozen=True)
@@ -87,7 +89,12 @@ def analyze_market(symbol: str, candles_by_timeframe: Mapping, *, pivot_window: 
         except (ValueError, TypeError, OverflowError):
             zones = ()
             warnings.append(f"برای {tf} دادهٔ کافی جهت تعیین حمایت/مقاومت وجود ندارد.")
-        frames[tf] = FrameResult(tf, trend, zones)
+        try:
+            structure = analyze_market_structure(rows, pivot_window=pivot_window)
+        except (ValueError, TypeError, OverflowError):
+            structure = None
+            warnings.append(f"تحلیل BOS/CHoCH در {tf} به‌علت دادهٔ نامعتبر متوقف شد.")
+        frames[tf] = FrameResult(tf, trend, zones, structure)
 
     missing = [tf for tf in _REQUIRED if tf not in frames]
     gate = regime = None
@@ -154,6 +161,21 @@ def analyze_market(symbol: str, candles_by_timeframe: Mapping, *, pivot_window: 
             continue
         t = frame.trend
         lines.append(f"- {tf}: {t.label_fa} — {t.reason}")
+        if frame.structure:
+            structure = frame.structure
+            bias_fa = {"up": "صعودی", "down": "نزولی", "range": "رنج", "unknown": "نامشخص"}.get(
+                structure.bias, structure.bias
+            )
+            event = structure.last_event
+            if event:
+                lines.append(
+                    f"  ساختار مستقل: {bias_fa}؛ {event.kind} در کندل {event.candle_index} "
+                    f"روی سطح {event.level:.8g} — {event.description_fa}"
+                )
+            else:
+                lines.append(f"  ساختار مستقل: {bias_fa}؛ BOS/CHoCH تأییدشده‌ای ثبت نشده.")
+        else:
+            lines.append("  ساختار مستقل BOS/CHoCH: قابل محاسبه نیست.")
         if t.direction in ("up", "down"):
             kind = "support" if t.direction == "up" else "resistance"
             relevant = [zone for zone in frame.zones if zone.kind == kind]

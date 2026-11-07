@@ -122,6 +122,35 @@ class MarketStructureTests(unittest.TestCase):
         self.assertEqual(past_a,past_b)
 
 
+    def test_minor_higher_low_does_not_replace_bos_protected_low(self):
+        # BOS above 16 confirms the last higher low (11) as protection.
+        # A later local low at 12 is only a minor pivot; closing at 11.5
+        # must not be mislabeled as CHoCH below the protected level 11.
+        rows=candles_from(
+            [10,12,11,15,13,14,16,15,18,17,19,18],
+            [8,9,7,10,9,12,12,11,13,12,14,10.5],
+            [9,11,10,14,12,13,15,14,17,15,18,11.5])
+        result=analyze_market_structure(rows,pivot_window=1)
+        self.assertTrue(any(e.kind=="BOS_UP" and e.candle_index==8
+                            and e.level==16 for e in result.events))
+        self.assertFalse(any(e.kind=="CHOCH_DOWN" and e.candle_index==11
+                             for e in result.events))
+
+    def test_close_below_bos_protected_low_triggers_choch(self):
+        # Same structure as above, but close below 11 (not merely below
+        # the minor pivot 12): the protected structure must break.
+        rows=candles_from(
+            [10,12,11,15,13,14,16,15,18,17,19,18],
+            [8,9,7,10,9,12,12,11,13,12,14,10],
+            [9,11,10,14,12,13,15,14,17,15,18,10.5])
+        result=analyze_market_structure(rows,pivot_window=1)
+        events=[e for e in result.events if e.kind=="CHOCH_DOWN"]
+        self.assertTrue(events)
+        self.assertEqual(events[-1].level,11)
+        self.assertEqual(events[-1].candle_index,11)
+
+
+
 
 if __name__=="__main__":
     unittest.main()

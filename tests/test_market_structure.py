@@ -1,0 +1,59 @@
+import unittest
+from lili_trader.market_structure import analyze_market_structure
+
+def candles_from(highs, lows, closes=None):
+    rows=[]
+    for i,(h,l) in enumerate(zip(highs,lows)):
+        close=closes[i] if closes else (h+l)/2
+        open_=(h+l)/2
+        rows.append({"timestamp":i,"open":open_,"high":h,"low":l,"close":close})
+    return rows
+
+class MarketStructureTests(unittest.TestCase):
+    def test_insufficient_data_is_unknown(self):
+        result=analyze_market_structure(candles_from([10,11,10],[8,9,8]),pivot_window=1)
+        self.assertEqual(result.bias,"unknown")
+        self.assertIsNone(result.last_event)
+
+    def test_uptrend_close_break_is_bos(self):
+        # Swing highs at indices 1 and 4; later close breaks the second high.
+        rows=candles_from(
+            [10,15,12,13,16,14,15,17,18,19,20],
+            [7,8,9,8,10,9,11,12,13,14,15],
+            [9,14,11,12,15,13,14,16,17,18,19])
+        result=analyze_market_structure(rows,pivot_window=1)
+        self.assertTrue(any(e.kind=="BOS_UP" for e in result.events))
+
+    def test_downtrend_close_break_is_bos_down(self):
+        rows=candles_from(
+            [20,18,19,17,18,16,17,15,14,13,12],
+            [15,10,13,9,12,8,11,7,6,5,4],
+            [18,11,17,10,16,9,15,8,7,6,5])
+        result=analyze_market_structure(rows,pivot_window=1)
+        self.assertTrue(any(e.kind=="BOS_DOWN" for e in result.events))
+
+    def test_wick_only_break_does_not_count(self):
+        rows=candles_from(
+            [10,15,12,13,16,14,15,17,18,19,20],
+            [7,8,9,8,10,9,11,12,13,14,15],
+            [9,14,11,12,15,13,14,16,17,18,19])
+        # Replace the final close with a value below the latest swing high.
+        rows[-1]["high"]=25
+        rows[-1]["close"]=19
+        result=analyze_market_structure(rows,pivot_window=1)
+        self.assertFalse(any(e.kind=="BOS_UP" and e.candle_index==len(rows)-1 for e in result.events))
+
+    def test_invalid_ohlc_rejected(self):
+        rows=candles_from([10,11,10,12,11,13],[8,9,8,10,9,11])
+        rows[2]["low"]=rows[2]["high"]+1
+        with self.assertRaises(ValueError):
+            analyze_market_structure(rows,pivot_window=1)
+
+    def test_nonchronological_timestamps_rejected(self):
+        rows=candles_from([10,11,10,12,11,13],[8,9,8,10,9,11])
+        rows[3]["timestamp"]=rows[2]["timestamp"]
+        with self.assertRaises(ValueError):
+            analyze_market_structure(rows,pivot_window=1)
+
+if __name__=="__main__":
+    unittest.main()

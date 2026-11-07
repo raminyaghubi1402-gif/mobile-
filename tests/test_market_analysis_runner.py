@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from lili_trader.market_analysis_runner import fetch_and_analyze, _closed_only, _is_fresh_closed_history
+from lili_trader.market_analysis_runner import fetch_and_analyze, _closed_only, _is_fresh_closed_history, _has_interval_gaps
 
 
 class MarketAnalysisRunnerTests(unittest.TestCase):
@@ -45,6 +45,19 @@ class MarketAnalysisRunnerTests(unittest.TestCase):
         fresh = {"timestamp": 1000, "fetched_at": 1000 + 900 + 2 * 900}
         self.assertFalse(_is_fresh_closed_history([stale], "15m"))
         self.assertTrue(_is_fresh_closed_history([fresh], "15m"))
+
+    def test_interval_gap_detection_rejects_missing_duplicate_and_malformed_bars(self):
+        duration = 900
+        complete = [{"timestamp": 1000 + i * duration} for i in range(4)]
+        missing = [complete[0], complete[1], complete[3]]
+        duplicate = [complete[0], complete[1], dict(complete[1])]
+        malformed = [complete[0], {"timestamp": 1900.5}]
+        self.assertFalse(_has_interval_gaps(complete, "15m"))
+        self.assertTrue(_has_interval_gaps(missing, "15m"))
+        self.assertTrue(_has_interval_gaps(duplicate, "15m"))
+        self.assertTrue(_has_interval_gaps(malformed, "15m"))
+        self.assertTrue(_has_interval_gaps([{"timestamp": True}], "15m"))
+        self.assertTrue(_has_interval_gaps([{}], "15m"))
 
     def test_missing_freshness_metadata_is_not_trusted(self):
         candle = {"timestamp": 1000}

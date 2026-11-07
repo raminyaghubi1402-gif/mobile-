@@ -29,6 +29,8 @@ def classify_price_action_trend(candles: Sequence, *, pivot_window: int = 2, min
     for candle in candles:
         def get(name):
             raw = candle.get(name) if isinstance(candle, dict) else getattr(candle, name)
+            if isinstance(raw, bool):
+                raise ValueError("OHLC values must be numeric, not boolean")
             value = float(raw)
             if not isfinite(value):
                 raise ValueError("OHLC values must be finite")

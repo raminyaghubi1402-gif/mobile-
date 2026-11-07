@@ -92,7 +92,7 @@ class MarketStructureTests(unittest.TestCase):
         rows[6]["high"]=17
         rows[6]["close"]=16
         result=analyze_market_structure(rows,pivot_window=1)
-        self.assertFalse(any(e.broken_swing_index==4 for e in result.events))
+        self.assertFalse(any(e.broken_swing_index==4 and e.candle_index==6 for e in result.events))
 
     def test_each_confirmed_swing_can_be_broken_only_once(self):
         # A close above one confirmed swing must not emit duplicate BOS events

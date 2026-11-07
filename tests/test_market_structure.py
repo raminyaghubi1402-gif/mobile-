@@ -179,6 +179,20 @@ class MarketStructureTests(unittest.TestCase):
         self.assertFalse(any(e.kind=="CHOCH_DOWN" and e.candle_index==11
                              for e in result.events))
 
+    def test_minor_lower_high_does_not_replace_bos_protected_high(self):
+        # Price-inverted mirror of the minor-HL test: after BOS_DOWN protects
+        # the lower high, a later minor lower high must not move protection.
+        rows=candles_from(
+            [22,21,23,20,21,18,18,19,17,18,16,19.5],
+            [20,18,19,15,17,16,14,15,12,13,11,12],
+            [21,19,20,16,18,17,15,16,13,15,12,18.5])
+        result=analyze_market_structure(rows,pivot_window=1)
+        self.assertTrue(any(e.kind=="BOS_DOWN" and e.candle_index==8
+                            and e.level==14 for e in result.events))
+        self.assertFalse(any(e.kind=="CHOCH_UP" and e.candle_index==11
+                             for e in result.events))
+
+
     def test_close_below_bos_protected_low_triggers_choch(self):
         # Same structure as above, but close below 11 (not merely below
         # the minor pivot 12): the protected structure must break.

@@ -88,14 +88,14 @@ class ProfessionalMarketAnalystTests(unittest.TestCase):
         five_rows[-1] = {"timestamp": 24, "open": 129.0, "high": 132.0,
                          "low": 128.8, "close": 131.0}
         with patch("lili_trader.market_analyst.classify_price_action_trend",
-                   side_effect=(hourly, fifteen, five)), \\
-             patch("lili_trader.market_analyst.find_support_resistance",
-                   return_value=(support,)):
-            result = analyze_market(
-                "BTCIRT",
-                {"1h": hourly_rows, "15m": fifteen_rows, "5m": five_rows},
-                pivot_window=1,
-            )
+                   side_effect=(hourly, fifteen, five)):
+            with patch("lili_trader.market_analyst.find_support_resistance",
+                       return_value=(support,)):
+                result = analyze_market(
+                    "BTCIRT",
+                    {"1h": hourly_rows, "15m": fifteen_rows, "5m": five_rows},
+                    pivot_window=1,
+                )
         self.assertEqual(result.decision, "READY_BUY")
         self.assertTrue(result.gate.allowed)
         self.assertEqual(result.gate.direction, "up")

@@ -15,6 +15,7 @@ from .timeframe_gate import evaluate_timeframe_gate
 from .smart_stop import create_smart_stop, update_smart_stop
 from .support_resistance import find_support_resistance
 from .market_regime import classify_market_regime, select_strategy_candidates
+from .market_structure import analyze_market_structure
 
 
 @dataclass(frozen=True)
@@ -288,10 +289,49 @@ def run_three_timeframe_backtest(
                     fifteen[max(0, fifteen_closed_count - trend_lookback):fifteen_closed_count]
                 )
                 f_trend = classify_price_action_trend(closed_five)
+                # Build the entry setup only from candles that are closed at
+                # signal_close_time. A BUY needs price to revisit confirmed
+                # support; a SELL needs a revisit of confirmed resistance.
+                closed_15m = fifteen[max(0, fifteen_closed_count - trend_lookback):fifteen_closed_count]
+                setup_direction = h_trend.direction
+                setup_zone_touched = False
+                if setup_direction in ("up", "down"):
+                    wanted_zone = "support" if setup_direction == "up" else "resistance"
+                    zone_sources = (
+                        hourly[max(0, hourly_closed_count - trend_lookback):hourly_closed_count],
+                        closed_15m,
+                    )
+                    for zone_candles in zone_sources:
+                        try:
+                            setup_zones = find_support_resistance(
+                                zone_candles, pivot_window=3,
+                                atr_period=min(14, len(zone_candles) - 1),
+                                min_touches=2, max_zones=6,
+                            )
+                        except (ValueError, TypeError, OverflowError):
+                            continue
+                        if any(
+                            zone.kind == wanted_zone
+                            and signal_bar["low"] <= zone.upper
+                            and signal_bar["high"] >= zone.lower
+                            for zone in setup_zones
+                        ):
+                            setup_zone_touched = True
+                            break
+
+                # Independent structure engine: a 5m trigger is valid only if
+                # BOS/CHoCH is confirmed on the latest closed 5m candle.
+                five_structure = analyze_market_structure(closed_five, pivot_window=2)
                 decision = evaluate_timeframe_gate(
                     h_trend, m_trend, f_trend,
                     fifteen[fifteen_closed_count - 1]["close"],
-                    require_entry_confirmation=False,
+                    setup_zone_touched=setup_zone_touched,
+                    previous_5m_close=closed_five[-2]["close"],
+                    latest_5m_close=closed_five[-1]["close"],
+                    require_entry_confirmation=True,
+                    five_minute_structure=five_structure,
+                    five_minute_candle_count=len(closed_five),
+                    require_structure_confirmation=True,
                 )
                 # Regime-first gate: classify only after the full 20 closed
                 # hourly candles required by the regime classifier are available.

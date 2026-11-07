@@ -123,7 +123,9 @@ def analyze_market_structure(candles: Sequence, *, pivot_window: int = 2) -> Str
                   "BREAK_UP":"شکست سقف؛ جهت قبلی هنوز قطعی نیست"}[kind]
             events.append(StructureEvent(kind, protected_high.price, i, ts, protected_high.index, close, fa))
             broken.add(protected_high.index)
-            active_bias = "up"
+            # Neutral range breaks are events, not trend confirmation.
+            if kind != "BREAK_UP":
+                active_bias = "up"
             if confirmed_lows:
                 protected_low = confirmed_lows[-1]
         elif protected_low and close < protected_low.price and protected_low.index not in broken:
@@ -133,7 +135,9 @@ def analyze_market_structure(candles: Sequence, *, pivot_window: int = 2) -> Str
                   "BREAK_DOWN":"شکست کف؛ جهت قبلی هنوز قطعی نیست"}[kind]
             events.append(StructureEvent(kind, protected_low.price, i, ts, protected_low.index, close, fa))
             broken.add(protected_low.index)
-            active_bias = "down"
+            # Neutral range breaks are events, not trend confirmation.
+            if kind != "BREAK_DOWN":
+                active_bias = "down"
             if confirmed_highs:
                 protected_high = confirmed_highs[-1]
 

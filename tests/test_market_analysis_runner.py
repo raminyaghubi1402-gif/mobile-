@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from lili_trader.market_analysis_runner import fetch_and_analyze, _closed_only
+from lili_trader.market_analysis_runner import fetch_and_analyze, _closed_only, _is_fresh_closed_history
 
 
 class MarketAnalysisRunnerTests(unittest.TestCase):
@@ -35,6 +35,17 @@ class MarketAnalysisRunnerTests(unittest.TestCase):
                        "open": 10, "high": 11, "low": 9, "close": 10}
             result = _closed_only([closed, forming], timeframe)
             self.assertEqual(result, [closed], timeframe)
+
+    def test_stale_closed_candles_are_rejected(self):
+        # 15m candle ended 4 intervals ago; too old for a fresh analysis.
+        stale = {"timestamp": 1000, "fetched_at": 1000 + 900 + 4 * 900}
+        fresh = {"timestamp": 1000, "fetched_at": 1000 + 900 + 2 * 900}
+        self.assertFalse(_is_fresh_closed_history([stale], "15m"))
+        self.assertTrue(_is_fresh_closed_history([fresh], "15m"))
+
+    def test_missing_freshness_metadata_is_not_trusted(self):
+        candle = {"timestamp": 1000}
+        self.assertFalse(_is_fresh_closed_history([candle], "1h"))
 
     def test_keeps_custom_candles_without_fetch_metadata(self):
         candle = {"open": 10, "high": 11, "low": 9, "close": 10}

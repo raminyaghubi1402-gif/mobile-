@@ -108,5 +108,16 @@ class ProfessionalMarketAnalystTests(unittest.TestCase):
         self.assertEqual(result.regime.trend, "unknown")
 
 
+    def test_market_structure_is_attached_to_each_timeframe_report(self):
+        up = candles_for("up")
+        result = analyze_market(
+            "BTCIRT", {"1h": up, "15m": up, "5m": up}, pivot_window=1
+        )
+        frames = {frame.timeframe: frame for frame in result.frames}
+        for timeframe in ("1h", "15m", "5m"):
+            self.assertIsNotNone(frames[timeframe].structure)
+        self.assertIn("ساختار مستقل", result.report_fa)
+
+
 if __name__ == "__main__":
     unittest.main()

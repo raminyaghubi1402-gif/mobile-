@@ -66,7 +66,9 @@ jobs:
         run: |
           set -o pipefail
           RATE="$(cat usdtirt-rate.txt)"
-          PYTHONPATH=src python -m lili_trader --price-action-backtest --sr-diagnostic --symbol ${{ matrix.symbol }} --count 5000 --backtest-cash 10 --backtest-currency USD --usd-irt-rate "$RATE" 2>&1 | tee nobitex-backtest-report.txt
+          cat usdtirt-rate-meta.txt > nobitex-backtest-report.txt
+          echo "Note: USDTIRT midpoint is a Tether-to-IRT proxy, not a guaranteed USD/IRT rate." >> nobitex-backtest-report.txt
+          PYTHONPATH=src python -m lili_trader --price-action-backtest --sr-diagnostic --symbol ${{ matrix.symbol }} --count 5000 --backtest-cash 10 --backtest-currency USD --usd-irt-rate "$RATE" 2>&1 | tee -a nobitex-backtest-report.txt
       - name: Save report
         if: always()
         uses: actions/upload-artifact@v4

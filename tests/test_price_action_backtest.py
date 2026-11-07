@@ -7,6 +7,13 @@ from unittest.mock import patch
 from lili_trader.price_action_backtest import (
     run_three_timeframe_backtest, _estimated_stop_risk_per_unit,
 )
+from lili_trader.timeframe_gate import GateDecision
+
+
+def ready_gate(hourly, fifteen, five, latest_15m_close, **kwargs):
+    # Isolate execution/risk mechanics from the real entry gate. Strict gate
+    # wiring is covered by a separate integration test below.
+    return GateDecision("ready", True, hourly.direction, "test execution fixture")
 
 
 @dataclass
@@ -76,7 +83,9 @@ class ThreeTimeframeBacktestTests(unittest.TestCase):
             last_two_swing_lows=(90.0, 95.0),
         )
         with patch("lili_trader.price_action_backtest.classify_price_action_trend",
-                   return_value=trend):
+                   return_value=trend), \
+             patch("lili_trader.price_action_backtest.evaluate_timeframe_gate",
+                   side_effect=ready_gate):
             result = run_three_timeframe_backtest(
                 rising_bars(80, 3600, 0),
                 rising_bars(220, 900, 0),
@@ -105,7 +114,9 @@ class ThreeTimeframeBacktestTests(unittest.TestCase):
             else:
                 five[-1] = Bar(120 * 300, 100.0, 100.5, 91.0, 100.0)
             with patch("lili_trader.price_action_backtest.classify_price_action_trend",
-                       return_value=trend):
+                       return_value=trend), \
+                 patch("lili_trader.price_action_backtest.evaluate_timeframe_gate",
+                       side_effect=ready_gate):
                 result = run_three_timeframe_backtest(
                     flat_bars(80, 3600), flat_bars(220, 900), five,
                     starting_cash=100_000, fee_rate=0.001, slippage_rate=0.0)
@@ -134,7 +145,9 @@ class ThreeTimeframeBacktestTests(unittest.TestCase):
         five[120] = Bar(120 * 300, 100.0, 104.5, 99.5, 104.0)
         five[121] = Bar(121 * 300, 100.2, 100.5, 99.5, 100.0)
         with patch("lili_trader.price_action_backtest.classify_price_action_trend",
-                   return_value=trend):
+                   return_value=trend), \
+             patch("lili_trader.price_action_backtest.evaluate_timeframe_gate",
+                   side_effect=ready_gate):
             result = run_three_timeframe_backtest(
                 flat_bars(80, 3600), flat_bars(220, 900), five,
                 starting_cash=100_000, fee_rate=0.001, slippage_rate=0.0)
@@ -159,7 +172,9 @@ class ThreeTimeframeBacktestTests(unittest.TestCase):
         five = flat_bars(125, 300)
         five[120] = Bar(120 * 300, 100.0, 101.0, 95.0, 100.0)
         with patch("lili_trader.price_action_backtest.classify_price_action_trend",
-                   return_value=trend):
+                   return_value=trend), \
+             patch("lili_trader.price_action_backtest.evaluate_timeframe_gate",
+                   side_effect=ready_gate):
             result = run_three_timeframe_backtest(
                 flat_bars(80, 3600), flat_bars(220, 900), five,
                 starting_cash=100_000, slippage_rate=0.0)
@@ -241,10 +256,18 @@ class ThreeTimeframeBacktestTests(unittest.TestCase):
         overhead_resistance = SimpleNamespace(
             kind="resistance", lower=100.1, upper=101.0,
             midpoint=100.55, touches=2, last_touch_index=10, strength=2.0)
+        zone_call = {"count": 0}
+        def zones_clear_after_first_setup(*args, **kwargs):
+            zone_call["count"] += 1
+            # Each signal checks 1h then 15m. First 15m result has overhead
+            # resistance; subsequent closed histories are clear.
+            return (overhead_resistance,) if zone_call["count"] == 2 else ()
         with patch("lili_trader.price_action_backtest.classify_price_action_trend",
                    return_value=trend), \
+             patch("lili_trader.price_action_backtest.evaluate_timeframe_gate",
+                   side_effect=ready_gate), \
              patch("lili_trader.price_action_backtest.find_support_resistance",
-                   side_effect=[(overhead_resistance,), ()]):
+                   side_effect=zones_clear_after_first_setup):
             result = run_three_timeframe_backtest(
                 flat_bars(80, 3600), flat_bars(220, 900), flat_bars(130, 300),
                 starting_cash=100_000, fee_rate=0.0, slippage_rate=0.0)
@@ -266,6 +289,8 @@ class ThreeTimeframeBacktestTests(unittest.TestCase):
             midpoint=100.55, touches=2, last_touch_index=10, strength=2.0)
         with patch("lili_trader.price_action_backtest.classify_price_action_trend",
                    return_value=trend), \
+             patch("lili_trader.price_action_backtest.evaluate_timeframe_gate",
+                   side_effect=ready_gate), \
              patch("lili_trader.price_action_backtest.find_support_resistance",
                    return_value=(overhead_resistance,)):
             result = run_three_timeframe_backtest(

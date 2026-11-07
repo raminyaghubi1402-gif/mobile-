@@ -40,9 +40,17 @@ def _closed(candles_by_timeframe, timeframe):
     rows = candles_by_timeframe.get(timeframe, ())
     if not isinstance(rows, Sequence) or isinstance(rows, (str, bytes)):
         return ()
-    return tuple(row for row in rows if not (
-        isinstance(row, Mapping) and row.get("is_closed") is False
-    ))
+    # If a caller supplies closure metadata, trust only the explicit boolean
+    # True. False, strings ("true"/"false"), null, and other ambiguous values
+    # are not proof that the candle is closed. Rows without this optional field
+    # remain supported for offline/synthetic analysis; production data is
+    # filtered and freshness-checked by market_analysis_runner.
+    return tuple(
+        row for row in rows
+        if not isinstance(row, Mapping)
+        or "is_closed" not in row
+        or row.get("is_closed") is True
+    )
 
 
 def _candle_value(candle, name):

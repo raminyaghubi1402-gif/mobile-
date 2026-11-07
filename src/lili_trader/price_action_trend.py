@@ -24,6 +24,7 @@ def classify_price_action_trend(candles: Sequence, *, pivot_window: int = 2, min
                           "برای تشخیص ساختار بازار کندل کافی وجود ندارد.")
     rows = []
     previous_timestamp = None
+    timestamped_count = 0
     for candle in candles:
         def get(name):
             raw = candle.get(name) if isinstance(candle, dict) else getattr(candle, name)
@@ -32,15 +33,28 @@ def classify_price_action_trend(candles: Sequence, *, pivot_window: int = 2, min
                 raise ValueError("OHLC values must be finite")
             return value
         high, low, open_, close = get("high"), get("low"), get("open"), get("close")
-        timestamp = candle.get("timestamp") if isinstance(candle, dict) else getattr(candle, "timestamp", None)
+        raw_timestamp = candle.get("timestamp") if isinstance(candle, dict) else getattr(candle, "timestamp", None)
+        timestamp = None
         if low <= 0 or high < low or high < max(open_, close) or low > min(open_, close):
             raise ValueError("invalid OHLC candle")
-        if timestamp is not None:
-            timestamp = int(timestamp)
+        if raw_timestamp is not None:
+            if isinstance(raw_timestamp, bool):
+                raise ValueError("timestamp must be an integer Unix/index value")
+            try:
+                numeric_timestamp = float(raw_timestamp)
+            except (TypeError, ValueError, OverflowError):
+                raise ValueError("timestamp must be an integer") from None
+            if (not isfinite(numeric_timestamp) or numeric_timestamp < 0
+                    or not numeric_timestamp.is_integer()):
+                raise ValueError("timestamp must be a finite non-negative integer")
+            timestamp = int(numeric_timestamp)
             if previous_timestamp is not None and timestamp <= previous_timestamp:
                 raise ValueError("candles must be strictly chronological")
             previous_timestamp = timestamp
+            timestamped_count += 1
         rows.append((high, low, close))
+    if timestamped_count not in (0, len(rows)):
+        raise ValueError("timestamps must be present on every candle or none")
     highs, lows = [], []
     for i in range(pivot_window, len(rows) - pivot_window):
         h, low, _ = rows[i]

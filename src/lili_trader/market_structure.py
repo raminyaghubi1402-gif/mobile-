@@ -87,36 +87,36 @@ def analyze_market_structure(candles: Sequence, *, pivot_window: int = 2) -> Str
         for s in pivots_by_confirmation.get(i, ()):
             (confirmed_highs if s.kind == "high" else confirmed_lows).append(s)
 
+        previous_bias = active_bias
         if len(confirmed_highs) >= 2 and len(confirmed_lows) >= 2:
             h1, h2 = confirmed_highs[-2:]
             l1, l2 = confirmed_lows[-2:]
-            highs_higher = h2.price > h1.price
-            highs_lower = h2.price < h1.price
-            lows_higher = l2.price > l1.price
-            lows_lower = l2.price < l1.price
-            if highs_higher and lows_higher:
+            if h2.price > h1.price and l2.price > l1.price:
                 active_bias = "up"
-            elif highs_lower and lows_lower:
+            elif h2.price < h1.price and l2.price < l1.price:
                 active_bias = "down"
-            else:
-                # Mixed swings cannot establish a new direction. Once a trend
-                # has been structurally established, retain its bias until a
-                # protected swing is broken (CHoCH); otherwise reversals get
-                # mislabeled as neutral BREAK events.
-                if active_bias not in ("up", "down"):
-                    active_bias = "range"
+            elif active_bias not in ("up", "down"):
+                active_bias = "range"
 
         latest_high = confirmed_highs[-1] if confirmed_highs else None
         latest_low = confirmed_lows[-1] if confirmed_lows else None
-        if active_bias == "up":
+
+        # When a directional structure is first established (or changes
+        # direction), seed its protected swing from the confirmed pivot.
+        # Otherwise a range-era pivot can remain protected forever and hide
+        # the real HL/LH reversal level from CHoCH detection.
+        if active_bias != previous_bias and active_bias == "up":
+            protected_low = latest_low or protected_low
             protected_high = latest_high or protected_high
-            # Keep the last protected HL until a new BOS confirms the next
-            # structural leg. A merely confirmed minor HL is not enough.
+        elif active_bias != previous_bias and active_bias == "down":
+            protected_high = latest_high or protected_high
+            protected_low = latest_low or protected_low
+        elif active_bias == "up":
+            protected_high = latest_high or protected_high
             if protected_low is None and latest_low:
                 protected_low = latest_low
         elif active_bias == "down":
             protected_low = latest_low or protected_low
-            # Symmetric rule: keep the protected LH until a new bearish BOS.
             if protected_high is None and latest_high:
                 protected_high = latest_high
         else:
@@ -131,7 +131,6 @@ def analyze_market_structure(candles: Sequence, *, pivot_window: int = 2) -> Str
                   "BREAK_UP":"شکست سقف؛ جهت قبلی هنوز قطعی نیست"}[kind]
             events.append(StructureEvent(kind, protected_high.price, i, ts, protected_high.index, close, fa))
             broken.add(protected_high.index)
-            # Neutral range breaks are events, not trend confirmation.
             if kind != "BREAK_UP":
                 active_bias = "up"
             if confirmed_lows:
@@ -143,7 +142,6 @@ def analyze_market_structure(candles: Sequence, *, pivot_window: int = 2) -> Str
                   "BREAK_DOWN":"شکست کف؛ جهت قبلی هنوز قطعی نیست"}[kind]
             events.append(StructureEvent(kind, protected_low.price, i, ts, protected_low.index, close, fa))
             broken.add(protected_low.index)
-            # Neutral range breaks are events, not trend confirmation.
             if kind != "BREAK_DOWN":
                 active_bias = "down"
             if confirmed_highs:

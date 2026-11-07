@@ -10,6 +10,13 @@ def candles_from(highs, lows, closes=None):
     return rows
 
 class MarketStructureTests(unittest.TestCase):
+    def test_pivot_window_must_be_a_positive_integer(self):
+        rows = candles_from([10,11,10,12,11,13],[8,9,8,10,9,11])
+        for invalid in (True, 1.0, 1.5, "1", 0, -1):
+            with self.subTest(pivot_window=invalid):
+                with self.assertRaises(ValueError):
+                    analyze_market_structure(rows, pivot_window=invalid)
+
     def test_insufficient_data_is_unknown(self):
         result=analyze_market_structure(candles_from([10,11,10],[8,9,8]),pivot_window=1)
         self.assertEqual(result.bias,"unknown")

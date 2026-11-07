@@ -103,6 +103,43 @@ def _atr(candles: Sequence[dict], period: int = 14) -> float:
     return value
 
 
+
+def _estimated_stop_risk_per_unit(
+    entry_price: float,
+    stop_price: float,
+    direction: str,
+    fee_rate: float,
+    slippage_rate: float,
+) -> float:
+    """Estimate per-unit loss at the planned stop, including round-trip costs.
+
+    This is a sizing estimate, not a hard loss cap: gaps and market impact can
+    make the actual stop fill worse.
+    """
+    values = (entry_price, stop_price, fee_rate, slippage_rate)
+    if any(not isfinite(value) for value in values):
+        raise ValueError("risk sizing values must be finite")
+    if entry_price <= 0 or stop_price <= 0:
+        raise ValueError("entry and stop prices must be positive")
+    if direction not in ("BUY", "SELL"):
+        raise ValueError("direction must be BUY or SELL")
+    if not 0 <= fee_rate < 0.05 or not 0 <= slippage_rate < 0.05:
+        raise ValueError("fee/slippage rate outside allowed bounds")
+
+    if direction == "BUY":
+        stop_fill = stop_price * (1 - slippage_rate)
+        price_loss = entry_price - stop_fill
+    else:
+        stop_fill = stop_price * (1 + slippage_rate)
+        price_loss = stop_fill - entry_price
+    # Entry is already the modeled entry fill (including entry slippage).
+    costs = entry_price * fee_rate + stop_fill * fee_rate
+    estimated = price_loss + costs
+    if not isfinite(estimated) or estimated <= 0:
+        raise ValueError("estimated stop risk must be positive")
+    return estimated
+
+
 def run_three_timeframe_backtest(
     hourly_candles: Sequence,
     fifteen_minute_candles: Sequence,
@@ -341,7 +378,13 @@ def run_three_timeframe_backtest(
                 entry = raw_entry * (1 + slippage_rate if side == 1 else 1 - slippage_rate)
                 distance = atr_value * stop_atr_multiple
                 risk_cash = cash * risk_fraction
-                quantity = min(risk_cash / distance, cash / (entry * (1 + fee_rate)))
+                stop_price = entry - distance if side == 1 else entry + distance
+                risk_per_unit = _estimated_stop_risk_per_unit(
+                    entry, stop_price, direction, fee_rate, slippage_rate)
+                # Budget planned stop loss plus modeled round-trip fees/slippage.
+                # Gap risk remains unbounded by this estimate and is disclosed.
+                quantity = min(risk_cash / risk_per_unit,
+                               cash / (entry * (1 + fee_rate)))
                 if quantity > 0 and isfinite(quantity):
                     entry_fee = entry * quantity * fee_rate
                     cash -= entry_fee

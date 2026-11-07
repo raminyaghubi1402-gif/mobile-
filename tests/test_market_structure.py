@@ -104,6 +104,28 @@ class MarketStructureTests(unittest.TestCase):
         self.assertEqual(reversal.level,23)
         self.assertEqual(result.bias,"up")
 
+    def test_bos_down_after_bearish_choch_uses_new_confirmed_lower_low(self):
+        rows=candles_from(
+            [8,10,9,12,11,10,9,11,10,9,8],
+            [6,7,5,8,7,8,4,5,3,3.5,2.5],
+            [7,9,6,11,10,9,6,6,5,3.8,2.8])
+        result=analyze_market_structure(rows,pivot_window=1)
+        self.assertTrue(any(e.kind=="CHOCH_DOWN" and e.candle_index==6 for e in result.events))
+        continuation=next(e for e in result.events if e.kind=="BOS_DOWN" and e.candle_index==10)
+        self.assertEqual(continuation.level,3)
+        self.assertEqual(result.bias,"down")
+
+    def test_bos_up_after_bullish_choch_uses_new_confirmed_higher_high(self):
+        rows=candles_from(
+            [24,23,25,22,23,22,26,25,27,26,28],
+            [22,20,21,18,19,20,21,21,22,23,24],
+            [23,21,24,19,20,21,24,24,26,25,27.5])
+        result=analyze_market_structure(rows,pivot_window=1)
+        self.assertTrue(any(e.kind=="CHOCH_UP" and e.candle_index==6 for e in result.events))
+        continuation=next(e for e in result.events if e.kind=="BOS_UP" and e.candle_index==10)
+        self.assertEqual(continuation.level,27)
+        self.assertEqual(result.bias,"up")
+
     def test_close_equal_to_swing_level_is_not_a_break(self):
         rows=candles_from([10,15,12,13,16,14,15,17,18],
                           [7,8,9,8,10,9,11,12,13],

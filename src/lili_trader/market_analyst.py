@@ -133,6 +133,7 @@ def analyze_market(symbol: str, candles_by_timeframe: Mapping, *, pivot_window: 
             latest_5m_close=latest_5m_close,
             five_minute_structure=frames["5m"].structure,
             five_minute_candle_count=len(rows_5m),
+            require_structure_confirmation=True,
         )
         direction = gate.direction
 

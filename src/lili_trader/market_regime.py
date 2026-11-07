@@ -2,7 +2,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from math import isfinite
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 @dataclass(frozen=True)
 class MarketRegime:
@@ -21,22 +21,30 @@ class StrategyCandidate:
     reason: str
 
 def _get(candle, key):
-    raw = candle.get(key) if isinstance(candle, dict) else getattr(candle, key)
-    value = float(raw)
-    if not isfinite(value):
-        raise ValueError("OHLC values must be finite")
+    raw = candle.get(key) if isinstance(candle, Mapping) else getattr(candle, key, None)
+    if isinstance(raw, bool):
+        raise ValueError("OHLC values must be numeric, not boolean")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError, OverflowError):
+        raise ValueError("OHLC values must be numeric") from None
+    if not isfinite(value) or value <= 0:
+        raise ValueError("OHLC values must be finite and positive")
     return value
 
 def classify_market_regime(candles: Sequence, trend_state, *, volatility_window: int = 20) -> MarketRegime:
     """Classify trend, volatility and price location from closed OHLC candles only."""
-    if volatility_window < 10 or not isinstance(candles, Sequence) or len(candles) < volatility_window:
+    if type(volatility_window) is not int or volatility_window < 10:
+        raise ValueError("volatility_window must be an integer >= 10")
+    if (not isinstance(candles, Sequence) or isinstance(candles, (str, bytes))
+            or len(candles) < volatility_window):
         return MarketRegime("unknown", "unknown", "insufficient", "unknown", (), "low",
                            "برای تشخیص رژیم، کندل بسته‌شده کافی نیست.")
     rows = []
     for c in candles[-volatility_window:]:
         high, low, close = (_get(c, k) for k in ("high", "low", "close"))
         open_ = _get(c, "open")
-        if low <= 0 or high < max(open_, close) or low > min(open_, close):
+        if high < max(open_, close) or low > min(open_, close):
             raise ValueError("invalid OHLC")
         rows.append((high, low, close))
     ranges = [(h-l)/cl for h,l,cl in rows if cl > 0]

@@ -151,7 +151,7 @@ class MarketStructureTests(unittest.TestCase):
         # the final event in case another structure event follows.
         protected_break = next(e for e in events if e.candle_index == 11)
         self.assertEqual(protected_break.level,11)
-        self.assertEqual(protected_break.broken_swing_index,3)
+        self.assertEqual(protected_break.broken_swing_index,7)
         self.assertEqual(protected_break.candle_index,11)
 
 

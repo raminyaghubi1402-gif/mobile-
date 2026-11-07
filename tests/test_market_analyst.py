@@ -1,6 +1,6 @@
 import unittest
 from unittest.mock import patch
-from lili_trader.market_analyst import analyze_market
+from lili_trader.market_analyst import analyze_market, _closed
 from lili_trader.market_structure import StructureAnalysis, StructureEvent
 from lili_trader.price_action_trend import TrendState
 from lili_trader.support_resistance import PriceZone
@@ -26,6 +26,20 @@ def candles_for(direction="up", count=25):
 
 
 class ProfessionalMarketAnalystTests(unittest.TestCase):
+
+    def test_closed_filter_rejects_false_or_ambiguous_closure_metadata(self):
+        confirmed = {"timestamp": 1, "is_closed": True}
+        open_candle = {"timestamp": 2, "is_closed": False}
+        string_false = {"timestamp": 3, "is_closed": "false"}
+        string_true = {"timestamp": 4, "is_closed": "true"}
+        missing_flag = {"timestamp": 5}
+
+        result = _closed(
+            {"5m": [confirmed, open_candle, string_false, string_true, missing_flag]},
+            "5m",
+        )
+        self.assertEqual(result, (confirmed, missing_flag))
+
     def test_missing_required_timeframes_fails_closed(self):
         result = analyze_market("BTCIRT", {"1h": [], "15m": [], "5m": []})
         self.assertEqual(result.decision, "WAIT")

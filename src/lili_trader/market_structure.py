@@ -1,8 +1,7 @@
 """Independent market-structure engine: confirmed swings, BOS and CHoCH.
 
-A swing becomes available only after its right-side confirmation candles close.
-Events use candle closes, never wick-only breaks. The event loop is chronological
-and deliberately avoids future-pivot look-ahead.
+Swings become available only after right-side confirmation. Break events use
+candle closes, not wick-only breaches. The chronological loop avoids look-ahead.
 """
 from __future__ import annotations
 from dataclasses import dataclass
@@ -56,7 +55,10 @@ def analyze_market_structure(candles: Sequence, *, pivot_window: int = 2) -> Str
             raise ValueError("invalid OHLC candle")
         ts = _value(c, "timestamp")
         if ts is not None:
-            ts = int(ts)
+            try:
+                ts = int(ts)
+            except (TypeError, ValueError, OverflowError):
+                raise ValueError("timestamp must be an integer")
             if prev_ts is not None and ts <= prev_ts:
                 raise ValueError("timestamps must be strictly increasing")
             prev_ts = ts
@@ -82,26 +84,25 @@ def analyze_market_structure(candles: Sequence, *, pivot_window: int = 2) -> Str
     events, broken = [], set()
 
     for i, row in enumerate(rows):
-        # A pivot is first visible at its confirmation candle, never earlier.
         for s in pivots_by_confirmation.get(i, ()):
-            if s.kind == "high":
-                confirmed_highs.append(s)
-            else:
-                confirmed_lows.append(s)
+            (confirmed_highs if s.kind == "high" else confirmed_lows).append(s)
 
         if len(confirmed_highs) >= 2 and len(confirmed_lows) >= 2:
             h1, h2 = confirmed_highs[-2:]
             l1, l2 = confirmed_lows[-2:]
-            if h2.price > h1.price and l2.price > l1.price:
+            highs_higher = h2.price > h1.price
+            highs_lower = h2.price < h1.price
+            lows_higher = l2.price > l1.price
+            lows_lower = l2.price < l1.price
+            if highs_higher and lows_higher:
                 active_bias = "up"
-            elif h2.price < h1.price and l2.price < l1.price:
+            elif highs_lower and lows_lower:
                 active_bias = "down"
-            elif active_bias == "unknown":
+            else:
+                # Mixed swing progression is not evidence of a directional trend.
+                # Do not carry an old trend bias through a structurally mixed phase.
                 active_bias = "range"
 
-        # Separate the swing being watched for a break from the swing that
-        # protects the trend. In a trend, ordinary newly-confirmed minor pivots
-        # must not silently move the protected opposite-side level.
         latest_high = confirmed_highs[-1] if confirmed_highs else None
         latest_low = confirmed_lows[-1] if confirmed_lows else None
         if active_bias == "up":
@@ -115,7 +116,6 @@ def analyze_market_structure(candles: Sequence, *, pivot_window: int = 2) -> Str
             protected_low = latest_low or protected_low
 
         close, ts = row[3], row[4]
-        # Close beyond protected swing: BOS in current direction, CHoCH against it.
         if protected_high and close > protected_high.price and protected_high.index not in broken:
             kind = "BOS_UP" if active_bias == "up" else "CHOCH_UP" if active_bias == "down" else "BREAK_UP"
             fa = {"BOS_UP":"شکست ساختار صعودی (BOS)",
@@ -124,8 +124,6 @@ def analyze_market_structure(candles: Sequence, *, pivot_window: int = 2) -> Str
             events.append(StructureEvent(kind, protected_high.price, i, ts, protected_high.index, close, fa))
             broken.add(protected_high.index)
             active_bias = "up"
-            # The low that preceded this continuation break now protects the
-            # bullish structure until a later bullish BOS confirms a new one.
             if confirmed_lows:
                 protected_low = confirmed_lows[-1]
         elif protected_low and close < protected_low.price and protected_low.index not in broken:
@@ -136,7 +134,6 @@ def analyze_market_structure(candles: Sequence, *, pivot_window: int = 2) -> Str
             events.append(StructureEvent(kind, protected_low.price, i, ts, protected_low.index, close, fa))
             broken.add(protected_low.index)
             active_bias = "down"
-            # Symmetric protection for a bearish continuation.
             if confirmed_highs:
                 protected_high = confirmed_highs[-1]
 

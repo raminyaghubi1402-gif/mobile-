@@ -86,10 +86,8 @@ def analyze_market_structure(candles: Sequence, *, pivot_window: int = 2) -> Str
         for s in pivots_by_confirmation.get(i, ()):
             if s.kind == "high":
                 confirmed_highs.append(s)
-                protected_high = s
             else:
                 confirmed_lows.append(s)
-                protected_low = s
 
         if len(confirmed_highs) >= 2 and len(confirmed_lows) >= 2:
             h1, h2 = confirmed_highs[-2:]
@@ -101,6 +99,21 @@ def analyze_market_structure(candles: Sequence, *, pivot_window: int = 2) -> Str
             elif active_bias == "unknown":
                 active_bias = "range"
 
+        # Separate the swing being watched for a break from the swing that
+        # protects the trend. In a trend, ordinary newly-confirmed minor pivots
+        # must not silently move the protected opposite-side level.
+        latest_high = confirmed_highs[-1] if confirmed_highs else None
+        latest_low = confirmed_lows[-1] if confirmed_lows else None
+        if active_bias == "up":
+            protected_high = latest_high or protected_high
+            protected_low = protected_low or latest_low
+        elif active_bias == "down":
+            protected_low = latest_low or protected_low
+            protected_high = protected_high or latest_high
+        else:
+            protected_high = latest_high or protected_high
+            protected_low = latest_low or protected_low
+
         close, ts = row[3], row[4]
         # Close beyond protected swing: BOS in current direction, CHoCH against it.
         if protected_high and close > protected_high.price and protected_high.index not in broken:
@@ -111,6 +124,10 @@ def analyze_market_structure(candles: Sequence, *, pivot_window: int = 2) -> Str
             events.append(StructureEvent(kind, protected_high.price, i, ts, protected_high.index, close, fa))
             broken.add(protected_high.index)
             active_bias = "up"
+            # The low that preceded this continuation break now protects the
+            # bullish structure until a later bullish BOS confirms a new one.
+            if confirmed_lows:
+                protected_low = confirmed_lows[-1]
         elif protected_low and close < protected_low.price and protected_low.index not in broken:
             kind = "BOS_DOWN" if active_bias == "down" else "CHOCH_DOWN" if active_bias == "up" else "BREAK_DOWN"
             fa = {"BOS_DOWN":"شکست ساختار نزولی (BOS)",
@@ -119,6 +136,9 @@ def analyze_market_structure(candles: Sequence, *, pivot_window: int = 2) -> Str
             events.append(StructureEvent(kind, protected_low.price, i, ts, protected_low.index, close, fa))
             broken.add(protected_low.index)
             active_bias = "down"
+            # Symmetric protection for a bearish continuation.
+            if confirmed_highs:
+                protected_high = confirmed_highs[-1]
 
     latest = events[-1] if events else None
     reason = (f"آخرین رویداد: {latest.description_fa}؛ شکست با بسته‌شدن کندل تأیید شده است."

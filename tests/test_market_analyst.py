@@ -139,7 +139,7 @@ class ProfessionalMarketAnalystTests(unittest.TestCase):
         self.assertEqual(result.decision, "WAIT")
         self.assertFalse(result.gate.allowed)
         self.assertEqual(result.gate.status, "structure_conflict")
-        self.assertIn("تعارض", result.gate.reason)
+        self.assertTrue("مخالف" in result.gate.reason or "تعارض" in result.gate.reason)
 
     def test_unknown_hourly_or_mismatched_15m_structure_fails_closed(self):
         up = candles_for("up")

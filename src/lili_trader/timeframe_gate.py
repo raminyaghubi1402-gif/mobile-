@@ -24,6 +24,7 @@ def evaluate_timeframe_gate(
     require_entry_confirmation=True,
     five_minute_structure=None,
     five_minute_candle_count=None,
+    require_structure_confirmation=False,
 ):
     """Use 1h for bias, 15m for setup, and a confirmed 5m swing break for entry.
 
@@ -135,7 +136,7 @@ def evaluate_timeframe_gate(
     # When the independent structure engine is supplied by the market
     # analyst, require its BOS/CHoCH to confirm this exact latest closed bar.
     # This prevents a stale old structure event from authorizing an entry.
-    if five_minute_structure is not None:
+    if require_structure_confirmation or five_minute_structure is not None:
         structure_bias = field(five_minute_structure, "bias")
         structure_event = field(five_minute_structure, "last_event")
         expected_events = ("BOS_UP", "CHOCH_UP") if direction == "up" else ("BOS_DOWN", "CHOCH_DOWN")

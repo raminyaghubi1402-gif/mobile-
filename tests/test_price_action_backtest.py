@@ -176,6 +176,29 @@ class ThreeTimeframeBacktestTests(unittest.TestCase):
         result = run_three_timeframe_backtest(hourly, fifteen, five, starting_cash=100_000)
         self.assertEqual(result.trade_count, 0)
 
+    def test_buy_is_blocked_near_confirmed_resistance_zone(self):
+        def flat_bars(count, seconds):
+            return [Bar(i * seconds, 100.0, 101.0, 99.0, 100.0)
+                    for i in range(count)]
+
+        trend = SimpleNamespace(direction="up",
+            last_two_swing_highs=(110.0, 115.0),
+            last_two_swing_lows=(90.0, 95.0))
+        overhead_resistance = SimpleNamespace(
+            kind="resistance", lower=100.1, upper=101.0,
+            midpoint=100.55, touches=2, last_touch_index=10, strength=2.0)
+        with patch("lili_trader.price_action_backtest.classify_price_action_trend",
+                   return_value=trend), \
+             patch("lili_trader.price_action_backtest.find_support_resistance",
+                   return_value=(overhead_resistance,)):
+            result = run_three_timeframe_backtest(
+                flat_bars(80, 3600), flat_bars(220, 900), flat_bars(125, 300),
+                starting_cash=100_000, fee_rate=0.0, slippage_rate=0.0)
+
+        self.assertEqual(result.trade_count, 0)
+        counts = dict(result.gate_counts)
+        self.assertGreater(counts.get("blocked_near_resistance", 0), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

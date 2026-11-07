@@ -21,6 +21,7 @@ def evaluate_timeframe_gate(
     setup_zone_touched=False,
     previous_5m_close=None,
     latest_5m_close=None,
+    require_entry_confirmation=True,
 ):
     """Use 1h for bias, 15m for setup, and a confirmed 5m swing break for entry.
 
@@ -75,6 +76,20 @@ def evaluate_timeframe_gate(
         return GateDecision("wait_setup", False, direction,
                             "ساختار ۱۵ دقیقه رنج یا نامشخص است؛ ستاپ معتبر نداریم.")
     is_pullback = setup_direction != direction
+
+    # The historical backtester can explicitly request its pre-existing
+    # trend-alignment model while its own entry simulator is migrated.
+    # The live/read-only market analyst always uses strict confirmation.
+    if not require_entry_confirmation:
+        if is_pullback:
+            return GateDecision("pullback", False, direction,
+                                "حرکت ۱۵ دقیقه خلاف روند اصلی، اصلاح است؛ مدل قدیمی بک‌تست منتظر هم‌جهتی می‌ماند.")
+        if field(five_minute, "direction") != direction:
+            return GateDecision("wait_trigger", False, direction,
+                                "جهت ۵ دقیقه هنوز ورود هم‌جهت را تأیید نکرده است.")
+        return GateDecision("ready_legacy", True, direction,
+                            "هم‌جهتی ساختارها طبق مدل قدیمی بک‌تست؛ فاقد فیلتر سخت‌گیرانه ناحیه و شکست ساختار.")
+
     if not setup_zone_touched:
         return GateDecision("wait_zone", False, direction,
                             "قیمت هنوز به ناحیه معتبر حمایت/مقاومت یک‌ساعته یا ۱۵ دقیقه نرسیده؛ وسط محدوده ورود ممنوع.")

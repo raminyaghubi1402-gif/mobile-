@@ -88,15 +88,28 @@ class ProfessionalMarketAnalystTests(unittest.TestCase):
                          "low": 128.5, "close": 129.0}
         five_rows[-1] = {"timestamp": 24, "open": 129.0, "high": 132.0,
                          "low": 128.8, "close": 131.0}
+        # The strict analyst gate requires an independent BOS/CHoCH event
+        # on the latest closed 5m candle, not merely mocked price-trend labels.
+        fresh_bos = StructureEvent(
+            "BOS_UP", 130.0, len(five_rows) - 1, 24, 18, 131.0,
+            "شکست ساختار صعودی (BOS)"
+        )
+        hourly_structure = StructureAnalysis("up", None, (), (), 105.0, "hourly up")
+        fifteen_structure = StructureAnalysis("down", None, (), (), 105.0, "15m pullback")
+        five_structure = StructureAnalysis(
+            "up", fresh_bos, (fresh_bos,), (), 131.0, "fresh 5m BOS"
+        )
         with patch("lili_trader.market_analyst.classify_price_action_trend",
                    side_effect=(hourly, fifteen, five)):
-            with patch("lili_trader.market_analyst.find_support_resistance",
-                       return_value=(support,)):
-                result = analyze_market(
-                    "BTCIRT",
-                    {"1h": hourly_rows, "15m": fifteen_rows, "5m": five_rows},
-                    pivot_window=1,
-                )
+            with patch("lili_trader.market_analyst.analyze_market_structure",
+                       side_effect=(hourly_structure, fifteen_structure, five_structure)):
+                with patch("lili_trader.market_analyst.find_support_resistance",
+                           return_value=(support,)):
+                    result = analyze_market(
+                        "BTCIRT",
+                        {"1h": hourly_rows, "15m": fifteen_rows, "5m": five_rows},
+                        pivot_window=1,
+                    )
         self.assertEqual(result.decision, "READY_BUY")
         self.assertTrue(result.gate.allowed)
         self.assertEqual(result.gate.direction, "up")

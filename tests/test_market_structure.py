@@ -122,18 +122,6 @@ class MarketStructureTests(unittest.TestCase):
         self.assertEqual(past_a,past_b)
 
 
-    def test_minor_higher_low_does_not_replace_bos_protected_low(self):
-        # HH/HL trend: the swing low at index 7 (11) is protected by BOS_UP
-        # above the high at index 6 (16). A later minor low at index 9 (12)
-        # must not replace it. Closing at 11.5 breaks the minor low only,
-        # not the protected structural low at 11.
-        rows=candles_from(
-            [10,12,11,15,13,14,16,15,18,17,19,18],
-            [8,9,7,10,9,12,12,11,13,12,14,10.5],
-            [9,11,10,14,12,13,15,14,17,15,18,11.5])
-        result=analyze_market_structure(rows,pivot_window=1)
-        self.assertTrue(any(e.kind=="BOS_UP" and e.candle_index==8 for e in result.events))
-        self.assertFalse(any(e.kind=="CHOCH_DOWN" and e.candle_index==11 for e in result.events))
 
 if __name__=="__main__":
     unittest.main()

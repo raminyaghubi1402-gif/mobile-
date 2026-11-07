@@ -66,7 +66,10 @@ class MarketStructureTests(unittest.TestCase):
                           [9,14,11,12,15,13,14,16,17])
         changed=[dict(c) for c in base]
         # Mutate only the future tail; already-recorded event chronology must remain.
-        changed.extend(candles_from([30,31,32],[20,21,22],[29,30,31]))
+        tail=candles_from([30,31,32],[20,21,22],[29,30,31])
+        for row in tail:
+            row["timestamp"] += len(base)
+        changed.extend(tail)
         a=analyze_market_structure(base,pivot_window=1)
         b=analyze_market_structure(changed,pivot_window=1)
         past_a=[(e.kind,e.candle_index,e.level,e.broken_swing_index) for e in a.events]

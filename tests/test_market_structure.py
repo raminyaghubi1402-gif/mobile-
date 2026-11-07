@@ -87,8 +87,10 @@ class MarketStructureTests(unittest.TestCase):
         rows=candles_from([10,15,12,13,16,14,15,17,18],
                           [7,8,9,8,10,9,11,12,13],
                           [9,14,11,12,15,13,14,16,17])
-        # The high at index 4 is confirmed at index 5. Equality is not a break.
-        rows[5]["close"]=16
+        # The high at index 4 is confirmed at index 5. At index 6,
+        # close equals that level while the candle's high remains valid.
+        rows[6]["high"]=17
+        rows[6]["close"]=16
         result=analyze_market_structure(rows,pivot_window=1)
         self.assertFalse(any(e.broken_swing_index==4 for e in result.events))
 

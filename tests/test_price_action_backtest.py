@@ -248,5 +248,38 @@ class ThreeTimeframeBacktestTests(unittest.TestCase):
         self.assertGreater(counts.get("blocked_near_resistance", 0), 0)
 
 
+
+    def test_trend_classifier_never_receives_unclosed_higher_timeframe_bars(self):
+        from lili_trader.price_action_trend import classify_price_action_trend as real_classifier
+
+        hourly = rising_bars(80, 3600, 0)
+        fifteen = rising_bars(220, 900, 0)
+        five = rising_bars(650, 300, 0)
+        observed = []
+
+        def spy(candles):
+            rows = list(candles)
+            observed.append((rows, real_classifier(rows)))
+            return observed[-1][1]
+
+        with patch("lili_trader.price_action_backtest.classify_price_action_trend",
+                   side_effect=spy):
+            run_three_timeframe_backtest(hourly, fifteen, five, starting_cash=100_000)
+
+        self.assertTrue(observed, "classifier should be exercised")
+        # Each 5m signal is confirmed at the previous candle's close.
+        # Classifier call order is hourly, 15m, then 5m for each evaluated signal.
+        for call_index, (rows, _trend) in enumerate(observed):
+            timeframe_seconds = 3600 if call_index % 3 == 0 else (
+                900 if call_index % 3 == 1 else 300)
+            signal_index = call_index // 3
+            signal_close_time = five[signal_index + 1]["timestamp"]
+            self.assertTrue(rows)
+            self.assertLessEqual(
+                max(row["timestamp"] + timeframe_seconds for row in rows),
+                signal_close_time,
+                "classifier received a candle before that candle was fully closed",
+            )
+
 if __name__ == "__main__":
     unittest.main()

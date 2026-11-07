@@ -280,14 +280,18 @@ def run_three_timeframe_backtest(
                     direction = "BUY" if decision.direction == "up" else "SELL"
                     for zone in zones:
                         if direction == "BUY" and zone.kind == "resistance":
-                            distance_to_zone = max(0.0, zone.lower - signal_price)
-                            if distance_to_zone <= buffer:
+                            distance_to_zone = zone.lower - signal_price
+                            # Only block if resistance is still ahead of price.
+                            # A price already inside/above the zone has broken through it.
+                            if 0 <= distance_to_zone <= buffer:
                                 sr_blocked = True
                                 sr_status = "blocked_near_resistance"
                                 break
                         elif direction == "SELL" and zone.kind == "support":
-                            distance_to_zone = max(0.0, signal_price - zone.upper)
-                            if distance_to_zone <= buffer:
+                            distance_to_zone = signal_price - zone.upper
+                            # Only block if support is still below price.
+                            # A price already inside/below the zone has broken through it.
+                            if 0 <= distance_to_zone <= buffer:
                                 sr_blocked = True
                                 sr_status = "blocked_near_support"
                                 break

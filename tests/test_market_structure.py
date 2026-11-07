@@ -60,6 +60,18 @@ class MarketStructureTests(unittest.TestCase):
         # It must not generate a break on the pivot candle itself.
         self.assertFalse(any(e.broken_swing_index==3 and e.candle_index<=4 for e in result.events))
 
+
+    def test_bullish_structure_breaking_protected_low_is_choch_down(self):
+        # Confirm HH/HL first, then close below the protected higher low.
+        rows=candles_from([8,10,9,12,11,10,9],
+                          [6,7,5,8,7,8,4],
+                          [7,9,6,11,10,9,6])
+        result=analyze_market_structure(rows,pivot_window=1)
+        reversal=next(e for e in result.events if e.kind=="CHOCH_DOWN")
+        self.assertEqual(reversal.candle_index,6)
+        self.assertEqual(reversal.level,7)
+        self.assertEqual(result.bias,"down")
+
     def test_changing_future_candles_does_not_rewrite_past_events(self):
         base=candles_from([10,15,12,13,16,14,15,17,18],
                           [7,8,9,8,10,9,11,12,13],

@@ -21,6 +21,20 @@ class PriceActionTrendTests(unittest.TestCase):
     def test_invalid_ohlc_is_rejected(self):
         rows=make_trending("up"); rows[3]["low"]=rows[3]["high"]+1
         with self.assertRaises(ValueError): classify_price_action_trend(rows,pivot_window=1)
+    def test_rejects_fractional_boolean_negative_and_nonfinite_timestamps(self):
+        for invalid_timestamp in (1.5, True, -1, float("nan"), float("inf")):
+            with self.subTest(timestamp=invalid_timestamp):
+                rows = make_trending("up")
+                rows[3]["timestamp"] = invalid_timestamp
+                with self.assertRaises(ValueError):
+                    classify_price_action_trend(rows, pivot_window=1)
+
+    def test_rejects_partially_missing_timestamps(self):
+        rows = make_trending("up")
+        rows[3].pop("timestamp")
+        with self.assertRaises(ValueError):
+            classify_price_action_trend(rows, pivot_window=1)
+
     def test_mixed_structure_is_not_trend(self):
         rows=make_trending("up")
         rows[-3].update(high=9,low=2,open=4,close=5)

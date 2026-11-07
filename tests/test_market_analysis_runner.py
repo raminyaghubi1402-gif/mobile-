@@ -82,7 +82,10 @@ class MarketAnalysisRunnerTests(unittest.TestCase):
             ]
         adapter.fetch_history.side_effect = history
         analyze.return_value.report_fa = "report"
-        self.assertEqual(fetch_and_analyze("BTCIRT", count=10), "report")
+        report = fetch_and_analyze("BTCIRT", count=10)
+        self.assertTrue(report.startswith("report"))
+        self.assertIn("هشدار پیوستگی تاریخچه", report)
+        self.assertIn("5m", report)
         payload = analyze.call_args.args[1]
         self.assertEqual(payload["5m"], [])
         self.assertTrue(payload["1h"])

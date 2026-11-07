@@ -141,6 +141,37 @@ class ProfessionalMarketAnalystTests(unittest.TestCase):
         self.assertEqual(result.gate.status, "structure_conflict")
         self.assertIn("تعارض", result.gate.reason)
 
+    def test_unknown_hourly_or_mismatched_15m_structure_fails_closed(self):
+        up = candles_for("up")
+        hourly = TrendState("up", "صعودی", 105.0, (120.0, 130.0),
+                            (90.0, 100.0), 3, 3, "hourly up")
+        fifteen_down = TrendState("down", "اصلاح نزولی", 105.0, (120.0, 115.0),
+                                  (110.0, 105.0), 3, 3, "15m pullback")
+        five = TrendState("up", "بازگشت صعودی", 131.0, (120.0, 130.0),
+                          (90.0, 95.0), 3, 3, "5m bullish")
+        unknown_hour = StructureAnalysis("unknown", None, (), (), 105.0, "unknown")
+        up_structure = StructureAnalysis("up", None, (), (), 105.0, "up")
+        down_structure = StructureAnalysis("down", None, (), (), 105.0, "down")
+        cases = (
+            (unknown_hour, down_structure, up_structure),
+            (up_structure, up_structure, up_structure),  # 15m trend is down, but structure says up
+        )
+        for structures in cases:
+            with self.subTest(structures=structures):
+                with patch("lili_trader.market_analyst.classify_price_action_trend",
+                           side_effect=(hourly, fifteen_down, five)):
+                    with patch("lili_trader.market_analyst.analyze_market_structure",
+                               side_effect=structures):
+                        with patch("lili_trader.market_analyst.find_support_resistance",
+                                   return_value=()):
+                            result = analyze_market(
+                                "BTCIRT", {"1h": up, "15m": up, "5m": up},
+                                pivot_window=1,
+                            )
+                self.assertEqual(result.decision, "WAIT")
+                self.assertFalse(result.gate.allowed)
+                self.assertEqual(result.gate.status, "structure_conflict")
+
     def test_market_structure_is_attached_to_each_timeframe_report(self):
         up = candles_for("up")
         result = analyze_market(

@@ -12,6 +12,17 @@ def make_trending(direction):
              "close":lo+(hi-lo)*.6} for i,(hi,lo) in enumerate(zip(highs,lows))]
 
 class PriceActionTrendTests(unittest.TestCase):
+    def test_swing_parameters_must_be_integers_in_range(self):
+        rows = make_trending("up")
+        for invalid in (True, 1.0, 1.5, "1", 0, -1):
+            with self.subTest(pivot_window=invalid):
+                with self.assertRaises(ValueError):
+                    classify_price_action_trend(rows, pivot_window=invalid)
+        for invalid in (True, 2.0, 2.5, "2", 1, 0):
+            with self.subTest(min_swings=invalid):
+                with self.assertRaises(ValueError):
+                    classify_price_action_trend(rows, min_swings=invalid)
+
     def test_higher_highs_and_higher_lows_are_bullish(self):
         self.assertEqual(classify_price_action_trend(make_trending("up"),pivot_window=1).direction,"up")
     def test_lower_highs_and_lower_lows_are_bearish(self):

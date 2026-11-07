@@ -282,5 +282,49 @@ class ThreeTimeframeBacktestTests(unittest.TestCase):
             run_three_timeframe_backtest(hourly, fifteen, five, starting_cash=100_000)
 
         self.assertGreaterEqual(len(calls), 3)
+
+    def test_future_extension_cannot_change_entries_before_cutoff(self):
+        hourly = rising_bars(80, 3600, 0)
+        fifteen = rising_bars(220, 900, 0)
+        five = rising_bars(650, 300, 0)
+        cutoff = 120 * 300
+
+        kwargs = dict(starting_cash=100_000, fee_rate=0.0, slippage_rate=0.0)
+        baseline = run_three_timeframe_backtest(hourly, fifteen, five, **kwargs)
+
+        # Add deliberately extreme future-only candles after the cutoff.
+        # Earlier candle history is byte-for-byte unchanged.
+        hourly_extended = hourly + [
+            Bar(hourly[-1].timestamp + (i + 1) * 3600,
+                1_000_000.0, 1_000_010.0, 999_990.0, 1_000_005.0)
+            for i in range(20)
+        ]
+        fifteen_extended = fifteen + [
+            Bar(fifteen[-1].timestamp + (i + 1) * 900,
+                1.0, 1.1, 0.9, 1.05)
+            for i in range(80)
+        ]
+        five_extended = five + [
+            Bar(five[-1].timestamp + (i + 1) * 300,
+                0.01, 0.02, 0.005, 0.015)
+            for i in range(200)
+        ]
+        extended = run_three_timeframe_backtest(
+            hourly_extended, fifteen_extended, five_extended, **kwargs
+        )
+
+        def early_entries(result):
+            return [
+                (trade.direction, trade.entry_timestamp, trade.entry_price, trade.quantity)
+                for trade in result.trades
+                if trade.entry_timestamp < cutoff
+            ]
+
+        self.assertEqual(
+            early_entries(baseline),
+            early_entries(extended),
+            "Future candles changed trade entries before the cutoff",
+        )
+
 if __name__ == "__main__":
     unittest.main()

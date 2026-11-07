@@ -68,6 +68,35 @@ class TimeframeGateTests(unittest.TestCase):
         self.assertTrue(result.allowed)
         self.assertEqual(result.direction, "down")
 
+    def test_fresh_independent_5m_bos_on_latest_bar_allows_entry(self):
+        from types import SimpleNamespace
+        event = SimpleNamespace(kind="BOS_UP", candle_index=24)
+        structure = SimpleNamespace(bias="up", last_event=event)
+        result = evaluate_timeframe_gate(
+            self.up, self.down, self.up, 105, setup_zone_touched=True,
+            previous_5m_close=129, latest_5m_close=131,
+            five_minute_structure=structure, five_minute_candle_count=25,
+        )
+        self.assertTrue(result.allowed)
+        self.assertEqual(result.status, "ready")
+
+    def test_stale_or_wrong_direction_5m_structure_event_blocks_entry(self):
+        from types import SimpleNamespace
+        cases = (
+            SimpleNamespace(bias="up", last_event=SimpleNamespace(kind="BOS_UP", candle_index=23)),
+            SimpleNamespace(bias="down", last_event=SimpleNamespace(kind="BOS_UP", candle_index=24)),
+            SimpleNamespace(bias="up", last_event=SimpleNamespace(kind="CHOCH_DOWN", candle_index=24)),
+        )
+        for structure in cases:
+            with self.subTest(structure=structure):
+                result = evaluate_timeframe_gate(
+                    self.up, self.down, self.up, 105, setup_zone_touched=True,
+                    previous_5m_close=129, latest_5m_close=131,
+                    five_minute_structure=structure, five_minute_candle_count=25,
+                )
+                self.assertEqual(result.status, "wait_structure")
+                self.assertFalse(result.allowed)
+
     def test_15m_break_of_hourly_swing_invalidates_setup(self):
         result = evaluate_timeframe_gate(
             self.up, self.down, self.up, 99, setup_zone_touched=True,

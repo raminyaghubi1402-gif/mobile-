@@ -286,8 +286,11 @@ def run_three_timeframe_backtest(
                     fifteen[max(0, fifteen_closed_count - trend_lookback):fifteen_closed_count]
                 )
                 f_trend = classify_price_action_trend(closed_five)
-                decision = evaluate_timeframe_gate(h_trend, m_trend, f_trend,
-                                                   fifteen[fifteen_closed_count - 1]["close"])
+                decision = evaluate_timeframe_gate(
+                    h_trend, m_trend, f_trend,
+                    fifteen[fifteen_closed_count - 1]["close"],
+                    require_entry_confirmation=False,
+                )
                 # Regime-first gate: classify only after the full 20 closed
                 # hourly candles required by the regime classifier are available.
                 # During warm-up, the existing price-action MTF gate already

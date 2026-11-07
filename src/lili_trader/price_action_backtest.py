@@ -51,6 +51,8 @@ class ThreeTimeframeBacktestResult:
 
 def _number(candle, field: str) -> float:
     raw = candle.get(field) if isinstance(candle, dict) else getattr(candle, field)
+    if isinstance(raw, bool):
+        raise ValueError("candle OHLC values must not be boolean")
     value = float(raw)
     if not isfinite(value):
         raise ValueError("candle contains non-finite values")
@@ -59,10 +61,9 @@ def _number(candle, field: str) -> float:
 
 def _timestamp(candle) -> int:
     raw = candle.get("timestamp") if isinstance(candle, dict) else getattr(candle, "timestamp")
-    value = int(raw)
-    if value < 0:
-        raise ValueError("candle timestamp must be non-negative")
-    return value
+    if type(raw) is not int or raw < 0:
+        raise ValueError("candle timestamp must be a non-negative integer")
+    return raw
 
 
 def _validated(candles: Sequence, timeframe_seconds: int, name: str) -> list[dict]:
@@ -173,8 +174,9 @@ def run_three_timeframe_backtest(
         raise ValueError("fee_rate outside allowed bounds")
     if not isfinite(slippage_rate) or not 0 <= slippage_rate < 0.05:
         raise ValueError("slippage_rate outside allowed bounds")
-    if trend_lookback < 20 or atr_period < 2:
-        raise ValueError("lookback/ATR period too small")
+    if (type(trend_lookback) is not int or type(atr_period) is not int
+            or trend_lookback < 20 or atr_period < 2):
+        raise ValueError("lookback/ATR period must be integers within safe bounds")
     if (not isfinite(support_resistance_buffer_atr)
             or not 0 <= support_resistance_buffer_atr <= 5):
         raise ValueError("support_resistance_buffer_atr must be between 0 and 5")

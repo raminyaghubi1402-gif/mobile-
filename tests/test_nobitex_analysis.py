@@ -27,6 +27,31 @@ class NobitexReportTests(unittest.TestCase):
         self.assertIn("نوبیتکس", report)
         self.assertIn("توصیهٔ خرید/فروش نیست", report)
         self.assertIn("BTCIRT", report)
+        self.assertIn("داده ناکافی", report)
+
+    def test_open_candle_is_excluded_from_indicator_calculation(self):
+        # The candle opened at 10:00 and was fetched at 10:30: it is not closed.
+        candle = NobitexCandle(
+            "BTCIRT", "60", 36000, 100, 110, 90, 105, 10,
+            fetched_at=37800,
+        )
+        report = format_nobitex_report([candle])
+        self.assertIn("هنوز کندل بسته‌شده‌ای", report)
+
+    def test_closed_candles_report_tehran_time_and_live_candle_warning(self):
+        first = NobitexCandle(
+            "BTCIRT", "60", 36000, 100, 110, 90, 105, 10,
+            fetched_at=43200,
+        )
+        current = NobitexCandle(
+            "BTCIRT", "60", 39600, 105, 112, 100, 108, 12,
+            fetched_at=43200,
+        )
+        report = format_nobitex_report([first, current])
+        self.assertIn("زمان آخرین کندل بسته‌شده", report)
+        self.assertIn("کندل جاری و بسته‌نشده از محاسبات حذف شد", report)
+        self.assertIn("تهران", report)
+        self.assertIn("کندل بسته‌شدهٔ بررسی‌شده: 1", report)
 
 
 if __name__ == "__main__":

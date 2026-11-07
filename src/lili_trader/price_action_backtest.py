@@ -108,7 +108,7 @@ def run_three_timeframe_backtest(
     fifteen_minute_candles: Sequence,
     five_minute_candles: Sequence,
     *,
-    starting_cash: float = 1_000_000.0,
+    starting_cash: float = 10.0,
     risk_fraction: float = 0.005,
     stop_atr_multiple: float = 2.0,
     fee_rate: float = 0.001,

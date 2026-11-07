@@ -151,6 +151,19 @@ class MarketStructureTests(unittest.TestCase):
 
 
 
+    def test_neutral_break_does_not_promote_bias_to_directional(self):
+        # A range boundary break is not itself trend confirmation.
+        rows=candles_from(
+            [10,14,11,13,10,15,12,14,11,16,13,17,14],
+            [7,9,8,6,7,10,9,7,8,11,10,8,9],
+            [9,13,10,12,9,14,11,13,10,15,12,16,13])
+        result=analyze_market_structure(rows,pivot_window=1)
+        neutral_breaks=[e for e in result.events if e.kind in ("BREAK_UP","BREAK_DOWN")]
+        for event in neutral_breaks:
+            # A neutral break must not leave the final regime as up/down
+            # unless later swing structure independently confirms it.
+            self.assertNotEqual(result.bias, "up" if event.kind=="BREAK_UP" else "down")
+
 
 if __name__=="__main__":
     unittest.main()

@@ -183,6 +183,27 @@ class TimeframeGateTests(unittest.TestCase):
             self.assertEqual(result.status, "blocked")
             self.assertFalse(result.allowed)
 
+    def test_boolean_pivot_values_cannot_authorize_a_setup(self):
+        malformed = state("up", lows=(90.0, True))
+        result = evaluate_timeframe_gate(
+            malformed, self.up, self.up, 105, setup_zone_touched=True,
+            previous_5m_close=129, latest_5m_close=131,
+        )
+        self.assertEqual(result.status, "blocked")
+        self.assertFalse(result.allowed)
+
+    def test_boolean_prices_cannot_authorize_a_setup(self):
+        for close_15m, previous_5m, latest_5m in (
+            (True, 129, 131), (105, True, 131), (105, 129, True)
+        ):
+            with self.subTest(values=(close_15m, previous_5m, latest_5m)):
+                result = evaluate_timeframe_gate(
+                    self.up, self.down, self.up, close_15m,
+                    setup_zone_touched=True, previous_5m_close=previous_5m,
+                    latest_5m_close=latest_5m,
+                )
+                self.assertFalse(result.allowed)
+
 
 if __name__ == "__main__":
     unittest.main()

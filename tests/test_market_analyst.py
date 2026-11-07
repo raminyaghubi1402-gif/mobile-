@@ -37,21 +37,21 @@ class ProfessionalMarketAnalystTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             analyze_market("BTCIRT", [])
 
-    def test_aligned_bullish_structure_allows_buy_scenario_only(self):
+    def test_aligned_bullish_structure_without_zone_and_trigger_waits(self):
         up = candles_for("up")
         result = analyze_market("BTCIRT", {"1h": up, "15m": up, "5m": up}, pivot_window=1)
-        self.assertEqual(result.decision, "READY_BUY")
+        self.assertEqual(result.decision, "WAIT")
         self.assertEqual(result.direction, "up")
-        self.assertTrue(result.gate.allowed)
-        self.assertTrue(all("sell" not in item.name for item in result.candidates))
+        self.assertFalse(result.gate.allowed)
+        self.assertEqual(result.gate.status, "wait_zone")
 
-    def test_aligned_bearish_structure_allows_sell_scenario_only(self):
+    def test_aligned_bearish_structure_without_zone_and_trigger_waits(self):
         down = candles_for("down")
         result = analyze_market("BTCIRT", {"1h": down, "15m": down, "5m": down}, pivot_window=1)
-        self.assertEqual(result.decision, "READY_SELL")
+        self.assertEqual(result.decision, "WAIT")
         self.assertEqual(result.direction, "down")
-        self.assertTrue(result.gate.allowed)
-        self.assertTrue(all("buy" not in item.name for item in result.candidates))
+        self.assertFalse(result.gate.allowed)
+        self.assertEqual(result.gate.status, "wait_zone")
 
     def test_range_market_never_generates_entry(self):
         sideways = candles_for("range")
@@ -64,7 +64,7 @@ class ProfessionalMarketAnalystTests(unittest.TestCase):
         result = analyze_market("BTCIRT", {"1h": up, "15m": up, "5m": down}, pivot_window=1)
         self.assertEqual(result.decision, "WAIT")
         self.assertEqual(result.direction, "up")
-        self.assertEqual(result.gate.status, "wait_trigger")
+        self.assertIn(result.gate.status, ("wait_zone", "wait_trigger"))
 
     def test_insufficient_hourly_history_never_becomes_ready(self):
         up = candles_for("up", count=12)

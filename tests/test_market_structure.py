@@ -165,6 +165,20 @@ class MarketStructureTests(unittest.TestCase):
         self.assertEqual(past_a,past_b)
 
 
+    def test_close_above_bos_protected_high_triggers_choch_not_minor_lower_high(self):
+        rows=candles_from(
+            [22,21,23,20,21,18,18,19,17,18,16,19.5],
+            [20,18,19,15,17,16,14,15,12,13,11,12],
+            [21,19,20,16,18,17,15,16,13,15,12,19.1])
+        result=analyze_market_structure(rows,pivot_window=1)
+        reversal=next((e for e in result.events
+                       if e.kind=="CHOCH_UP" and e.candle_index==11),None)
+        self.assertIsNotNone(reversal)
+        # The protected lower high is 19; the intervening minor lower high is 18.
+        self.assertEqual(reversal.level,19)
+        self.assertEqual(reversal.broken_swing_index,7)
+
+
     def test_minor_higher_low_does_not_replace_bos_protected_low(self):
         # BOS above 16 confirms the last higher low (11) as protection.
         # A later local low at 12 is only a minor pivot; closing at 11.5

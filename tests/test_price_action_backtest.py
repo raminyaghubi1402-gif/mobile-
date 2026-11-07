@@ -183,6 +183,35 @@ class ThreeTimeframeBacktestTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             run_three_timeframe_backtest(hourly, fifteen, five)
 
+    def test_rejects_boolean_ohlc_and_non_integer_timestamps(self):
+        for field in ("open", "high", "low", "close"):
+            with self.subTest(field=field):
+                hourly = rising_bars(40, 3600, 0)
+                fifteen = rising_bars(80, 900, 0)
+                five = rising_bars(100, 300, 0)
+                setattr(five[30], field, True)
+                with self.assertRaises(ValueError):
+                    run_three_timeframe_backtest(hourly, fifteen, five)
+
+        for invalid_timestamp in (True, 1.5, "300"):
+            with self.subTest(timestamp=invalid_timestamp):
+                hourly = rising_bars(40, 3600, 0)
+                hourly[1].timestamp = invalid_timestamp
+                with self.assertRaises(ValueError):
+                    run_three_timeframe_backtest(
+                        hourly, rising_bars(80, 900, 0), rising_bars(100, 300, 0)
+                    )
+
+    def test_lookback_and_atr_period_must_be_integers(self):
+        hourly = rising_bars(40, 3600, 0)
+        fifteen = rising_bars(80, 900, 0)
+        five = rising_bars(100, 300, 0)
+        for kwargs in ({"trend_lookback": 20.5}, {"trend_lookback": True},
+                       {"atr_period": 14.5}, {"atr_period": True}):
+            with self.subTest(kwargs=kwargs):
+                with self.assertRaises(ValueError):
+                    run_three_timeframe_backtest(hourly, fifteen, five, **kwargs)
+
     def test_rejects_risk_above_two_percent(self):
         with self.assertRaises(ValueError):
             run_three_timeframe_backtest(

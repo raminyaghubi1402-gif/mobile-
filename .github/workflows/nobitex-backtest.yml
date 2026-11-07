@@ -34,11 +34,39 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Fetch current USDT/IRT conversion proxy (public orderbook)
+        shell: bash
+        run: |
+          python - <<'PY' > usdtirt-rate.txt
+          import json, time
+          from urllib.request import Request, urlopen
+          url = "https://apiv2.nobitex.ir/v3/orderbook/USDTIRT"
+          req = Request(url, headers={"User-Agent": "LiLiTrader/0.2"})
+          with urlopen(req, timeout=15) as response:
+              data = json.loads(response.read().decode("utf-8"))
+          if data.get("status") != "ok":
+              raise SystemExit("Nobitex USDTIRT orderbook unavailable")
+          bids, asks = data.get("bids"), data.get("asks")
+          if not bids or not asks:
+              raise SystemExit("USDTIRT orderbook has no bid/ask")
+          bid, ask = float(bids[0][0]), float(asks[0][0])
+          if bid <= 0 or ask <= 0 or ask < bid:
+              raise SystemExit("USDTIRT bid/ask invalid")
+          rate = (bid + ask) / 2
+          timestamp_ms = int(data.get("lastUpdate", 0))
+          if timestamp_ms <= 0:
+              raise SystemExit("USDTIRT timestamp missing")
+          print(f"{rate:.8f}")
+          with open("usdtirt-rate-meta.txt", "w") as meta:
+              meta.write(f"USDTIRT midpoint={rate:.8f}; orderbook timestamp_ms={timestamp_ms}; fetched_at_utc={time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\\n")
+          PY
+          cat usdtirt-rate-meta.txt
       - name: Run read-only Nobitex historical backtest
         shell: bash
         run: |
           set -o pipefail
-          PYTHONPATH=src python -m lili_trader --price-action-backtest --sr-diagnostic --symbol ${{ matrix.symbol }} --count 5000 2>&1 | tee nobitex-backtest-report.txt
+          RATE="$(cat usdtirt-rate.txt)"
+          PYTHONPATH=src python -m lili_trader --price-action-backtest --sr-diagnostic --symbol ${{ matrix.symbol }} --count 5000 --backtest-cash 10 --backtest-currency USD --usd-irt-rate "$RATE" 2>&1 | tee nobitex-backtest-report.txt
       - name: Save report
         if: always()
         uses: actions/upload-artifact@v4

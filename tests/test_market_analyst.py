@@ -232,5 +232,52 @@ class ProfessionalMarketAnalystTests(unittest.TestCase):
         self.assertIn("ساختار مستقل", result.report_fa)
 
 
+    def test_future_extension_does_not_rewrite_past_multitimeframe_structure(self):
+        base = candles_for("up")
+        future = [
+            {"timestamp": 25 + i, "open": 40 + i, "high": 41 + i,
+             "low": 39 + i, "close": 40.5 + i}
+            for i in range(6)
+        ]
+        extended = base + future
+        base_data = {tf: [dict(row) for row in base]
+                     for tf in ("1h", "15m", "5m")}
+        extended_data = {tf: [dict(row) for row in extended]
+                         for tf in ("1h", "15m", "5m")}
+
+        before = analyze_market("BTCIRT", base_data, pivot_window=1)
+        after = analyze_market("BTCIRT", extended_data, pivot_window=1)
+        before_frames = {frame.timeframe: frame for frame in before.frames}
+        after_frames = {frame.timeframe: frame for frame in after.frames}
+
+        for timeframe in ("1h", "15m", "5m"):
+            with self.subTest(timeframe=timeframe):
+                old_structure = before_frames[timeframe].structure
+                new_structure = after_frames[timeframe].structure
+                old_events = [
+                    (event.kind, event.candle_index, event.level,
+                     event.broken_swing_index, event.close)
+                    for event in old_structure.events
+                ]
+                retained_events = [
+                    (event.kind, event.candle_index, event.level,
+                     event.broken_swing_index, event.close)
+                    for event in new_structure.events
+                    if event.candle_index < len(base)
+                ]
+                self.assertEqual(old_events, retained_events)
+
+                old_swings = [
+                    (swing.kind, swing.index, swing.price)
+                    for swing in old_structure.swings
+                ]
+                retained_swings = [
+                    (swing.kind, swing.index, swing.price)
+                    for swing in new_structure.swings
+                    if swing.index + 1 <= len(base) - 1
+                ]
+                self.assertEqual(old_swings, retained_swings)
+
+
 if __name__ == "__main__":
     unittest.main()

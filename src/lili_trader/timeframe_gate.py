@@ -39,6 +39,8 @@ def evaluate_timeframe_gate(
     def valid_pair(values):
         if not isinstance(values, (tuple, list)) or len(values) != 2:
             return False
+        if any(isinstance(value, bool) for value in values):
+            return False
         try:
             return all(isfinite(float(value)) and float(value) > 0 for value in values)
         except (TypeError, ValueError, OverflowError):
@@ -53,6 +55,8 @@ def evaluate_timeframe_gate(
         return GateDecision("wait", False, direction, "داده ۱۵ یا ۵ دقیقه کامل نیست.")
 
     try:
+        if isinstance(latest_15m_close, bool):
+            raise ValueError("boolean is not a price")
         close_15m = float(latest_15m_close)
     except (TypeError, ValueError, OverflowError):
         close_15m = float("nan")
@@ -103,6 +107,8 @@ def evaluate_timeframe_gate(
                             "ساختار ۵ دقیقه هنوز به جهت روند اصلی برنگشته است.")
 
     try:
+        if isinstance(previous_5m_close, bool) or isinstance(latest_5m_close, bool):
+            raise ValueError("boolean is not a price")
         previous_close = float(previous_5m_close)
         current_close = float(latest_5m_close)
     except (TypeError, ValueError, OverflowError):

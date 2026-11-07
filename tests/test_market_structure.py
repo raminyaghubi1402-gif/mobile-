@@ -248,5 +248,20 @@ class MarketStructureTests(unittest.TestCase):
         ]
         self.assertEqual(cutoff_swings, extended_confirmed)
 
+
+    def test_new_lower_high_after_bos_down_becomes_choch_protection(self):
+        # After bearish continuation, the latest confirmed lower high—not
+        # the older pre-continuation high—must protect the downtrend.
+        rows=candles_from(
+            [8,10,9,12,11,10,9,11,10,9,8,6,7,6,8],
+            [6,7,5,8,7,8,4,5,3,3.5,2.5,2,2.2,1.8,2],
+            [7,9,6,11,10,9,6,6,5,3.8,2.8,5.5,6.5,5.5,7.5])
+        result=analyze_market_structure(rows,pivot_window=1)
+        self.assertTrue(any(e.kind=="CHOCH_DOWN" and e.candle_index==6 for e in result.events))
+        self.assertTrue(any(e.kind=="BOS_DOWN" and e.candle_index==10 for e in result.events))
+        reversal=next((e for e in result.events if e.kind=="CHOCH_UP" and e.candle_index==14),None)
+        self.assertIsNotNone(reversal, "close above the latest confirmed lower high must trigger CHoCH_UP")
+        self.assertEqual(reversal.level,7)
+
 if __name__=="__main__":
     unittest.main()

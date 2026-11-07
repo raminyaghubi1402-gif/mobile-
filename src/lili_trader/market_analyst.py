@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from collections.abc import Mapping, Sequence
 
 from .price_action_trend import classify_price_action_trend
-from .support_resistance import find_support_resistance, nearest_zone
+from .support_resistance import find_support_resistance
 from .timeframe_gate import evaluate_timeframe_gate
 from .market_regime import classify_market_regime, select_strategy_candidates
 
@@ -43,8 +43,27 @@ def _closed(candles_by_timeframe, timeframe):
     ))
 
 
+def _candle_value(candle, name):
+    return candle.get(name) if isinstance(candle, Mapping) else getattr(candle, name, None)
+
+
+def _touches_zone(candle, zones, kind):
+    """True only when the latest closed candle range intersects a matching zone."""
+    try:
+        low = float(_candle_value(candle, "low"))
+        high = float(_candle_value(candle, "high"))
+    except (TypeError, ValueError, OverflowError):
+        return False
+    if low <= 0 or high < low:
+        return False
+    return any(
+        zone.kind == kind and low <= zone.upper and high >= zone.lower
+        for zone in zones
+    )
+
+
 def analyze_market(symbol: str, candles_by_timeframe: Mapping, *, pivot_window: int = 2) -> MarketAnalysis:
-    """Analyze supplied closed OHLC candles; missing required TFs always mean WAIT."""
+    """Analyze closed OHLC candles; missing data or unconfirmed setups mean WAIT."""
     if not isinstance(symbol, str) or not symbol.strip():
         raise ValueError("symbol must be non-empty")
     if not isinstance(candles_by_timeframe, Mapping):
@@ -76,20 +95,45 @@ def analyze_market(symbol: str, candles_by_timeframe: Mapping, *, pivot_window: 
     direction = None
     confidence = "low"
     decision = "WAIT"
+    zone_touched = False
     if not missing:
         hourly, fifteen, five = (frames[tf].trend for tf in _REQUIRED)
-        latest = _closed(candles_by_timeframe, "15m")[-1]
-        close = latest.get("close") if isinstance(latest, Mapping) else getattr(latest, "close", None)
-        gate = evaluate_timeframe_gate(hourly, fifteen, five, close)
+        rows_15m = _closed(candles_by_timeframe, "15m")
+        rows_5m = _closed(candles_by_timeframe, "5m")
+        latest_15m = rows_15m[-1]
+        latest_5m = rows_5m[-1]
+        previous_5m = rows_5m[-2] if len(rows_5m) >= 2 else None
+        close_15m = _candle_value(latest_15m, "close")
+        previous_5m_close = _candle_value(previous_5m, "close") if previous_5m else None
+        latest_5m_close = _candle_value(latest_5m, "close")
+
+        if hourly.direction == "up":
+            zone_kind = "support"
+        elif hourly.direction == "down":
+            zone_kind = "resistance"
+        else:
+            zone_kind = None
+        if zone_kind:
+            zone_touched = (
+                _touches_zone(latest_15m, frames["1h"].zones, zone_kind)
+                or _touches_zone(latest_15m, frames["15m"].zones, zone_kind)
+            )
+
+        gate = evaluate_timeframe_gate(
+            hourly, fifteen, five, close_15m,
+            setup_zone_touched=zone_touched,
+            previous_5m_close=previous_5m_close,
+            latest_5m_close=latest_5m_close,
+        )
         direction = gate.direction
         try:
-            regime = classify_market_regime(_closed(candles_by_timeframe, "1h"), hourly)
+            regime = classify_market_regime(rows_15m if False else _closed(candles_by_timeframe, "1h"), hourly)
             candidates = select_strategy_candidates(regime)
         except (ValueError, TypeError, OverflowError):
             warnings.append("تشخیص رژیم بازار به‌علت دادهٔ ناکافی/نامعتبر متوقف شد.")
         if gate.allowed and regime and regime.trend == direction:
             decision = "READY_BUY" if direction == "up" else "READY_SELL"
-            confidence = "moderate" if gate.status == "ready" and regime.confidence == "moderate" else "low"
+            confidence = "moderate" if regime.confidence == "moderate" else "low"
         else:
             warnings.append(gate.reason)
             decision, confidence = "WAIT", "low"
@@ -110,17 +154,19 @@ def analyze_market(symbol: str, candles_by_timeframe: Mapping, *, pivot_window: 
             continue
         t = frame.trend
         lines.append(f"- {tf}: {t.label_fa} — {t.reason}")
-        support = nearest_zone(frame.zones, t.latest_close, "support")
-        resistance = nearest_zone(frame.zones, t.latest_close, "resistance")
-        if support:
-            lines.append(f"  حمایت: {support.lower:.8g} تا {support.upper:.8g}؛ {support.touches} برخورد")
-        if resistance:
-            lines.append(f"  مقاومت: {resistance.lower:.8g} تا {resistance.upper:.8g}؛ {resistance.touches} برخورد")
+        if t.direction in ("up", "down"):
+            kind = "support" if t.direction == "up" else "resistance"
+            relevant = [zone for zone in frame.zones if zone.kind == kind]
+            if relevant:
+                nearest = min(relevant, key=lambda zone: abs(zone.midpoint - t.latest_close))
+                lines.append(f"  {'حمایت' if kind == 'support' else 'مقاومت'}: {nearest.lower:.8g} تا {nearest.upper:.8g}؛ {nearest.touches} برخورد")
     if regime:
         lines.extend(("", f"رژیم: {regime.trend}؛ نوسان: {regime.volatility}؛ {regime.reason}",
                       "استراتژی‌های قابل بررسی (نه سیگنال):"))
         lines.extend(f"- {item.name}: {item.reason}" for item in candidates)
-    lines.extend(("", "کنترل ورود ۱h/۱۵m/۵m:", gate.reason if gate else "به‌دلیل دادهٔ ناقص اجرا نشد."))
+    lines.extend(("", "کنترل ورود ۱h/۱۵m/۵m:",
+                  gate.reason if gate else "به‌دلیل دادهٔ ناقص اجرا نشد.",
+                  f"برخورد کندل ۱۵ دقیقه با ناحیه {'تأیید شد' if zone_touched else 'تأیید نشد'}." if gate else ""))
     if warnings:
         lines.extend(("", "هشدارها:"))
         lines.extend(f"- {warning}" for warning in warnings)

@@ -50,6 +50,20 @@ class MarketStructureTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             analyze_market_structure(rows,pivot_window=1)
 
+    def test_rejects_fractional_boolean_negative_and_nonfinite_timestamps(self):
+        for invalid_timestamp in (1.5, True, -1, float("nan"), float("inf")):
+            with self.subTest(timestamp=invalid_timestamp):
+                rows = candles_from([10,11,10,12,11,13],[8,9,8,10,9,11])
+                rows[2]["timestamp"] = invalid_timestamp
+                with self.assertRaises(ValueError):
+                    analyze_market_structure(rows, pivot_window=1)
+
+    def test_rejects_partially_missing_timestamps(self):
+        rows = candles_from([10,11,10,12,11,13],[8,9,8,10,9,11])
+        rows[2].pop("timestamp")
+        with self.assertRaises(ValueError):
+            analyze_market_structure(rows, pivot_window=1)
+
     def test_pivot_not_available_before_confirmation(self):
         # High at index 3 needs one right-side candle: only visible at index 4.
         rows=candles_from([10,12,11,20,13,14,15],

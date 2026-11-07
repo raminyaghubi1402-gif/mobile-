@@ -17,8 +17,9 @@ class TrendState:
 
 def classify_price_action_trend(candles: Sequence, *, pivot_window: int = 2, min_swings: int = 2) -> TrendState:
     """Use confirmed HH+HL / LH+LL structure; no technical indicators."""
-    if pivot_window < 1 or min_swings < 2:
-        raise ValueError("invalid swing parameters")
+    if (type(pivot_window) is not int or pivot_window < 1
+            or type(min_swings) is not int or min_swings < 2):
+        raise ValueError("pivot_window must be a positive integer and min_swings >= 2")
     if len(candles) < 2 * pivot_window + 2 * min_swings + 1:
         return TrendState("unknown", "داده ناکافی", 0.0, None, None, 0, 0,
                           "برای تشخیص ساختار بازار کندل کافی وجود ندارد.")

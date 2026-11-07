@@ -54,7 +54,7 @@ def format_nobitex_report(candles) -> str:
 
     if not closed:
         latest = candles[-1]
-        return "\\n".join([
+        return "\n".join([
             "گزارش تحلیل لی‌لی تریدر — نوبیتکس",
             f"نماد: {latest.symbol} | بازه: {resolution}",
             f"منبع: {latest.source}",
@@ -93,4 +93,4 @@ def format_nobitex_report(candles) -> str:
         "دادهٔ عمومی ممکن است ناقص یا با تأخیر باشد. نبود سیگنال معتبر یعنی باید صبر کرد.",
         "این نسخه فقط‌خواندنی است؛ به حساب نوبیتکس وارد نمی‌شود و معامله‌ای انجام نمی‌دهد.",
     ]
-    return "\\n".join(lines)
+    return "\n".join(lines)

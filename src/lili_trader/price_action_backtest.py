@@ -13,6 +13,7 @@ from collections.abc import Sequence
 from .price_action_trend import classify_price_action_trend
 from .timeframe_gate import evaluate_timeframe_gate
 from .smart_stop import create_smart_stop, update_smart_stop
+from .support_resistance import find_support_resistance
 
 
 @dataclass(frozen=True)
@@ -113,12 +114,15 @@ def run_three_timeframe_backtest(
     slippage_rate: float = 0.001,
     trend_lookback: int = 120,
     atr_period: int = 14,
+    support_resistance_buffer_atr: float = 1.0,
 ) -> ThreeTimeframeBacktestResult:
     """Backtest 1h direction / 15m setup / 5m trigger with no look-ahead.
 
     Long and short are simulated without leverage; notional is capped at current
     equity. The 1h direction must be up/down, 15m must resume that direction,
     and 5m must confirm it. Range/unknown and countertrend states do not trade.
+    Entries are additionally blocked when a confirmed 15m opposing zone is within
+    support_resistance_buffer_atr * ATR of the signal close.
     """
     if not isfinite(starting_cash) or starting_cash <= 0:
         raise ValueError("starting_cash must be finite and positive")
@@ -132,6 +136,9 @@ def run_three_timeframe_backtest(
         raise ValueError("slippage_rate outside allowed bounds")
     if trend_lookback < 20 or atr_period < 2:
         raise ValueError("lookback/ATR period too small")
+    if (not isfinite(support_resistance_buffer_atr)
+            or not 0 <= support_resistance_buffer_atr <= 5):
+        raise ValueError("support_resistance_buffer_atr must be between 0 and 5")
 
     hourly = _validated(hourly_candles, 3600, "1h")
     fifteen = _validated(fifteen_minute_candles, 900, "15m")
@@ -250,6 +257,40 @@ def run_three_timeframe_backtest(
         # One entry per uninterrupted READY signal. If a stop closes a trade
         # while the gate remains READY, do not immediately re-enter the same setup.
         if position is None and new_setup:
+            # Use only 15m candles already closed at the signal timestamp.
+            # A BUY is blocked near overhead resistance; a SELL near support.
+            sr_blocked = False
+            sr_status = "sr_clear"
+            closed_15m = fifteen[max(0, fifteen_closed_count - trend_lookback):fifteen_closed_count]
+            try:
+                zones = find_support_resistance(closed_15m, pivot_window=3,
+                                               atr_period=min(14, len(closed_15m) - 1),
+                                               min_touches=2, max_zones=6)
+                sr_atr = _atr(closed_15m, atr_period)
+                signal_price = signal_bar["close"]
+                buffer = sr_atr * support_resistance_buffer_atr
+                direction = "BUY" if decision.direction == "up" else "SELL"
+                for zone in zones:
+                    if direction == "BUY" and zone.kind == "resistance":
+                        distance_to_zone = max(0.0, zone.lower - signal_price)
+                        if distance_to_zone <= buffer:
+                            sr_blocked = True
+                            sr_status = "blocked_near_resistance"
+                            break
+                    elif direction == "SELL" and zone.kind == "support":
+                        distance_to_zone = max(0.0, signal_price - zone.upper)
+                        if distance_to_zone <= buffer:
+                            sr_blocked = True
+                            sr_status = "blocked_near_support"
+                            break
+            except (ValueError, TypeError, OverflowError):
+                # Fail closed: if the zone filter cannot be computed, skip this
+                # entry instead of silently trading without the requested filter.
+                sr_blocked = True
+                sr_status = "blocked_sr_data_unavailable"
+            gate_counts[sr_status] = gate_counts.get(sr_status, 0) + 1
+            if sr_blocked:
+                new_setup = False
             try:
                 atr_value = _atr(fifteen[:fifteen_closed_count], atr_period)
             except ValueError:

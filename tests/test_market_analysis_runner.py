@@ -59,6 +59,35 @@ class MarketAnalysisRunnerTests(unittest.TestCase):
         self.assertTrue(_has_interval_gaps([{"timestamp": True}], "15m"))
         self.assertTrue(_has_interval_gaps([{}], "15m"))
 
+    @patch("lili_trader.market_analysis_runner.analyze_market")
+    @patch("lili_trader.market_analysis_runner.NobitexAdapter")
+    def test_gap_in_required_5m_history_is_removed_before_analysis(self, adapter_cls, analyze):
+        adapter = adapter_cls.return_value
+        durations = {"60": 3600, "15": 900, "5": 300, "240": 14400, "D": 86400}
+        base = 1_000_000
+        def history(**kwargs):
+            resolution = kwargs["resolution"]
+            duration = durations[resolution]
+            indexes = [0, 1, 2, 3, 4, 5]
+            if resolution == "5":
+                indexes.remove(3)  # simulate one missing 5m candle
+            fetched_at = base + 7 * duration
+            return [
+                {
+                    "timestamp": base + index * duration,
+                    "fetched_at": fetched_at,
+                    "open": 10, "high": 11, "low": 9, "close": 10,
+                }
+                for index in indexes
+            ]
+        adapter.fetch_history.side_effect = history
+        analyze.return_value.report_fa = "report"
+        self.assertEqual(fetch_and_analyze("BTCIRT", count=10), "report")
+        payload = analyze.call_args.args[1]
+        self.assertEqual(payload["5m"], [])
+        self.assertTrue(payload["1h"])
+        self.assertTrue(payload["15m"])
+
     def test_missing_freshness_metadata_is_not_trusted(self):
         candle = {"timestamp": 1000}
         self.assertFalse(_is_fresh_closed_history([candle], "1h"))

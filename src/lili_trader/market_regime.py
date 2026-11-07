@@ -45,10 +45,13 @@ def classify_market_regime(candles: Sequence, trend_state, *, volatility_window:
                            "داده نوسان معتبر نیست.")
     ordered = sorted(ranges)
     median = ordered[len(ordered)//2]
-    recent = sum(ranges[-5:]) / min(5, len(ranges))
+    # Use the median of the latest five bars rather than their mean:
+    # one isolated wick/spike should not label the whole regime "high volatility".
+    recent_values = sorted(ranges[-5:])
+    recent = recent_values[len(recent_values)//2]
     if median <= 0:
         vol = "unknown"
-    elif recent > median * 1.8:
+    elif recent > median * 2.2:
         vol = "high"
     elif recent < median * 0.65:
         vol = "low"

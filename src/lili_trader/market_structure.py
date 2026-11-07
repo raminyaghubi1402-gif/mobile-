@@ -99,9 +99,12 @@ def analyze_market_structure(candles: Sequence, *, pivot_window: int = 2) -> Str
             elif highs_lower and lows_lower:
                 active_bias = "down"
             else:
-                # Mixed swing progression is not evidence of a directional trend.
-                # Do not carry an old trend bias through a structurally mixed phase.
-                active_bias = "range"
+                # Mixed swings cannot establish a new direction. Once a trend
+                # has been structurally established, retain its bias until a
+                # protected swing is broken (CHoCH); otherwise reversals get
+                # mislabeled as neutral BREAK events.
+                if active_bias not in ("up", "down"):
+                    active_bias = "range"
 
         latest_high = confirmed_highs[-1] if confirmed_highs else None
         latest_low = confirmed_lows[-1] if confirmed_lows else None

@@ -51,6 +51,14 @@ class MarketStructureTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             analyze_market_structure(rows,pivot_window=1)
 
+    def test_boolean_ohlc_values_are_rejected(self):
+        for field in ("open", "high", "low", "close"):
+            with self.subTest(field=field):
+                rows = candles_from([10,11,10,12,11,13],[8,9,8,10,9,11])
+                rows[2][field] = True
+                with self.assertRaises(ValueError):
+                    analyze_market_structure(rows, pivot_window=1)
+
     def test_nonchronological_timestamps_rejected(self):
         rows=candles_from([10,11,10,12,11,13],[8,9,8,10,9,11])
         rows[3]["timestamp"]=rows[2]["timestamp"]

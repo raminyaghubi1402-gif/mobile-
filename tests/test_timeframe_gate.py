@@ -80,6 +80,16 @@ class TimeframeGateTests(unittest.TestCase):
         self.assertTrue(result.allowed)
         self.assertEqual(result.status, "ready")
 
+    def test_missing_5m_structure_blocks_when_strict_confirmation_is_required(self):
+        result = evaluate_timeframe_gate(
+            self.up, self.down, self.up, 105, setup_zone_touched=True,
+            previous_5m_close=129, latest_5m_close=131,
+            five_minute_structure=None, five_minute_candle_count=25,
+            require_structure_confirmation=True,
+        )
+        self.assertEqual(result.status, "wait_structure")
+        self.assertFalse(result.allowed)
+
     def test_stale_or_wrong_direction_5m_structure_event_blocks_entry(self):
         from types import SimpleNamespace
         cases = (

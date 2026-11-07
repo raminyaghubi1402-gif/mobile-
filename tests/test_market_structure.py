@@ -16,28 +16,23 @@ class MarketStructureTests(unittest.TestCase):
         self.assertIsNone(result.last_event)
 
     def test_uptrend_close_break_is_bos(self):
-        # Swing highs at indices 1 and 4; later close breaks the second high.
-        rows=candles_from(
-            [10,15,12,13,16,14,15,17,18,19,20],
-            [7,8,9,8,10,9,11,12,13,14,15],
-            [9,14,11,12,15,13,14,16,17,18,19])
+        rows=candles_from([10,15,12,13,16,14,15,17,18,19,20],
+                          [7,8,9,8,10,9,11,12,13,14,15],
+                          [9,14,11,12,15,13,14,16,17,18,19])
         result=analyze_market_structure(rows,pivot_window=1)
         self.assertTrue(any(e.kind=="BOS_UP" for e in result.events))
 
     def test_downtrend_close_break_is_bos_down(self):
-        rows=candles_from(
-            [20,18,19,17,18,16,17,15,14,13,12],
-            [15,10,13,9,12,8,11,7,6,5,4],
-            [18,11,17,10,16,9,15,8,7,6,5])
+        rows=candles_from([20,18,19,17,18,16,17,15,14,13,12],
+                          [15,10,13,9,12,8,11,7,6,5,4],
+                          [18,11,17,10,16,9,15,8,7,6,5])
         result=analyze_market_structure(rows,pivot_window=1)
         self.assertTrue(any(e.kind=="BOS_DOWN" for e in result.events))
 
     def test_wick_only_break_does_not_count(self):
-        rows=candles_from(
-            [10,15,12,13,16,14,15,17,18,19,20],
-            [7,8,9,8,10,9,11,12,13,14,15],
-            [9,14,11,12,15,13,14,16,17,18,19])
-        # Replace the final close with a value below the latest swing high.
+        rows=candles_from([10,15,12,13,16,14,15,17,18,19,20],
+                          [7,8,9,8,10,9,11,12,13,14,15],
+                          [9,14,11,12,15,13,14,16,17,18,19])
         rows[-1]["high"]=25
         rows[-1]["close"]=19
         result=analyze_market_structure(rows,pivot_window=1)
@@ -54,6 +49,29 @@ class MarketStructureTests(unittest.TestCase):
         rows[3]["timestamp"]=rows[2]["timestamp"]
         with self.assertRaises(ValueError):
             analyze_market_structure(rows,pivot_window=1)
+
+    def test_pivot_not_available_before_confirmation(self):
+        # High at index 3 needs one right-side candle: only visible at index 4.
+        rows=candles_from([10,12,11,20,13,14,15],
+                          [5,6,7,8,9,10,11],
+                          [9,11,10,19,12,13,14])
+        result=analyze_market_structure(rows,pivot_window=1)
+        swing=next(s for s in result.swings if s.kind=="high" and s.index==3)
+        # It must not generate a break on the pivot candle itself.
+        self.assertFalse(any(e.broken_swing_index==3 and e.candle_index<=4 for e in result.events))
+
+    def test_changing_future_candles_does_not_rewrite_past_events(self):
+        base=candles_from([10,15,12,13,16,14,15,17,18],
+                          [7,8,9,8,10,9,11,12,13],
+                          [9,14,11,12,15,13,14,16,17])
+        changed=[dict(c) for c in base]
+        # Mutate only the future tail; already-recorded event chronology must remain.
+        changed.extend(candles_from([30,31,32],[20,21,22],[29,30,31]))
+        a=analyze_market_structure(base,pivot_window=1)
+        b=analyze_market_structure(changed,pivot_window=1)
+        past_a=[(e.kind,e.candle_index,e.level,e.broken_swing_index) for e in a.events]
+        past_b=[(e.kind,e.candle_index,e.level,e.broken_swing_index) for e in b.events if e.candle_index<len(base)]
+        self.assertEqual(past_a,past_b)
 
 if __name__=="__main__":
     unittest.main()

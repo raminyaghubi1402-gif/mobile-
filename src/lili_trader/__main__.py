@@ -14,6 +14,7 @@ def _format_market_time(timestamp: int) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description="لی‌لی تریدر — تحلیل فقط‌خواندنی")
     parser.add_argument("--nobitex", action="store_true", help="دریافت کندل عمومی از نوبیتکس")
+    parser.add_argument("--market-analysis", action="store_true", help="تحلیل چندتایم‌فریمی حرفه‌ای با دادهٔ تازهٔ نوبیتکس (فقط‌خواندنی)")
     parser.add_argument("--backtest", action="store_true", help="اجرای بک‌تست قدیمی SMA روی کندل‌های عمومی نوبیتکس")
     parser.add_argument("--price-action-backtest", action="store_true", help="بک‌تست اختصاصی راهبرد ۱h/۱۵m/۵m بدون اندیکاتور")
     parser.add_argument("--sr-diagnostic", action="store_true", help="مقایسهٔ بک‌تست با فیلتر حمایت‌ومقاومت و بدون آن؛ فقط تشخیصی")
@@ -24,6 +25,14 @@ def main() -> None:
     parser.add_argument("--resolution", default="60", help="بازه: 1, 5, 15, 30, 60, 240 یا D")
     parser.add_argument("--count", type=int, default=100, help="تعداد کندل؛ بک‌تست ساختار قیمت تا ۵۰۰۰، سایر حالت‌ها تا ۵۰۰")
     args = parser.parse_args()
+
+    if args.market_analysis:
+        from .market_analysis_runner import fetch_and_analyze
+        try:
+            print(fetch_and_analyze(args.symbol, count=min(args.count, 500)))
+        except Exception as exc:
+            parser.error(f"تحلیل بازار انجام نشد؛ دادهٔ معتبر در دسترس نیست ({type(exc).__name__}). هیچ معامله‌ای انجام نشده است.")
+        return
 
     # Price-action backtest operates in the quote currency of Nobitex IRT pairs.
     # Never silently treat USD as IRT: conversion must be explicitly supplied.

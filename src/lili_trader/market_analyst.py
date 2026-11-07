@@ -45,12 +45,16 @@ def _closed(candles_by_timeframe, timeframe):
     # are not proof that the candle is closed. Rows without this optional field
     # remain supported for offline/synthetic analysis; production data is
     # filtered and freshness-checked by market_analysis_runner.
-    return tuple(
-        row for row in rows
-        if not isinstance(row, Mapping)
-        or "is_closed" not in row
-        or row.get("is_closed") is True
-    )
+    def explicitly_closed(row):
+        if isinstance(row, Mapping):
+            return "is_closed" not in row or row.get("is_closed") is True
+        # Candle dataclasses/custom objects may also carry closure metadata.
+        # If present, require the literal boolean True just as for mappings.
+        if hasattr(row, "is_closed"):
+            return getattr(row, "is_closed") is True
+        return True
+
+    return tuple(row for row in rows if explicitly_closed(row))
 
 
 def _candle_value(candle, name):

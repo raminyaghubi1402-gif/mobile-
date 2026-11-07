@@ -90,6 +90,37 @@ class TimeframeGateTests(unittest.TestCase):
         self.assertEqual(result.status, "wait_structure")
         self.assertFalse(result.allowed)
 
+    def test_boolean_or_invalid_candle_count_cannot_authorize_fresh_structure(self):
+        from types import SimpleNamespace
+        structure = SimpleNamespace(
+            bias="up", last_event=SimpleNamespace(kind="BOS_UP", candle_index=0)
+        )
+        for count in (True, 0, -1, 25.0, "25", None):
+            with self.subTest(count=count):
+                result = evaluate_timeframe_gate(
+                    self.up, self.down, self.up, 105, setup_zone_touched=True,
+                    previous_5m_close=129, latest_5m_close=131,
+                    five_minute_structure=structure,
+                    five_minute_candle_count=count,
+                )
+                self.assertEqual(result.status, "wait_structure")
+                self.assertFalse(result.allowed)
+
+    def test_boolean_or_fractional_structure_event_index_is_rejected(self):
+        from types import SimpleNamespace
+        for index in (True, 24.5, "24", -1):
+            with self.subTest(index=index):
+                structure = SimpleNamespace(
+                    bias="up", last_event=SimpleNamespace(kind="BOS_UP", candle_index=index)
+                )
+                result = evaluate_timeframe_gate(
+                    self.up, self.down, self.up, 105, setup_zone_touched=True,
+                    previous_5m_close=129, latest_5m_close=131,
+                    five_minute_structure=structure, five_minute_candle_count=25,
+                )
+                self.assertEqual(result.status, "wait_structure")
+                self.assertFalse(result.allowed)
+
     def test_stale_or_wrong_direction_5m_structure_event_blocks_entry(self):
         from types import SimpleNamespace
         cases = (

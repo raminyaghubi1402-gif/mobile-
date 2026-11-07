@@ -286,5 +286,23 @@ class MarketStructureTests(unittest.TestCase):
         self.assertFalse(any(e.kind == "CHOCH_UP" for e in result.events))
 
 
+    def test_higher_low_becomes_choch_protection_after_it_leads_to_bos_up(self):
+        # Exact price-inverted mirror of the lower-high lifecycle case:
+        # a higher low is not protected just because it formed; it becomes
+        # protected only when a later bullish BOS breaks the intervening high.
+        rows=candles_from(
+            [34,33,35,32,33,32,36,35,37,36,38,37,38.2,38.5,38,38.5,38.8,38.3],
+            [32,30,31,28,29,30,31,29,30,31,32,34,33.5,34.5,32,34,34.5,31],
+            [33,31,34,29,30,31,34,34,35,36.2,37.2,34.5,33.5,34.5,32.5,38.4,38.6,31.5])
+        result=analyze_market_structure(rows,pivot_window=1)
+        self.assertTrue(any(e.kind=="CHOCH_UP" and e.candle_index==6 for e in result.events))
+        self.assertTrue(any(e.kind=="BOS_UP" and e.candle_index==10 for e in result.events))
+        continuation=next(e for e in result.events if e.kind=="BOS_UP" and e.candle_index==15)
+        self.assertEqual(continuation.level,38.2)
+        reversal=next((e for e in result.events if e.kind=="CHOCH_DOWN" and e.candle_index==17),None)
+        self.assertIsNotNone(reversal, "close below the BOS-protected higher low must trigger CHoCH_DOWN")
+        self.assertEqual(reversal.level,32)
+
+
 if __name__=="__main__":
     unittest.main()

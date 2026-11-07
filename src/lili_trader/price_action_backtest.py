@@ -115,6 +115,7 @@ def run_three_timeframe_backtest(
     trend_lookback: int = 120,
     atr_period: int = 14,
     support_resistance_buffer_atr: float = 1.0,
+    use_support_resistance_filter: bool = True,
 ) -> ThreeTimeframeBacktestResult:
     """Backtest 1h direction / 15m setup / 5m trigger with no look-ahead.
 
@@ -266,35 +267,37 @@ def run_three_timeframe_backtest(
             # Use only 15m candles already closed at the signal timestamp.
             # A BUY is blocked near overhead resistance; a SELL near support.
             sr_blocked = False
-            sr_status = "sr_clear"
-            closed_15m = fifteen[max(0, fifteen_closed_count - trend_lookback):fifteen_closed_count]
-            try:
-                zones = find_support_resistance(closed_15m, pivot_window=3,
-                                               atr_period=min(14, len(closed_15m) - 1),
-                                               min_touches=2, max_zones=6)
-                sr_atr = _atr(closed_15m, atr_period)
-                signal_price = signal_bar["close"]
-                buffer = sr_atr * support_resistance_buffer_atr
-                direction = "BUY" if decision.direction == "up" else "SELL"
-                for zone in zones:
-                    if direction == "BUY" and zone.kind == "resistance":
-                        distance_to_zone = max(0.0, zone.lower - signal_price)
-                        if distance_to_zone <= buffer:
-                            sr_blocked = True
-                            sr_status = "blocked_near_resistance"
-                            break
-                    elif direction == "SELL" and zone.kind == "support":
-                        distance_to_zone = max(0.0, signal_price - zone.upper)
-                        if distance_to_zone <= buffer:
-                            sr_blocked = True
-                            sr_status = "blocked_near_support"
-                            break
-            except (ValueError, TypeError, OverflowError):
-                # Fail closed: if the zone filter cannot be computed, skip this
-                # entry instead of silently trading without the requested filter.
-                sr_blocked = True
-                sr_status = "blocked_sr_data_unavailable"
-            gate_counts[sr_status] = gate_counts.get(sr_status, 0) + 1
+            if use_support_resistance_filter:
+                sr_status = "sr_clear"
+                closed_15m = fifteen[max(0, fifteen_closed_count - trend_lookback):fifteen_closed_count]
+                try:
+                    zones = find_support_resistance(closed_15m, pivot_window=3,
+                                                   atr_period=min(14, len(closed_15m) - 1),
+                                                   min_touches=2, max_zones=6)
+                    sr_atr = _atr(closed_15m, atr_period)
+                    signal_price = signal_bar["close"]
+                    buffer = sr_atr * support_resistance_buffer_atr
+                    direction = "BUY" if decision.direction == "up" else "SELL"
+                    for zone in zones:
+                        if direction == "BUY" and zone.kind == "resistance":
+                            distance_to_zone = max(0.0, zone.lower - signal_price)
+                            if distance_to_zone <= buffer:
+                                sr_blocked = True
+                                sr_status = "blocked_near_resistance"
+                                break
+                        elif direction == "SELL" and zone.kind == "support":
+                            distance_to_zone = max(0.0, signal_price - zone.upper)
+                            if distance_to_zone <= buffer:
+                                sr_blocked = True
+                                sr_status = "blocked_near_support"
+                                break
+                except (ValueError, TypeError, OverflowError):
+                    # Fail closed: if zone data cannot be computed, skip entries.
+                    sr_blocked = True
+                    sr_status = "blocked_sr_data_unavailable"
+                gate_counts[sr_status] = gate_counts.get(sr_status, 0) + 1
+            else:
+                gate_counts["sr_filter_disabled_diagnostic"] = gate_counts.get("sr_filter_disabled_diagnostic", 0) + 1
             if sr_blocked:
                 new_setup = False
             else:

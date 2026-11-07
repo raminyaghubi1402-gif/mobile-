@@ -265,5 +265,26 @@ class MarketStructureTests(unittest.TestCase):
         self.assertIsNotNone(reversal, "close above the BOS-protected lower high must trigger CHoCH_UP")
         self.assertEqual(reversal.level,8)
 
+
+    def test_wick_only_breaks_do_not_trigger_choch_in_either_direction(self):
+        bullish = candles_from(
+            [8,10,9,12,11,10,9],
+            [6,7,5,8,7,8,4],
+            [7,9,6,11,10,9,6])
+        # Price trades below the protected higher low, but closes back above it.
+        bullish[-1]["close"] = 7.5
+        result = analyze_market_structure(bullish, pivot_window=1)
+        self.assertFalse(any(e.kind == "CHOCH_DOWN" for e in result.events))
+
+        bearish = candles_from(
+            [24,23,25,22,23,22,26],
+            [22,20,21,18,19,20,21],
+            [23,21,24,19,20,21,24])
+        # Price trades above the protected lower high, but closes back below it.
+        bearish[-1]["close"] = 22.5
+        result = analyze_market_structure(bearish, pivot_window=1)
+        self.assertFalse(any(e.kind == "CHOCH_UP" for e in result.events))
+
+
 if __name__=="__main__":
     unittest.main()

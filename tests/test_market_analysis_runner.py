@@ -103,6 +103,16 @@ class MarketAnalysisRunnerTests(unittest.TestCase):
         invalid = {"timestamp": "bad", "fetched_at": "bad"}
         self.assertEqual(_closed_only([invalid], "15m"), [])
 
+    def test_closed_filter_rejects_boolean_fractional_and_nonfinite_time_metadata(self):
+        invalid_values = (True, 1000.5, 0, -1, float("nan"), float("inf"))
+        for value in invalid_values:
+            with self.subTest(timestamp=value):
+                candle = {"timestamp": value, "fetched_at": 100_000}
+                self.assertEqual(_closed_only([candle], "15m"), [])
+            with self.subTest(fetched_at=value):
+                candle = {"timestamp": 1_000, "fetched_at": value}
+                self.assertEqual(_closed_only([candle], "15m"), [])
+
 
 if __name__ == "__main__":
     unittest.main()

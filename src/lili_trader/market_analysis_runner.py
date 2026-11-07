@@ -41,6 +41,28 @@ def _closed_only(candles, timeframe):
     return result
 
 
+def _is_fresh_closed_history(candles, timeframe, *, max_stale_intervals=3):
+    """Reject stale public data based on the newest closed candle's end time."""
+    if not candles:
+        return False
+    duration = _INTERVAL_SECONDS[timeframe]
+    latest = max(candles, key=lambda candle: float(
+        candle.get("timestamp") if isinstance(candle, dict) else candle.timestamp
+    ))
+    def field(name):
+        return latest.get(name) if isinstance(latest, dict) else getattr(latest, name, None)
+    timestamp, fetched_at = field("timestamp"), field("fetched_at")
+    if timestamp is None or fetched_at is None:
+        # This helper is used for production API data; absent metadata cannot
+        # establish freshness, so do not silently trust it.
+        return False
+    try:
+        age_after_close = float(fetched_at) - (float(timestamp) + duration)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    return age_after_close <= duration * max_stale_intervals and age_after_close >= -duration
+
+
 def fetch_and_analyze(symbol: str = "BTCIRT", *, count: int = 500) -> str:
     """Fetch closed 1h/15m/5m and context candles; return a Persian report.
 
@@ -56,10 +78,24 @@ def fetch_and_analyze(symbol: str = "BTCIRT", *, count: int = 500) -> str:
         "1D": "D",
     }
     candles = {}
+    stale_timeframes = []
     for timeframe, resolution in resolutions.items():
         fetched = adapter.fetch_history(
             symbol=symbol, resolution=resolution, count=count
         )
-        candles[timeframe] = _closed_only(fetched, timeframe)
+        closed = _closed_only(fetched, timeframe)
+        if closed and not _is_fresh_closed_history(closed, timeframe):
+            stale_timeframes.append(timeframe)
+            closed = []
+        candles[timeframe] = closed
     result = analyze_market(symbol, candles)
-    return result.report_fa
+    report = result.report_fa
+    if stale_timeframes:
+        labels = "، ".join(stale_timeframes)
+        report += (
+            "\\n\\nهشدار تازگی داده: آخرین کندل بسته‌شده در تایم‌فریم "
+            + labels
+            + " بیش از حد مجاز قدیمی است یا زمان آن قابل‌تأیید نیست؛ "
+            "این تایم‌فریم‌ها از تحلیل حذف شدند و ورود مجاز نیست."
+        )
+    return report

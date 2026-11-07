@@ -38,8 +38,8 @@ def _value(candle, name):
     return candle.get(name) if isinstance(candle, Mapping) else getattr(candle, name, None)
 
 def analyze_market_structure(candles: Sequence, *, pivot_window: int = 2) -> StructureAnalysis:
-    if pivot_window < 1:
-        raise ValueError("pivot_window must be >= 1")
+    if type(pivot_window) is not int or pivot_window < 1:
+        raise ValueError("pivot_window must be a positive integer")
     if not isinstance(candles, Sequence) or isinstance(candles, (str, bytes)):
         raise TypeError("candles must be a sequence")
     if len(candles) < 2 * pivot_window + 3:

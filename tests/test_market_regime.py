@@ -52,5 +52,34 @@ class MarketRegimeTests(unittest.TestCase):
         names=[c.name for c in select_strategy_candidates(state)]
         self.assertEqual(names,["no_trade_wait"])
 
+
+    def test_boolean_ohlc_values_are_rejected(self):
+        trend = SimpleNamespace(direction="up", last_two_swing_highs=(110, 120),
+                                last_two_swing_lows=(100, 110))
+        for field in ("open", "high", "low", "close"):
+            with self.subTest(field=field):
+                rows = candles()
+                rows[-1][field] = True
+                with self.assertRaises(ValueError):
+                    classify_market_regime(rows, trend)
+
+    def test_non_positive_ohlc_values_are_rejected(self):
+        trend = SimpleNamespace(direction="up", last_two_swing_highs=(110, 120),
+                                last_two_swing_lows=(100, 110))
+        for field in ("open", "high", "low", "close"):
+            with self.subTest(field=field):
+                rows = candles()
+                rows[-1][field] = 0
+                with self.assertRaises(ValueError):
+                    classify_market_regime(rows, trend)
+
+    def test_malformed_volatility_window_is_rejected(self):
+        trend = SimpleNamespace(direction="up", last_two_swing_highs=(110, 120),
+                                last_two_swing_lows=(100, 110))
+        for value in (True, 20.0, "20", 0):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    classify_market_regime(candles(), trend, volatility_window=value)
+
 if __name__ == "__main__":
     unittest.main()

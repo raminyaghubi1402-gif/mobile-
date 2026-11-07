@@ -168,5 +168,42 @@ class MarketStructureTests(unittest.TestCase):
         # Event type is the contract; later candles may independently confirm trend.
 
 
+
+    def test_future_extension_cannot_change_confirmed_pivots_or_events_before_cutoff(self):
+        # Compare an analysis truncated at cutoff with a longer series whose
+        # future candles are radically different. Only events and swings
+        # confirmed by cutoff are compared; later confirmation is allowed.
+        base = candles_from(
+            [10,15,12,13,16,14,15,17,18,19,20,18,22,19,23],
+            [7,8,9,8,10,9,11,12,13,14,15,12,16,13,17],
+            [9,14,11,12,15,13,14,16,17,18,19,13,21,14,22])
+        cutoff = 11
+        future = candles_from(
+            [40,20,50,15,60,10,70,5],
+            [30,10,35,8,40,6,45,2],
+            [39,11,49,9,59,7,69,3])
+        future = [dict(row, timestamp=row["timestamp"] + len(base)) for row in future]
+        full = base + future
+
+        truncated_result = analyze_market_structure(base[:cutoff + 1], pivot_window=1)
+        extended_result = analyze_market_structure(full, pivot_window=1)
+        cutoff_events = [
+            (e.kind, e.candle_index, e.level, e.broken_swing_index, e.close)
+            for e in extended_result.events if e.candle_index <= cutoff
+        ]
+        expected_events = [
+            (e.kind, e.candle_index, e.level, e.broken_swing_index, e.close)
+            for e in truncated_result.events
+        ]
+        self.assertEqual(expected_events, cutoff_events)
+
+        # Swing must be confirmed within cutoff (pivot index + window).
+        cutoff_swings = [(s.kind, s.index, s.price) for s in truncated_result.swings]
+        extended_confirmed = [
+            (s.kind, s.index, s.price) for s in extended_result.swings
+            if s.index + 1 <= cutoff
+        ]
+        self.assertEqual(cutoff_swings, extended_confirmed)
+
 if __name__=="__main__":
     unittest.main()

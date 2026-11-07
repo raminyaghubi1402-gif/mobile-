@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 from lili_trader.market_analyst import analyze_market, _closed
 from lili_trader.market_structure import StructureAnalysis, StructureEvent
@@ -39,6 +40,15 @@ class ProfessionalMarketAnalystTests(unittest.TestCase):
             "5m",
         )
         self.assertEqual(result, (confirmed, missing_flag))
+        object_false = SimpleNamespace(timestamp=6, is_closed=False)
+        object_string_true = SimpleNamespace(timestamp=7, is_closed="true")
+        object_true = SimpleNamespace(timestamp=8, is_closed=True)
+        object_without_flag = SimpleNamespace(timestamp=9)
+        object_result = _closed(
+            {"5m": [object_false, object_string_true, object_true, object_without_flag]},
+            "5m",
+        )
+        self.assertEqual(object_result, (object_true, object_without_flag))
 
     def test_missing_required_timeframes_fails_closed(self):
         result = analyze_market("BTCIRT", {"1h": [], "15m": [], "5m": []})
@@ -46,6 +56,31 @@ class ProfessionalMarketAnalystTests(unittest.TestCase):
         self.assertIsNone(result.direction)
         self.assertIn("داده", result.report_fa)
         self.assertIn("هیچ معامله‌ای اجرا نمی‌شود", result.report_fa)
+
+    def test_each_required_timeframe_fails_closed_when_closure_flag_is_false(self):
+        for missing_tf in ("1h", "15m", "5m"):
+            with self.subTest(timeframe=missing_tf):
+                data = {}
+                for timeframe in ("1h", "15m", "5m"):
+                    rows = candles_for("up")
+                    for row in rows:
+                        row["is_closed"] = timeframe != missing_tf
+                    data[timeframe] = rows
+                result = analyze_market("BTCIRT", data, pivot_window=1)
+                self.assertEqual(result.decision, "WAIT")
+                self.assertIsNone(result.direction)
+                self.assertIsNone(result.gate)
+
+    def test_each_required_timeframe_fails_closed_on_invalid_ohlc(self):
+        for invalid_tf in ("1h", "15m", "5m"):
+            with self.subTest(timeframe=invalid_tf):
+                data = {tf: candles_for("up") for tf in ("1h", "15m", "5m")}
+                data[invalid_tf][-1]["low"] = data[invalid_tf][-1]["high"] + 1
+                result = analyze_market("BTCIRT", data, pivot_window=1)
+                self.assertEqual(result.decision, "WAIT")
+                self.assertIsNone(result.direction)
+                self.assertIsNone(result.gate)
+                self.assertTrue(any(invalid_tf in warning for warning in result.report_fa.splitlines()))
 
     def test_rejects_empty_symbol(self):
         with self.assertRaises(ValueError):

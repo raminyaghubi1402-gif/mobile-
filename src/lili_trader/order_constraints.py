@@ -10,6 +10,16 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, ROUND_DOWN
 
 
+def _decimal(value: Decimal | str | int | float) -> Decimal:
+    try:
+        result = value if isinstance(value, Decimal) else Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError) as exc:
+        raise ValueError("value must be a valid decimal") from exc
+    if not result.is_finite():
+        raise ValueError("value must be finite")
+    return result
+
+
 @dataclass(frozen=True)
 class MarketOrderRules:
     min_quantity: Decimal
@@ -17,9 +27,17 @@ class MarketOrderRules:
     min_notional: Decimal
 
     def __post_init__(self) -> None:
-        values = (self.min_quantity, self.quantity_step, self.min_notional)
-        if any(not value.is_finite() or value <= 0 for value in values):
+        # Normalize user/config inputs once; float conversion goes through str
+        # to avoid importing binary floating-point artifacts into Decimal.
+        values = tuple(_decimal(value) for value in (
+            self.min_quantity, self.quantity_step, self.min_notional
+        ))
+        if any(value <= 0 for value in values):
             raise ValueError("market constraints must be finite and positive")
+        for name, value in zip(
+            ("min_quantity", "quantity_step", "min_notional"), values
+        ):
+            object.__setattr__(self, name, value)
 
 
 @dataclass(frozen=True)
@@ -28,16 +46,6 @@ class OrderSizeCheck:
     quantity: Decimal
     notional: Decimal
     reason: str
-
-
-def _decimal(value: Decimal | str | int | float) -> Decimal:
-    try:
-        result = value if isinstance(value, Decimal) else Decimal(str(value))
-    except (InvalidOperation, ValueError) as exc:
-        raise ValueError("value must be a valid decimal") from exc
-    if not result.is_finite():
-        raise ValueError("value must be finite")
-    return result
 
 
 def validate_order_size(

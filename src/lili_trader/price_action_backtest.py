@@ -14,6 +14,7 @@ from .price_action_trend import classify_price_action_trend
 from .timeframe_gate import evaluate_timeframe_gate
 from .smart_stop import create_smart_stop, update_smart_stop
 from .support_resistance import find_support_resistance
+from .market_regime import classify_market_regime, select_strategy_candidates
 
 
 @dataclass(frozen=True)
@@ -250,6 +251,20 @@ def run_three_timeframe_backtest(
                 f_trend = classify_price_action_trend(closed_five)
                 decision = evaluate_timeframe_gate(h_trend, m_trend, f_trend,
                                                    fifteen[fifteen_closed_count - 1]["close"])
+                # Regime-first gate: inspect only already-closed 1h candles.
+                # The selector proposes candidate families; the existing MTF
+                # gate remains responsible for the actual setup/trigger.
+                regime_candles = hourly[max(0, hourly_closed_count - 20):hourly_closed_count]
+                regime = classify_market_regime(regime_candles, h_trend)
+                regime_candidates = select_strategy_candidates(regime)
+                regime_status = "regime_" + regime.trend + "_" + regime.volatility
+                gate_counts[regime_status] = gate_counts.get(regime_status, 0) + 1
+                if not any(c.eligible and c.name != "no_trade_wait"
+                           and c.name != "no_trade_range_policy"
+                           for c in regime_candidates):
+                    from .timeframe_gate import GateDecision
+                    decision = GateDecision("regime_blocked", False, decision.direction,
+                                            regime.reason)
                 gate_status = decision.status
             except (ValueError, TypeError, OverflowError):
                 gate_status = "invalid_data"

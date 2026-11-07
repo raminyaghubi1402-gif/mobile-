@@ -114,9 +114,20 @@ class NobitexAdapter:
         candles = []
         for i in range(len(arrays[0])):
             try:
+                raw_timestamp = arrays[0][i]
+                # Timestamps are Unix seconds, not prices: reject booleans,
+                # fractional values, and non-positive values rather than
+                # silently coercing them into a different candle.
+                if isinstance(raw_timestamp, bool):
+                    raise ValueError("boolean timestamp")
+                timestamp_value = float(raw_timestamp)
+                if (not timestamp_value.is_integer()
+                        or timestamp_value <= 0
+                        or timestamp_value >= float("inf")):
+                    raise ValueError("invalid timestamp")
                 candle = NobitexCandle(
                     symbol=symbol, resolution=resolution,
-                    timestamp=int(arrays[0][i]),
+                    timestamp=int(timestamp_value),
                     open=float(arrays[1][i]), high=float(arrays[2][i]),
                     low=float(arrays[3][i]), close=float(arrays[4][i]),
                     volume=float(volume[i]), fetched_at=fetched_at,

@@ -4,7 +4,9 @@ from math import sin, isfinite
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from lili_trader.price_action_backtest import (\n    run_three_timeframe_backtest, _estimated_stop_risk_per_unit,\n)
+from lili_trader.price_action_backtest import (
+    run_three_timeframe_backtest, _estimated_stop_risk_per_unit,
+)
 
 
 @dataclass

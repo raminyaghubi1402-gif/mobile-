@@ -151,7 +151,10 @@ def run_three_timeframe_backtest(
     peak = cash
     max_drawdown = 0.0
     gate_counts: dict[str, int] = {}
-    previous_gate_ready = False
+    # A setup is consumed only after it passes the SR filter. If SR blocks
+    # the first READY candle, keep checking while READY persists so the setup
+    # can become eligible when price moves away from the opposing zone.
+    setup_consumed = False
     hourly_closed_count = 0
     fifteen_closed_count = 0
 
@@ -251,11 +254,14 @@ def run_three_timeframe_backtest(
                 gate_status = "invalid_data"
         gate_counts[gate_status] = gate_counts.get(gate_status, 0) + 1
 
-        new_setup = bool(decision is not None and decision.allowed and not previous_gate_ready)
-        previous_gate_ready = bool(decision is not None and decision.allowed)
+        gate_ready = bool(decision is not None and decision.allowed)
+        if not gate_ready:
+            setup_consumed = False
+        new_setup = gate_ready and not setup_consumed
 
-        # One entry per uninterrupted READY signal. If a stop closes a trade
-        # while the gate remains READY, do not immediately re-enter the same setup.
+        # One entry per READY setup that has passed the SR filter. A blocked
+        # setup remains eligible for re-check; a traded setup cannot re-enter
+        # until the multi-timeframe gate leaves READY and later returns.
         if position is None and new_setup:
             # Use only 15m candles already closed at the signal timestamp.
             # A BUY is blocked near overhead resistance; a SELL near support.
@@ -291,6 +297,10 @@ def run_three_timeframe_backtest(
             gate_counts[sr_status] = gate_counts.get(sr_status, 0) + 1
             if sr_blocked:
                 new_setup = False
+            else:
+                # Consume the setup once it has passed the opposing-zone filter,
+                # even if ATR sizing later cannot open a position.
+                setup_consumed = True
             try:
                 atr_value = _atr(fifteen[:fifteen_closed_count], atr_period)
             except ValueError:

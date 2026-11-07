@@ -1,5 +1,8 @@
 import unittest
+from unittest.mock import patch
 from lili_trader.market_analyst import analyze_market
+from lili_trader.price_action_trend import TrendState
+from lili_trader.support_resistance import PriceZone
 
 
 def candles_for(direction="up", count=25):
@@ -65,6 +68,38 @@ class ProfessionalMarketAnalystTests(unittest.TestCase):
         self.assertEqual(result.decision, "WAIT")
         self.assertEqual(result.direction, "up")
         self.assertIn(result.gate.status, ("wait_zone", "wait_trigger"))
+
+
+    def test_market_analyst_allows_pullback_only_at_zone_with_five_minute_break(self):
+        hourly = TrendState("up", "صعودی", 105.0, (120.0, 130.0),
+                            (90.0, 100.0), 3, 3, "hourly up")
+        fifteen = TrendState("down", "اصلاح نزولی", 105.0, (120.0, 115.0),
+                             (110.0, 105.0), 3, 3, "15m pullback")
+        five = TrendState("up", "بازگشت صعودی", 131.0, (120.0, 130.0),
+                          (90.0, 95.0), 3, 3, "5m bullish break")
+        support = PriceZone("support", 99.5, 100.5, 100.0, 3, 20, 2.5)
+        hourly_rows = candles_for("up")
+        fifteen_rows = candles_for("up")
+        fifteen_rows[-1] = {"timestamp": 24, "open": 100.0, "high": 106.0,
+                            "low": 99.0, "close": 105.0}
+        five_rows = candles_for("up")
+        five_rows[-2] = {"timestamp": 23, "open": 129.0, "high": 129.5,
+                         "low": 128.5, "close": 129.0}
+        five_rows[-1] = {"timestamp": 24, "open": 129.0, "high": 132.0,
+                         "low": 128.8, "close": 131.0}
+        with patch("lili_trader.market_analyst.classify_price_action_trend",
+                   side_effect=(hourly, fifteen, five)), \\
+             patch("lili_trader.market_analyst.find_support_resistance",
+                   return_value=(support,)):
+            result = analyze_market(
+                "BTCIRT",
+                {"1h": hourly_rows, "15m": fifteen_rows, "5m": five_rows},
+                pivot_window=1,
+            )
+        self.assertEqual(result.decision, "READY_BUY")
+        self.assertTrue(result.gate.allowed)
+        self.assertEqual(result.gate.direction, "up")
+        self.assertIn("اصلاح ۱۵ دقیقه", result.gate.reason)
 
     def test_insufficient_hourly_history_never_becomes_ready(self):
         up = candles_for("up", count=12)

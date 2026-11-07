@@ -295,21 +295,28 @@ def run_three_timeframe_backtest(
                 closed_15m = fifteen[max(0, fifteen_closed_count - trend_lookback):fifteen_closed_count]
                 setup_direction = h_trend.direction
                 setup_zone_touched = False
+                hourly_setup_zones = None
+                fifteen_setup_zones = None
                 if setup_direction in ("up", "down"):
                     wanted_zone = "support" if setup_direction == "up" else "resistance"
-                    zone_sources = (
-                        hourly[max(0, hourly_closed_count - trend_lookback):hourly_closed_count],
-                        closed_15m,
-                    )
-                    for zone_candles in zone_sources:
-                        try:
-                            setup_zones = find_support_resistance(
-                                zone_candles, pivot_window=3,
-                                atr_period=min(14, len(zone_candles) - 1),
-                                min_touches=2, max_zones=6,
-                            )
-                        except (ValueError, TypeError, OverflowError):
-                            continue
+                    hourly_closed = hourly[max(0, hourly_closed_count - trend_lookback):hourly_closed_count]
+                    try:
+                        hourly_setup_zones = find_support_resistance(
+                            hourly_closed, pivot_window=3,
+                            atr_period=min(14, len(hourly_closed) - 1),
+                            min_touches=2, max_zones=6,
+                        )
+                    except (ValueError, TypeError, OverflowError):
+                        hourly_setup_zones = None
+                    try:
+                        fifteen_setup_zones = find_support_resistance(
+                            closed_15m, pivot_window=3,
+                            atr_period=min(14, len(closed_15m) - 1),
+                            min_touches=2, max_zones=6,
+                        )
+                    except (ValueError, TypeError, OverflowError):
+                        fifteen_setup_zones = None
+                    for setup_zones in (hourly_setup_zones or (), fifteen_setup_zones or ()):
                         if any(
                             zone.kind == wanted_zone
                             and signal_bar["low"] <= zone.upper
@@ -375,9 +382,9 @@ def run_three_timeframe_backtest(
                 sr_status = "sr_clear"
                 closed_15m = fifteen[max(0, fifteen_closed_count - trend_lookback):fifteen_closed_count]
                 try:
-                    zones = find_support_resistance(closed_15m, pivot_window=3,
-                                                   atr_period=min(14, len(closed_15m) - 1),
-                                                   min_touches=2, max_zones=6)
+                    if fifteen_setup_zones is None:
+                        raise ValueError("15m support/resistance zones unavailable")
+                    zones = fifteen_setup_zones
                     sr_atr = _atr(closed_15m, atr_period)
                     signal_price = signal_bar["close"]
                     buffer = sr_atr * support_resistance_buffer_atr

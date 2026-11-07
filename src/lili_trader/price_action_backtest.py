@@ -295,7 +295,7 @@ def run_three_timeframe_backtest(
                 atr_value = _atr(fifteen[:fifteen_closed_count], atr_period)
             except ValueError:
                 atr_value = 0.0
-            if atr_value > 0 and cash > 0:
+            if atr_value > 0 and cash > 0 and not sr_blocked:
                 direction = "BUY" if decision.direction == "up" else "SELL"
                 side = 1 if direction == "BUY" else -1
                 raw_entry = bar["open"]

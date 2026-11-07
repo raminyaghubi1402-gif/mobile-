@@ -136,25 +136,33 @@ def analyze_market(symbol: str, candles_by_timeframe: Mapping, *, pivot_window: 
         )
         direction = gate.direction
 
-        # Independent 1h BOS/CHoCH is a structural safety veto, not a
-        # replacement for the existing 1h/15m/5m entry gate. If it contradicts
-        # the intended direction, keep the analysis fail-closed.
+        # Fail closed when independently computed structure disagrees with
+        # the trend labels. 1h defines bias; 15m must agree with its own
+        # price-action state (it may still be a countertrend pullback);
+        # the 5m entry trigger is separately required to be fresh BOS/CHoCH.
         hourly_structure = frames["1h"].structure
-        structural_conflict = bool(
-            direction == "up" and hourly_structure
-            and (hourly_structure.bias == "down"
-                 or (hourly_structure.last_event
-                     and hourly_structure.last_event.kind == "CHOCH_DOWN"))
-            or direction == "down" and hourly_structure
-            and (hourly_structure.bias == "up"
-                 or (hourly_structure.last_event
-                     and hourly_structure.last_event.kind == "CHOCH_UP"))
-        )
+        fifteen_structure = frames["15m"].structure
+        structural_conflict = False
+        structural_reason = ""
+        if direction in ("up", "down"):
+            if not hourly_structure or hourly_structure.bias != direction:
+                structural_conflict = True
+                structural_reason = (
+                    "ساختار مستقل ۱ساعته نامشخص یا مخالف روند اصلی است؛ "
+                    "تا تأیید BOS/CHoCH هم‌جهت ورود ممنوع."
+                )
+            elif (hourly_structure.last_event
+                  and hourly_structure.last_event.kind == ("CHOCH_DOWN" if direction == "up" else "CHOCH_UP")):
+                structural_conflict = True
+                structural_reason = "CHoCH یک‌ساعته خلاف جهت ستاپ ثبت شده؛ ورود ممنوع."
+            elif not fifteen_structure or fifteen_structure.bias != fifteen.direction:
+                structural_conflict = True
+                structural_reason = (
+                    "ساختار مستقل ۱۵ دقیقه با تحلیل روند همان تایم‌فریم هم‌خوان نیست؛ "
+                    "ستاپ تا رفع اختلاف متوقف است."
+                )
         if structural_conflict:
-            gate = GateDecision(
-                "structure_conflict", False, direction,
-                "ساختار مستقل ۱ساعته با جهت ستاپ تعارض دارد (BOS/CHoCH)؛ تا رفع تعارض ورود ممنوع."
-            )
+            gate = GateDecision("structure_conflict", False, direction, structural_reason)
             warnings.append(gate.reason)
 
         try:

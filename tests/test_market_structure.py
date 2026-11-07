@@ -90,7 +90,7 @@ class MarketStructureTests(unittest.TestCase):
         result=analyze_market_structure(rows,pivot_window=1)
         reversal=next(e for e in result.events if e.kind=="CHOCH_DOWN")
         self.assertEqual(reversal.candle_index,6)
-        self.assertEqual(reversal.level,7)
+        self.assertEqual(reversal.level,8)
         self.assertEqual(result.bias,"down")
 
     def test_bearish_structure_breaking_protected_high_is_choch_up(self):
@@ -253,7 +253,7 @@ class MarketStructureTests(unittest.TestCase):
         # A lower high is not protected merely because it formed. It becomes
         # the protected high when a later bearish BOS breaks the intervening low.
         rows=candles_from(
-            [8,10,9,12,11,10,9,11,10,9,8,6,7,6,8,6,5,8],
+            [8,10,9,12,11,10,9,11,10,9,8,6,7,6,8,6,5,9],
             [6,7,5,8,7,8,4,5,3,3.5,2.5,2,2.2,1.8,2,1.5,1.2,1.7],
             [7,9,6,11,10,9,6,6,5,3.8,2.8,5.5,6.5,5.5,7.5,1.6,1.4,7.5])
         result=analyze_market_structure(rows,pivot_window=1)

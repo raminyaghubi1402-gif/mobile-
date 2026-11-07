@@ -83,6 +83,15 @@ class MarketStructureTests(unittest.TestCase):
         self.assertEqual(reversal.level,23)
         self.assertEqual(result.bias,"up")
 
+    def test_close_equal_to_swing_level_is_not_a_break(self):
+        rows=candles_from([10,15,12,13,16,14,15,17,18],
+                          [7,8,9,8,10,9,11,12,13],
+                          [9,14,11,12,15,13,14,16,17])
+        # The high at index 4 is confirmed at index 5. Equality is not a break.
+        rows[5]["close"]=16
+        result=analyze_market_structure(rows,pivot_window=1)
+        self.assertFalse(any(e.broken_swing_index==4 for e in result.events))
+
     def test_each_confirmed_swing_can_be_broken_only_once(self):
         # A close above one confirmed swing must not emit duplicate BOS events
         # for that same swing on subsequent candles.

@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import patch
 from lili_trader.market_analyst import analyze_market
+from lili_trader.market_structure import StructureAnalysis, StructureEvent
 from lili_trader.price_action_trend import TrendState
 from lili_trader.support_resistance import PriceZone
 
@@ -107,6 +108,25 @@ class ProfessionalMarketAnalystTests(unittest.TestCase):
         self.assertEqual(result.decision, "WAIT")
         self.assertEqual(result.regime.trend, "unknown")
 
+
+    def test_hourly_choch_against_setup_blocks_entry(self):
+        up = candles_for("up")
+        event = StructureEvent(
+            "CHOCH_DOWN", 100.0, 20, 20, 18, 99.0,
+            "تغییر کاراکتر نزولی (CHoCH)"
+        )
+        bearish_structure = StructureAnalysis(
+            "down", event, (event,), (), 99.0, "hourly CHoCH down"
+        )
+        with patch("lili_trader.market_analyst.analyze_market_structure",
+                   return_value=bearish_structure):
+            result = analyze_market(
+                "BTCIRT", {"1h": up, "15m": up, "5m": up}, pivot_window=1
+            )
+        self.assertEqual(result.decision, "WAIT")
+        self.assertFalse(result.gate.allowed)
+        self.assertEqual(result.gate.status, "structure_conflict")
+        self.assertIn("تعارض", result.gate.reason)
 
     def test_market_structure_is_attached_to_each_timeframe_report(self):
         up = candles_for("up")

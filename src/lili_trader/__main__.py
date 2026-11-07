@@ -25,6 +25,21 @@ def main() -> None:
     parser.add_argument("--count", type=int, default=100, help="تعداد کندل؛ بک‌تست ساختار قیمت تا ۵۰۰۰، سایر حالت‌ها تا ۵۰۰")
     args = parser.parse_args()
 
+    # Price-action backtest operates in the quote currency of Nobitex IRT pairs.
+    # Never silently treat USD as IRT: conversion must be explicitly supplied.
+    backtest_cash_local = args.backtest_cash
+    if args.price_action_backtest:
+        if args.backtest_currency == "USD" and args.symbol.upper().endswith("IRT"):
+            import math
+            if (args.usd_irt_rate is None or args.usd_irt_rate <= 0
+                    or not math.isfinite(args.usd_irt_rate)):
+                parser.error("برای نمادهای IRT، سرمایهٔ USD به نرخ مثبت و معتبر --usd-irt-rate نیاز دارد؛ نرخ را حدس نمی‌زنیم.")
+            backtest_cash_local = args.backtest_cash * args.usd_irt_rate
+        elif args.backtest_currency == "IRT":
+            backtest_cash_local = args.backtest_cash
+        elif args.backtest_currency == "USD":
+            parser.error("واحد USD فقط برای نمادهای IRT با نرخ تبدیل صریح پشتیبانی می‌شود؛ واحد بازار را مشخص کنید.")
+
     if args.price_action_backtest:
         from pathlib import Path
         from .history_store import load_history_csv, merge_candle_history
@@ -50,7 +65,7 @@ def main() -> None:
         )
         if args.sr_diagnostic:
             baseline = run_three_timeframe_backtest(
-                hourly, fifteen, five, starting_cash=args.backtest_cash,
+                hourly, fifteen, five, starting_cash=backtest_cash_local,
                 use_support_resistance_filter=False
             )
             print("مقایسهٔ تشخیصی SR — داده و تنظیمات یکسان؛ این مقایسه پیش‌بینی سود نیست")

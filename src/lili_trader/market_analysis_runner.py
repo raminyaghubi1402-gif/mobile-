@@ -41,6 +41,29 @@ def _closed_only(candles, timeframe):
     return result
 
 
+def _has_interval_gaps(candles, timeframe):
+    """Require complete, strictly spaced OHLC history for production analysis."""
+    if not candles:
+        return True
+    duration = _INTERVAL_SECONDS[timeframe]
+    timestamps = []
+    for candle in candles:
+        raw = candle.get("timestamp") if isinstance(candle, dict) else getattr(candle, "timestamp", None)
+        if raw is None or isinstance(raw, bool):
+            return True
+        try:
+            numeric = float(raw)
+        except (TypeError, ValueError, OverflowError):
+            return True
+        if numeric < 0 or numeric != numeric or numeric == float("inf") or not numeric.is_integer():
+            return True
+        timestamps.append(int(numeric))
+    return any(
+        current - previous != duration
+        for previous, current in zip(timestamps, timestamps[1:])
+    )
+
+
 def _is_fresh_closed_history(candles, timeframe, *, max_stale_intervals=3):
     """Reject stale public data based on the newest closed candle's end time."""
     if not candles:
@@ -79,6 +102,7 @@ def fetch_and_analyze(symbol: str = "BTCIRT", *, count: int = 500) -> str:
     }
     candles = {}
     stale_timeframes = []
+    invalid_history_timeframes = []
     for timeframe, resolution in resolutions.items():
         fetched = adapter.fetch_history(
             symbol=symbol, resolution=resolution, count=count
@@ -86,6 +110,9 @@ def fetch_and_analyze(symbol: str = "BTCIRT", *, count: int = 500) -> str:
         closed = _closed_only(fetched, timeframe)
         if closed and not _is_fresh_closed_history(closed, timeframe):
             stale_timeframes.append(timeframe)
+            closed = []
+        elif closed and _has_interval_gaps(closed, timeframe):
+            invalid_history_timeframes.append(timeframe)
             closed = []
         candles[timeframe] = closed
     result = analyze_market(symbol, candles)
@@ -97,5 +124,13 @@ def fetch_and_analyze(symbol: str = "BTCIRT", *, count: int = 500) -> str:
             + labels
             + " بیش از حد مجاز قدیمی است یا زمان آن قابل‌تأیید نیست؛ "
             "این تایم‌فریم‌ها از تحلیل حذف شدند و ورود مجاز نیست."
+        )
+    if invalid_history_timeframes:
+        labels = "، ".join(invalid_history_timeframes)
+        report += (
+            "\\n\\nهشدار پیوستگی تاریخچه: در تایم‌فریم "
+            + labels
+            + " فاصله زمانی، ترتیب یا زمان کندل‌ها با بازه مورد انتظار سازگار نیست؛ "
+            "این تاریخچه‌ها از تحلیل حذف شدند و ورود مجاز نیست."
         )
     return report

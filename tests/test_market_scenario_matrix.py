@@ -131,7 +131,7 @@ class EndToEndDecisionScenarioMatrix(unittest.TestCase):
         # This fixture verifies direction policy at the gate/regime layer;
         # a fully bearish price series and a resistance-touch setup are used.
         down_rows = {"1h": candles("down"), "15m": candles("down"), "5m": candles("down")}
-        bearish_hour = trend("down", highs=(110., 100.), lows=(90., 80.), close=85.)
+        bearish_hour = trend("down", highs=(130., 120.), lows=(90., 80.), close=85.)
         bearish_fifteen = trend("up", highs=(110., 115.), lows=(90., 95.), close=85.)
         bearish_five = trend("down", highs=(110., 100.), lows=(90., 80.), close=79.)
         event = StructureEvent("BOS_DOWN", 80., 29, 29, 27, 79., "fresh bearish break")

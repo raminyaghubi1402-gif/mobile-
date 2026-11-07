@@ -14,9 +14,9 @@ class OrderConstraintTests(unittest.TestCase):
 
     def test_quantity_rounds_down_to_step_not_up(self):
         result = validate_order_size("0.019", "1000", self.rules)
-        self.assertFalse(result.accepted)
+        self.assertTrue(result.accepted)
         self.assertEqual(result.quantity, Decimal("0.01"))
-        self.assertEqual(result.reason, "below_minimum_notional")  # 0.01 * 1000 = 10 is accepted actually
+        self.assertEqual(result.notional, Decimal("10"))
 
     def test_accepts_exact_minimum_quantity_and_notional(self):
         result = validate_order_size("0.01", "1000", self.rules)

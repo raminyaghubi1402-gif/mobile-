@@ -107,13 +107,14 @@ def analyze_market_structure(candles: Sequence, *, pivot_window: int = 2) -> Str
         latest_low = confirmed_lows[-1] if confirmed_lows else None
         if active_bias == "up":
             protected_high = latest_high or protected_high
-            # Update protection to the latest confirmed higher low.
-            if latest_low and (protected_low is None or latest_low.price > protected_low.price):
+            # Keep the last protected HL until a new BOS confirms the next
+            # structural leg. A merely confirmed minor HL is not enough.
+            if protected_low is None and latest_low:
                 protected_low = latest_low
         elif active_bias == "down":
             protected_low = latest_low or protected_low
-            # Update protection to the latest confirmed lower high.
-            if latest_high and (protected_high is None or latest_high.price < protected_high.price):
+            # Symmetric rule: keep the protected LH until a new bearish BOS.
+            if protected_high is None and latest_high:
                 protected_high = latest_high
         else:
             protected_high = latest_high or protected_high

@@ -72,6 +72,17 @@ class MarketStructureTests(unittest.TestCase):
         self.assertEqual(reversal.level,7)
         self.assertEqual(result.bias,"down")
 
+    def test_bearish_structure_breaking_protected_high_is_choch_up(self):
+        # Confirm LL/LH, then close above the protected lower high.
+        rows=candles_from([24,23,25,22,23,22,26],
+                          [22,20,21,18,19,20,21],
+                          [23,21,24,19,20,21,24])
+        result=analyze_market_structure(rows,pivot_window=1)
+        reversal=next(e for e in result.events if e.kind=="CHOCH_UP")
+        self.assertEqual(reversal.candle_index,6)
+        self.assertEqual(reversal.level,23)
+        self.assertEqual(result.bias,"up")
+
     def test_changing_future_candles_does_not_rewrite_past_events(self):
         base=candles_from([10,15,12,13,16,14,15,17,18],
                           [7,8,9,8,10,9,11,12,13],

@@ -1,6 +1,8 @@
 """Run the multi-timeframe analyst on fresh public Nobitex candles (read-only)."""
 from __future__ import annotations
 
+from math import isfinite
+
 from .market_analyst import analyze_market
 from .nobitex_data import NobitexAdapter
 
@@ -33,7 +35,15 @@ def _closed_only(candles, timeframe):
             result.append(candle)
             continue
         try:
-            is_closed = float(timestamp) + duration <= float(fetched_at)
+            if isinstance(timestamp, bool) or isinstance(fetched_at, bool):
+                raise ValueError("boolean candle time")
+            numeric_timestamp = float(timestamp)
+            numeric_fetched_at = float(fetched_at)
+            if (not isfinite(numeric_timestamp) or not numeric_timestamp.is_integer()
+                    or numeric_timestamp <= 0 or not isfinite(numeric_fetched_at)
+                    or not numeric_fetched_at.is_integer() or numeric_fetched_at <= 0):
+                raise ValueError("invalid candle time")
+            is_closed = numeric_timestamp + duration <= numeric_fetched_at
         except (TypeError, ValueError, OverflowError):
             is_closed = False
         if is_closed:

@@ -17,7 +17,9 @@ def main() -> None:
     parser.add_argument("--backtest", action="store_true", help="اجرای بک‌تست قدیمی SMA روی کندل‌های عمومی نوبیتکس")
     parser.add_argument("--price-action-backtest", action="store_true", help="بک‌تست اختصاصی راهبرد ۱h/۱۵m/۵m بدون اندیکاتور")
     parser.add_argument("--sr-diagnostic", action="store_true", help="مقایسهٔ بک‌تست با فیلتر حمایت‌ومقاومت و بدون آن؛ فقط تشخیصی")
-    parser.add_argument("--backtest-cash", type=float, default=1000000.0, help="موجودی فرضی بک‌تست")
+    parser.add_argument("--backtest-cash", type=float, default=10.0, help="سرمایهٔ فرضی بک‌تست (پیش‌فرض ۱۰)")
+    parser.add_argument("--backtest-currency", choices=("USD", "IRT"), default="USD", help="واحد سرمایهٔ بک‌تست")
+    parser.add_argument("--usd-irt-rate", type=float, default=None, help="نرخ مستند تبدیل ۱ USD به IRT")
     parser.add_argument("--symbol", default="BTCIRT", help="نماد نوبیتکس، مثل BTCIRT یا ETHIRT")
     parser.add_argument("--resolution", default="60", help="بازه: 1, 5, 15, 30, 60, 240 یا D")
     parser.add_argument("--count", type=int, default=100, help="تعداد کندل؛ بک‌تست ساختار قیمت تا ۵۰۰۰، سایر حالت‌ها تا ۵۰۰")
@@ -44,7 +46,7 @@ def main() -> None:
         five = load_and_refresh("5", args.count)
         fifteen = extend_fifteen_with_five(native_fifteen, five)
         result = run_three_timeframe_backtest(
-            hourly, fifteen, five, starting_cash=args.backtest_cash
+            hourly, fifteen, five, starting_cash=backtest_cash_local
         )
         if args.sr_diagnostic:
             baseline = run_three_timeframe_backtest(
@@ -68,7 +70,9 @@ def main() -> None:
             print(f"بازهٔ مشترک سه تایم‌فریم: {_format_market_time(overlap_start)} تا {_format_market_time(overlap_end)} ({overlap_days:.1f} روز)")
         else:
             print("هشدار: سه تایم‌فریم بازهٔ زمانی مشترک ندارند.")
-        print(f"موجودی آغازین: {result.starting_cash:,.2f} | ارزش پایانی: {result.ending_equity:,.2f}")
+        print(f"سرمایهٔ مبنا: {args.backtest_cash:,.2f} {args.backtest_currency} | نرخ USD→IRT: {args.usd_irt_rate or 'ندارد'} | سرمایهٔ محاسباتی: {result.starting_cash:,.2f} IRT")
+        if args.backtest_currency == "USD" and args.symbol.upper().endswith("IRT"):
+            print("توجه: نرخ تبدیل ورودی کاربر است؛ منبع و زمان نرخ باید در گزارش آزمایش ثبت شود.")
         print(f"سود/زیان خالص: {result.net_profit:,.2f} ({result.return_pct:.2f}٪)")
         print(f"بیشترین افت سرمایه: {result.max_drawdown_pct:.2f}٪")
         print(f"نرخ برد: {result.win_rate_pct:.2f}٪ | معاملات: {result.trade_count} (BUY={result.buy_count}, SELL={result.sell_count})")
@@ -103,7 +107,7 @@ def main() -> None:
             result = run_sma_backtest(candles, starting_cash=args.backtest_cash)
             print("لی‌لی تریدر — نتیجهٔ بک‌تست تاریخی (فقط شبیه‌سازی)")
             print(f"نماد: {args.symbol} | بازه: {args.resolution} | تعداد کندل: {len(candles)}")
-            print(f"موجودی آغازین: {result.starting_cash:,.2f}")
+            print(f"سرمایهٔ مبنا: {args.backtest_cash:,.2f} {args.backtest_currency} | سرمایهٔ محاسباتی: {result.starting_cash:,.2f}")
             print(f"ارزش پایانی: {result.ending_equity:,.2f}")
             print(f"سود/زیان خالص: {result.net_profit:,.2f} ({result.return_pct:.2f}٪)")
             print(f"بیشترین افت سرمایه: {result.max_drawdown_pct:.2f}٪")

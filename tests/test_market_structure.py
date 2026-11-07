@@ -146,8 +146,13 @@ class MarketStructureTests(unittest.TestCase):
         result=analyze_market_structure(rows,pivot_window=1)
         events=[e for e in result.events if e.kind=="CHOCH_DOWN"]
         self.assertTrue(events)
-        self.assertEqual(events[-1].level,11)
-        self.assertEqual(events[-1].candle_index,11)
+        # The protected level must be the BOS-confirmed swing low (11),
+        # not the later minor pivot (12). Assert the event itself, not just
+        # the final event in case another structure event follows.
+        protected_break = next(e for e in events if e.candle_index == 11)
+        self.assertEqual(protected_break.level,11)
+        self.assertEqual(protected_break.broken_swing_index,3)
+        self.assertEqual(protected_break.candle_index,11)
 
 
 

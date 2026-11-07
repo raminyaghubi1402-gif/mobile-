@@ -123,6 +123,16 @@ class NobitexPaginationTests(unittest.TestCase):
         self.assertEqual(seen_pages, [1, 2])
         self.assertEqual(len(candles), 500)
 
+    def test_fetch_recent_rejects_nonpositive_or_fractional_timestamps(self):
+        for bad_timestamp in (0, -1, 300.5, True):
+            with self.subTest(timestamp=bad_timestamp):
+                def opener(request, timeout):
+                    return FakeResponse(payload([bad_timestamp]))
+
+                with self.assertRaises(Exception) as ctx:
+                    NobitexAdapter(opener=opener).fetch_recent("BTCIRT", "5", 1)
+                self.assertEqual(type(ctx.exception).__name__, "NobitexDataError")
+
     def test_fetch_history_rejects_more_than_supported_limit(self):
         with self.assertRaises(ValueError):
             NobitexAdapter().fetch_history("BTCIRT", "5", 5001)

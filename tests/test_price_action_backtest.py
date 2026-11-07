@@ -4,7 +4,7 @@ from math import sin, isfinite
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from lili_trader.price_action_backtest import run_three_timeframe_backtest
+from lili_trader.price_action_backtest import (\n    run_three_timeframe_backtest, _estimated_stop_risk_per_unit,\n)
 
 
 @dataclass
@@ -39,6 +39,22 @@ def falling_bars(count, seconds, start):
 
 
 class ThreeTimeframeBacktestTests(unittest.TestCase):
+    def test_stop_risk_estimate_includes_round_trip_costs_and_adverse_slippage(self):
+        buy_no_cost = _estimated_stop_risk_per_unit(100.0, 90.0, "BUY", 0.0, 0.0)
+        buy_with_cost = _estimated_stop_risk_per_unit(100.0, 90.0, "BUY", 0.001, 0.001)
+        sell_no_cost = _estimated_stop_risk_per_unit(100.0, 110.0, "SELL", 0.0, 0.0)
+        sell_with_cost = _estimated_stop_risk_per_unit(100.0, 110.0, "SELL", 0.001, 0.001)
+        self.assertEqual(buy_no_cost, 10.0)
+        self.assertEqual(sell_no_cost, 10.0)
+        self.assertGreater(buy_with_cost, buy_no_cost)
+        self.assertGreater(sell_with_cost, sell_no_cost)
+
+    def test_stop_risk_estimate_rejects_invalid_direction_or_values(self):
+        with self.assertRaises(ValueError):
+            _estimated_stop_risk_per_unit(100.0, 90.0, "HOLD", 0.001, 0.001)
+        with self.assertRaises(ValueError):
+            _estimated_stop_risk_per_unit(100.0, 90.0, "BUY", float("nan"), 0.001)
+
     def test_runs_deterministically_and_never_uses_leverage(self):
         hourly = rising_bars(80, 3600, 0)
         fifteen = rising_bars(220, 900, 0)
@@ -94,12 +110,16 @@ class ThreeTimeframeBacktestTests(unittest.TestCase):
             self.assertEqual(result.trade_count, 1)
             trade = result.trades[0]
             self.assertEqual(trade.direction, "BUY" if direction == "up" else "SELL")
-            self.assertAlmostEqual(trade.quantity, 125.0)
-            self.assertAlmostEqual(trade.gross_pnl, 375.0)
+            # Costs are included in sizing, so risk-budget sizing is now
+            # slightly smaller than the former distance-only quantity.
+            self.assertGreater(trade.quantity, 0)
+            self.assertLess(trade.quantity, 125.0)
+            self.assertAlmostEqual(trade.gross_pnl, trade.quantity * 3.0)
             self.assertAlmostEqual(trade.exit_price, 103.0 if direction == "up" else 97.0)
-            expected_fees = 25.375 if direction == "up" else 24.625
+            fee_per_unit = 25.375 / 125.0 if direction == "up" else 24.625 / 125.0
+            expected_fees = fee_per_unit * trade.quantity
             self.assertAlmostEqual(trade.fees, expected_fees)
-            self.assertAlmostEqual(trade.net_pnl, 375.0 - expected_fees)
+            self.assertAlmostEqual(trade.net_pnl, trade.gross_pnl - expected_fees)
     def test_break_even_stop_after_first_partial_activates_next_candle(self):
         def flat_bars(count, seconds):
             return [Bar(i * seconds, 100.0, 101.0, 99.0, 100.0)
@@ -119,10 +139,13 @@ class ThreeTimeframeBacktestTests(unittest.TestCase):
         self.assertEqual(result.trade_count, 1)
         trade = result.trades[0]
         self.assertEqual(trade.exit_reason, "smart_stop")
-        self.assertAlmostEqual(trade.gross_pnl, 125.0)
+        self.assertGreater(trade.quantity, 0)
+        self.assertLess(trade.quantity, 125.0)
+        self.assertAlmostEqual(trade.gross_pnl, trade.quantity)
         self.assertAlmostEqual(trade.exit_price, 101.0)
-        self.assertAlmostEqual(trade.fees, 25.125)
-        self.assertAlmostEqual(trade.net_pnl, 99.875)
+        expected_fees = 25.125 / 125.0 * trade.quantity
+        self.assertAlmostEqual(trade.fees, expected_fees)
+        self.assertAlmostEqual(trade.net_pnl, trade.gross_pnl - expected_fees)
     def test_does_not_reenter_same_continuous_ready_setup_after_stop(self):
         def flat_bars(count, seconds):
             return [Bar(i * seconds, 100.0, 101.0, 99.0, 100.0)

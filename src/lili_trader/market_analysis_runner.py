@@ -16,7 +16,7 @@ _INTERVAL_SECONDS = {
 }
 
 
-def _closed_only(candles, timeframe):
+def _closed_only(candles, timeframe, *, require_fetch_metadata=False):
     """Drop a candle whose open time + timeframe duration is after fetch time.
 
     Nobitex's UDF history response includes the currently-forming candle. Its
@@ -29,10 +29,11 @@ def _closed_only(candles, timeframe):
             return candle.get(name) if isinstance(candle, dict) else getattr(candle, name, None)
 
         timestamp, fetched_at = field("timestamp"), field("fetched_at")
-        # Keep custom candle objects without fetch metadata; the production
-        # Nobitex adapter always supplies both fields.
+        # Offline/custom candles may omit fetch metadata, but production API
+        # history must prove closure for every row independently.
         if timestamp is None or fetched_at is None:
-            result.append(candle)
+            if not require_fetch_metadata:
+                result.append(candle)
             continue
         try:
             if isinstance(timestamp, bool) or isinstance(fetched_at, bool):
@@ -117,7 +118,7 @@ def fetch_and_analyze(symbol: str = "BTCIRT", *, count: int = 500) -> str:
         fetched = adapter.fetch_history(
             symbol=symbol, resolution=resolution, count=count
         )
-        closed = _closed_only(fetched, timeframe)
+        closed = _closed_only(fetched, timeframe, require_fetch_metadata=True)
         if closed and not _is_fresh_closed_history(closed, timeframe):
             stale_timeframes.append(timeframe)
             closed = []

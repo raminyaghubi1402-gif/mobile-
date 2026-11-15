@@ -20,8 +20,16 @@ def merge_candle_history(
 ) -> list[NobitexCandle]:
     if not isinstance(max_rows, int) or max_rows < 1:
         raise ValueError("max_rows must be a positive integer")
+    rows = list(existing) + list(incoming)
+    if rows:
+        if any(not isinstance(candle, NobitexCandle) for candle in rows):
+            raise TypeError("history rows must be NobitexCandle instances")
+        identity = (rows[0].symbol, rows[0].resolution)
+        if any((candle.symbol, candle.resolution) != identity for candle in rows):
+            raise ValueError("history rows must share one symbol and resolution")
+
     merged: dict[int, NobitexCandle] = {}
-    for candle in list(existing) + list(incoming):
+    for candle in rows:
         values = (candle.open, candle.high, candle.low, candle.close, candle.volume)
         if (candle.timestamp < 0 or any(not isfinite(v) or v < 0 for v in values)
                 or candle.low <= 0 or candle.high < max(candle.open, candle.close)

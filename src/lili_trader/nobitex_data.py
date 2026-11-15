@@ -125,6 +125,12 @@ class NobitexAdapter:
                         or timestamp_value <= 0
                         or timestamp_value >= float("inf")):
                     raise ValueError("invalid timestamp")
+                raw_values = (
+                    arrays[1][i], arrays[2][i], arrays[3][i],
+                    arrays[4][i], volume[i],
+                )
+                if any(isinstance(value, bool) for value in raw_values):
+                    raise ValueError("boolean OHLCV value")
                 candle = NobitexCandle(
                     symbol=symbol, resolution=resolution,
                     timestamp=int(timestamp_value),
@@ -137,6 +143,8 @@ class NobitexAdapter:
             vals = (candle.open, candle.high, candle.low, candle.close, candle.volume)
             if any(not (v >= 0 and v < float("inf")) for v in vals):
                 raise NobitexDataError("candle contains invalid values")
+            if any(v <= 0 for v in (candle.open, candle.high, candle.low, candle.close)):
+                raise NobitexDataError("OHLC prices must be positive")
             if (candle.high < max(candle.open, candle.close)
                     or candle.low > min(candle.open, candle.close)
                     or candle.high < candle.low):

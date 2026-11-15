@@ -132,6 +132,37 @@ class NobitexPaginationTests(unittest.TestCase):
                 with self.assertRaises(NobitexDataError):
                     NobitexAdapter(opener=opener).fetch_recent("BTCIRT", "5", 1)
 
+    def test_fetch_recent_rejects_boolean_ohlcv_values(self):
+        for field in ("o", "h", "l", "c", "v"):
+            with self.subTest(field=field):
+                invalid = payload([300])
+                invalid[field] = [True]
+
+                def opener(request, timeout):
+                    return FakeResponse(invalid)
+
+                with self.assertRaises(NobitexDataError):
+                    NobitexAdapter(opener=opener).fetch_recent("BTCIRT", "5", 1)
+
+    def test_fetch_recent_rejects_zero_price_but_allows_zero_volume(self):
+        invalid = payload([300])
+        invalid["l"] = [0]
+
+        def invalid_opener(request, timeout):
+            return FakeResponse(invalid)
+
+        with self.assertRaises(NobitexDataError):
+            NobitexAdapter(opener=invalid_opener).fetch_recent("BTCIRT", "5", 1)
+
+        zero_volume = payload([300])
+        zero_volume["v"] = [0]
+
+        def valid_opener(request, timeout):
+            return FakeResponse(zero_volume)
+
+        candle = NobitexAdapter(opener=valid_opener).fetch_recent("BTCIRT", "5", 1)[0]
+        self.assertEqual(candle.volume, 0)
+
     def test_fetch_history_rejects_more_than_supported_limit(self):
         with self.assertRaises(ValueError):
             NobitexAdapter().fetch_history("BTCIRT", "5", 5001)

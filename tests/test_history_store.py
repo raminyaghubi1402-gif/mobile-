@@ -10,9 +10,9 @@ from lili_trader.history_store import (
 from lili_trader.nobitex_data import NobitexCandle
 
 
-def candle(ts, close, resolution="5"):
+def candle(ts, close, resolution="5", symbol="BTCIRT"):
     return NobitexCandle(
-        symbol="BTCIRT", resolution=resolution, timestamp=ts,
+        symbol=symbol, resolution=resolution, timestamp=ts,
         open=close, high=close + 1, low=close - 1, close=close,
         volume=1.0, fetched_at=100,
     )
@@ -44,6 +44,34 @@ class HistoryStoreTests(unittest.TestCase):
             self.assertEqual(len(second), 3)
             self.assertEqual([row.timestamp for row in loaded], [0, 300, 600])
             self.assertEqual(loaded[1].close, 102)
+
+    def test_merge_rejects_mixed_symbols_even_when_timestamps_match(self):
+        with self.assertRaisesRegex(ValueError, "one symbol and resolution"):
+            merge_candle_history(
+                [candle(300, 100)],
+                [candle(300, 200, symbol="ETHIRT")],
+            )
+
+    def test_merge_rejects_mixed_resolutions(self):
+        with self.assertRaisesRegex(ValueError, "one symbol and resolution"):
+            merge_candle_history(
+                [candle(300, 100, resolution="5")],
+                [candle(300, 200, resolution="15")],
+            )
+
+    def test_csv_is_not_rewritten_when_incoming_history_mixes_symbols(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "history" / "BTCIRT_5.csv"
+            merge_history_csv(path, [candle(0, 100)])
+            original = path.read_bytes()
+
+            with self.assertRaises(ValueError):
+                merge_history_csv(
+                    path,
+                    [candle(300, 101), candle(300, 201, symbol="ETHIRT")],
+                )
+
+            self.assertEqual(path.read_bytes(), original)
 
     def test_invalid_ohlc_is_rejected(self):
         invalid = NobitexCandle(

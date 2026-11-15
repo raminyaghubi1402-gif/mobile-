@@ -114,5 +114,45 @@ class MarketAnalysisRunnerTests(unittest.TestCase):
                 self.assertEqual(_closed_only([candle], "15m"), [])
 
 
+    def test_production_filter_rejects_candle_missing_fetch_metadata(self):
+        valid = {"timestamp": 1000, "fetched_at": 5000,
+                 "open": 10, "high": 11, "low": 9, "close": 10}
+        missing_fetch_time = {"timestamp": 1900, "open": 10,
+                              "high": 11, "low": 9, "close": 10}
+        missing_open_time = {"fetched_at": 5000, "open": 10,
+                             "high": 11, "low": 9, "close": 10}
+        self.assertEqual(
+            _closed_only([valid, missing_fetch_time], "15m",
+                         require_fetch_metadata=True), [valid])
+        self.assertEqual(
+            _closed_only([valid, missing_open_time], "15m",
+                         require_fetch_metadata=True), [valid])
+
+    @patch("lili_trader.market_analysis_runner.analyze_market")
+    @patch("lili_trader.market_analysis_runner.NobitexAdapter")
+    def test_live_analysis_drops_candle_without_per_row_fetch_metadata(self, adapter_cls, analyze):
+        adapter = adapter_cls.return_value
+        durations = {"60": 3600, "15": 900, "5": 300, "240": 14400, "D": 86400}
+        base = 1_000_000
+
+        def history(**kwargs):
+            duration = durations[kwargs["resolution"]]
+            rows = [
+                {"timestamp": base + i * duration,
+                 "fetched_at": base + 10 * duration,
+                 "open": 10, "high": 11, "low": 9, "close": 10}
+                for i in range(6)
+            ]
+            rows[2].pop("fetched_at")
+            return rows
+
+        adapter.fetch_history.side_effect = history
+        analyze.return_value.report_fa = "report"
+        fetch_and_analyze("BTCIRT", count=10)
+        payload = analyze.call_args.args[1]
+        for timeframe in ("1h", "15m", "5m", "4h", "1D"):
+            self.assertEqual(payload[timeframe], [])
+
+
 if __name__ == "__main__":
     unittest.main()

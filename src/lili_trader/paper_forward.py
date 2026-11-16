@@ -129,6 +129,7 @@ def _initial_state(rate: float, source: str, observed_at: str,
             "last_equity_irt": equity,
             "last_marked_equity_irt": equity,
             "open_trade_id": None,
+            "setup_consumed": False,
             "last_market_data_at": _iso_now(latest_five[symbol]),
             "last_cycle_at": _iso_now(now_ts),
             "new_decisions_last_cycle": 0,
@@ -334,6 +335,9 @@ def run_forward_cycle(
                 minimum_order_quote=NOBITEX_MINIMUM_SPOT_ORDER_IRT,
                 trade_start_timestamp=replay_start,
                 allowed_entry_timestamps=eligible_entries,
+                initial_setup_consumed=(
+                    False if open_trade_id else account["setup_consumed"]
+                ),
             )
             closed_linked = append_backtest_outcomes(
                 result, journal, run_id=RUN_ID, symbol=symbol
@@ -361,6 +365,7 @@ def run_forward_cycle(
             account["last_equity_irt"] = result.ending_equity
             account["last_marked_equity_irt"] = result.ending_equity
 
+        account["setup_consumed"] = result.setup_consumed
         account["last_processed_signal_close"] = latest_signal_close
         account["last_market_data_at"] = _iso_now(latest_signal_close)
         account["last_cycle_at"] = _iso_now(now)

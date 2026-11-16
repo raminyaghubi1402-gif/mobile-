@@ -656,6 +656,7 @@ class DecisionCallbackTests(unittest.TestCase):
                             starting_cash=100_000,
                             use_support_resistance_filter=False,
                             allow_short=False,
+                            trade_start_timestamp=five[-1].timestamp,
                             allowed_entry_timestamps={five[-1].timestamp},
                             initial_setup_consumed=True,
                         )

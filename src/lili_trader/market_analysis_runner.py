@@ -141,7 +141,7 @@ def _fetch_analysis_bundle(symbol: str, count: int):
     if stale_timeframes:
         labels = "، ".join(stale_timeframes)
         report += (
-            "\\n\\nهشدار تازگی داده: آخرین کندل بسته‌شده در تایم‌فریم "
+            "\n\nهشدار تازگی داده: آخرین کندل بسته‌شده در تایم‌فریم "
             + labels
             + " بیش از حد مجاز قدیمی است یا زمان آن قابل‌تأیید نیست؛ "
             "این تایم‌فریم‌ها از تحلیل حذف شدند و ورود مجاز نیست."
@@ -149,7 +149,7 @@ def _fetch_analysis_bundle(symbol: str, count: int):
     if invalid_history_timeframes:
         labels = "، ".join(invalid_history_timeframes)
         report += (
-            "\\n\\nهشدار پیوستگی تاریخچه: در تایم‌فریم "
+            "\n\nهشدار پیوستگی تاریخچه: در تایم‌فریم "
             + labels
             + " فاصله زمانی، ترتیب یا زمان کندل‌ها با بازه مورد انتظار سازگار نیست؛ "
             "این تاریخچه‌ها از تحلیل حذف شدند و ورود مجاز نیست."

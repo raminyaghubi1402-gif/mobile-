@@ -643,16 +643,22 @@ class DecisionCallbackTests(unittest.TestCase):
                    return_value=trend):
             with patch("lili_trader.price_action_backtest.evaluate_timeframe_gate",
                        side_effect=ready_gate):
-                result = run_three_timeframe_backtest(
-                    rising_bars(80, 3600, 0),
-                    rising_bars(220, 900, 0),
-                    five,
-                    starting_cash=100_000,
-                    use_support_resistance_filter=False,
-                    allow_short=False,
-                    allowed_entry_timestamps={five[-1].timestamp},
-                    initial_setup_consumed=True,
-                )
+                with patch("lili_trader.price_action_backtest.classify_market_regime",
+                           return_value=SimpleNamespace(trend="up", volatility="normal")):
+                    with patch("lili_trader.price_action_backtest.select_strategy_candidates",
+                               return_value=[SimpleNamespace(
+                                   eligible=True, name="trend_pullback_buy"
+                               )]):
+                        result = run_three_timeframe_backtest(
+                            rising_bars(80, 3600, 0),
+                            rising_bars(220, 900, 0),
+                            five,
+                            starting_cash=100_000,
+                            use_support_resistance_filter=False,
+                            allow_short=False,
+                            allowed_entry_timestamps={five[-1].timestamp},
+                            initial_setup_consumed=True,
+                        )
         self.assertEqual(result.trade_count, 0)
         self.assertTrue(result.setup_consumed)
 

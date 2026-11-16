@@ -270,8 +270,14 @@ def main() -> None:
             print(f"معاملات جدید ثبت‌شده در ژورنال: {journaled} | مسیر: {args.backtest_journal}")
         if args.sr_diagnostic:
             baseline = run_three_timeframe_backtest(
-                hourly, fifteen, five, starting_cash=backtest_cash_local,
-                use_support_resistance_filter=False
+                hourly, fifteen, five,
+                starting_cash=backtest_cash_local,
+                fee_rate=audit_fee_rate,
+                slippage_rate=0.001,
+                use_support_resistance_filter=False,
+                symbol=args.symbol,
+                allow_short=(args.decision_journal is None and not args.spot_only),
+                minimum_order_quote=minimum_order_quote,
             )
             print("مقایسهٔ تشخیصی SR — داده و تنظیمات یکسان؛ این مقایسه پیش‌بینی سود نیست")
             print(f"با فیلتر SR: معاملات={result.trade_count} | خالص={result.net_profit:,.2f} | بازده={result.return_pct:.2f}% | افت سرمایه={result.max_drawdown_pct:.2f}%")

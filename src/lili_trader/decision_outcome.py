@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from math import isfinite
 
 from .decision_journal import DecisionJournal, DecisionJournalError
 
@@ -35,6 +36,14 @@ def append_backtest_outcomes(result, journal: DecisionJournal, *, run_id: str, s
     for trade in trades:
         if trade.direction not in {"BUY", "SELL"}:
             raise DecisionOutcomeLinkError("unsupported trade direction")
+        raw_costs = (trade.fees, trade.slippage_quote, trade.net_pnl)
+        if any(
+            isinstance(value, bool) or not isinstance(value, (int, float)) or not isfinite(value)
+            for value in raw_costs
+        ):
+            raise DecisionOutcomeLinkError("trade costs and net PnL must be finite numeric values")
+        if trade.fees < 0 or trade.slippage_quote < 0:
+            raise DecisionOutcomeLinkError("trade fees and slippage must be non-negative")
         decision_id = f"{run_id}:{symbol}:{trade.entry_timestamp}"
         decision = decisions.get(decision_id)
         if decision is None:

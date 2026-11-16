@@ -151,6 +151,7 @@ def main() -> None:
             def decision_callback(event):
                 from .nobitex_limits import (
                     NOBITEX_MINIMUM_SPOT_ORDER_IRT, NOBITEX_MINIMUM_ORDER_SOURCE,
+                    NOBITEX_BASE_SPOT_FEE_RATE_IRT, NOBITEX_FEE_SOURCE,
                 )
                 decision_journal.append_decision(
                     decision_id=event["decision_id"],
@@ -165,6 +166,8 @@ def main() -> None:
                         **event["evidence"],
                         "minimum_order_quote": NOBITEX_MINIMUM_SPOT_ORDER_IRT,
                         "minimum_order_source": NOBITEX_MINIMUM_ORDER_SOURCE,
+                        "fee_rate": NOBITEX_BASE_SPOT_FEE_RATE_IRT,
+                        "fee_source": NOBITEX_FEE_SOURCE,
                         **({
                             "capital_conversion": {
                                 "usd_amount": args.backtest_cash,
@@ -184,8 +187,13 @@ def main() -> None:
 
         minimum_order_quote = None
         if args.decision_journal is not None:
-            from .nobitex_limits import NOBITEX_MINIMUM_SPOT_ORDER_IRT
+            from .nobitex_limits import (
+                NOBITEX_MINIMUM_SPOT_ORDER_IRT, NOBITEX_BASE_SPOT_FEE_RATE_IRT,
+            )
             minimum_order_quote = NOBITEX_MINIMUM_SPOT_ORDER_IRT
+            audit_fee_rate = NOBITEX_BASE_SPOT_FEE_RATE_IRT
+        else:
+            audit_fee_rate = 0.001
 
         result = run_three_timeframe_backtest(
             hourly, fifteen, five, starting_cash=backtest_cash_local,
@@ -194,6 +202,7 @@ def main() -> None:
             symbol=args.symbol,
             allow_short=args.decision_journal is None,
             minimum_order_quote=minimum_order_quote,
+            fee_rate=audit_fee_rate,
         )
         if args.decision_journal is not None:
             from .decision_outcome import append_backtest_outcomes

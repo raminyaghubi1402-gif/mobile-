@@ -31,6 +31,8 @@ class PaperSummaryTests(unittest.TestCase):
                 {"event_type": "DECISION", "payload": {"action": "WAIT"}},
                 {"event_type": "DECISION", "payload": {"action": "BUY"}},
                 {"event_type": "OUTCOME", "payload": {"net_pnl_quote": 100.0}},
+                {"event_type": "OUTCOME", "payload": {"net_pnl_quote": -30.0}},
+                {"event_type": "REVIEW", "payload": {"outcome": "BAD"}},
             ]
             (root / "decisions.jsonl").write_text(
                 "".join(json.dumps(event) + "\n" for event in events),
@@ -42,7 +44,9 @@ class PaperSummaryTests(unittest.TestCase):
             self.assertIn("BTCIRT", report)
             self.assertIn("ETHIRT", report)
             self.assertIn("Journal decisions: **2**", report)
-            self.assertIn("Journal outcomes: **1**", report)
+            self.assertIn("Journal outcomes: **2** (wins: 1, losses: 1)", report)
+            self.assertIn("Net realized PnL (IRT): **70.00**", report)
+            self.assertIn("Human reviews: **1**", report)
             self.assertIn('{"BUY": 1, "WAIT": 1}', report)
             self.assertIn("Trigger: `schedule`", report)
 

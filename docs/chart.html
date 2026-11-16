@@ -97,9 +97,11 @@ function renderHistory(){
  }
 }
 function recordHistory(source,status,reason=''){
- const last=currentCandles.length?currentCandles[currentCandles.length-1]:null;
+ const isAuto=String(source).includes('خودکار');
+ const candlesForRecord=isAuto&&Array.isArray(mtfCandles['5'])&&mtfCandles['5'].length?mtfCandles['5']:currentCandles;
+ const last=candlesForRecord.length?candlesForRecord[candlesForRecord.length-1]:null;
  const numberOrNull=id=>{const raw=$(id).value.trim();if(!raw)return null;const n=Number(raw);return Number.isFinite(n)?n:null;};
- const item={recordedAt:new Date().toISOString(),symbol:$('symbol').value,resolution:$('resolution').value,source,status,reason,
+ const item={recordedAt:new Date().toISOString(),symbol:$('symbol').value,resolution:isAuto?'1h/15m/5m':$('resolution').value,source,status,reason,
   side:$('trade-side').value,entry:numberOrNull('trade-entry'),sl:numberOrNull('trade-sl'),tp1:numberOrNull('trade-tp1'),tp2:numberOrNull('trade-tp2'),
   candleTime:last&&Number.isFinite(last.time)?new Date(last.time*1000).toISOString():null};
  try{const items=readHistory();items.unshift(item);localStorage.setItem(HISTORY_KEY,JSON.stringify(items.slice(0,HISTORY_LIMIT)));renderHistory();}
@@ -109,7 +111,7 @@ function exportHistory(){
  try{
   const data=JSON.stringify({format:'lili-trader-local-history-v1',exportedAt:new Date().toISOString(),items:readHistory()},null,2);
   const blob=new Blob([data],{type:'application/json;charset=utf-8'}),url=URL.createObjectURL(blob),link=document.createElement('a');
-  link.href=url;link.download='lili-trader-analysis-history.json';document.body.appendChild(link);link.click();link.remove();URL.revokeObjectURL(url);
+  link.href=url;link.download='lili-trader-analysis-history.json';document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
   $('history-status').textContent='فایل JSON تاریخچه آماده شد.';
  }catch(_){$('history-status').textContent='ساخت خروجی ممکن نشد؛ امکان دانلود در این مرورگر وجود ندارد.';}
 }

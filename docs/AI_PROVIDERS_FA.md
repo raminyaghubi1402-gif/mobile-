@@ -19,6 +19,7 @@ export LILI_AI_PROVIDERS='[
     "base_url": "https://YOUR-ENDPOINT/v1",
     "model": "YOUR-MODEL-ID",
     "api_key_env": "PROVIDER_ONE_KEY",
+    "free_tier": true,
     "timeout_seconds": 20,
     "requests_per_minute": 10,
     "cooldown_seconds": 60,
@@ -36,7 +37,7 @@ export PROVIDER_TWO_KEY='از محیط امن خود بخوانید'
 PYTHONPATH=src python -m lili_trader --market-analysis --symbol BTCIRT --ai-review
 ```
 
-مقادیر نمونهٔ endpoint و مدل عمداً placeholder هستند؛ باید با مستندات ارائه‌دهنده‌ای که خودتان انتخاب می‌کنید جایگزین شوند. اگر endpoint به کلید نیاز ندارد، `api_key_env` را حذف کنید. endpointهای غیرمحلی باید HTTPS باشند. endpoint محلی HTTP فقط برای localhost مجاز است.
+مقادیر نمونهٔ endpoint و مدل عمداً placeholder هستند؛ باید با مستندات ارائه‌دهنده‌ای که خودتان انتخاب می‌کنید جایگزین شوند. گزینهٔ `free_tier: true` فقط اعلام کاربر است؛ روتر این ارائه‌دهنده‌ها را جلوتر امتحان می‌کند، اما رایگان‌بودن واقعی، سهمیه یا دسترسی را بررسی یا تضمین نمی‌کند. اگر endpoint به کلید نیاز ندارد، `api_key_env` را حذف کنید. endpointهای غیرمحلی باید HTTPS باشند. endpoint محلی HTTP فقط برای localhost مجاز است.
 
 ## رفتار ایمنی و محدودیت
 

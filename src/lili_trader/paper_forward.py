@@ -105,6 +105,10 @@ def _load_state(path: Path) -> dict[str, Any] | None:
         for key in ("replay_start_timestamp", "last_processed_signal_close"):
             if type(item.get(key)) is not int or item[key] <= 0:
                 raise ForwardPaperError(f"invalid {symbol} state field: {key}")
+        if type(item.get("setup_consumed")) is not bool:
+            raise ForwardPaperError(f"invalid {symbol} state field: setup_consumed")
+        if item.get("open_trade_id") is not None and not isinstance(item.get("open_trade_id"), str):
+            raise ForwardPaperError(f"invalid {symbol} state field: open_trade_id")
         for key in ("replay_start_equity_irt", "last_equity_irt"):
             value = item.get(key)
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not isfinite(value) or value <= 0:

@@ -30,6 +30,8 @@ class PriceActionTrade:
     fees: float
     net_pnl: float
     exit_reason: str
+    initial_risk_quote: float = 0.0
+    slippage_quote: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -225,7 +227,17 @@ def run_three_timeframe_backtest(
         total_fees = pos['entry_fee'] + pos['exit_fees'] + exit_fee
         total_exit_value = pos['realized_exit_value'] + fill * qty
         average_exit_price = total_exit_value / pos['original_quantity']
-        trades.append(PriceActionTrade(direction=pos['direction'], entry_timestamp=pos['entry_timestamp'], exit_timestamp=bar['timestamp'], entry_price=pos['entry_price'], exit_price=average_exit_price, quantity=pos['original_quantity'], gross_pnl=total_gross, fees=total_fees, net_pnl=total_gross-total_fees, exit_reason=reason))
+        final_slippage = abs(fill - raw_price) * qty
+        pos["slippage_quote"] += final_slippage
+        trades.append(PriceActionTrade(
+            direction=pos['direction'], entry_timestamp=pos['entry_timestamp'],
+            exit_timestamp=bar['timestamp'], entry_price=pos['entry_price'],
+            exit_price=average_exit_price, quantity=pos['original_quantity'],
+            gross_pnl=total_gross, fees=total_fees,
+            net_pnl=total_gross-total_fees, exit_reason=reason,
+            initial_risk_quote=pos["initial_risk"] * pos["original_quantity"],
+            slippage_quote=pos["slippage_quote"],
+        ))
         position = None
 
     def check_existing_stop(bar: dict) -> bool:
@@ -260,6 +272,7 @@ def run_three_timeframe_backtest(
             pos['realized_gross'] += gross
             pos['realized_exit_value'] += fill * qty
             pos['exit_fees'] += fee
+            pos["slippage_quote"] += abs(fill - target) * qty
             pos['remaining_quantity'] -= qty
             pos['completed_targets'].add(stage_index)
         favorable = bar['high'] if side == 1 else bar['low']
@@ -459,7 +472,9 @@ def run_three_timeframe_backtest(
                         "remaining_quantity": quantity, "entry_fee": entry_fee,
                         "initial_risk": distance, "stop_state": stop_state,
                         "realized_gross": 0.0, "realized_exit_value": 0.0,
-                        "exit_fees": 0.0, "completed_targets": set(),
+                        "exit_fees": 0.0,
+                        "slippage_quote": abs(entry - raw_entry) * quantity,
+                        "completed_targets": set(),
                     }
                     stop_hit = bar["low"] <= stop if side == 1 else bar["high"] >= stop
                     if stop_hit:

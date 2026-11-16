@@ -632,6 +632,30 @@ class DecisionCallbackTests(unittest.TestCase):
         self.assertLessEqual(result.trade_count, 1)
         self.assertTrue(all(trade.entry_timestamp == eligible for trade in result.trades))
 
+    def test_forward_replay_preserves_consumed_setup(self):
+        five = rising_bars(650, 300, 0)
+        trend = SimpleNamespace(
+            direction="up",
+            last_two_swing_highs=(110.0, 115.0),
+            last_two_swing_lows=(90.0, 95.0),
+        )
+        with patch("lili_trader.price_action_backtest.classify_price_action_trend",
+                   return_value=trend):
+            with patch("lili_trader.price_action_backtest.evaluate_timeframe_gate",
+                       side_effect=ready_gate):
+                result = run_three_timeframe_backtest(
+                    rising_bars(80, 3600, 0),
+                    rising_bars(220, 900, 0),
+                    five,
+                    starting_cash=100_000,
+                    use_support_resistance_filter=False,
+                    allow_short=False,
+                    allowed_entry_timestamps={five[-1].timestamp},
+                    initial_setup_consumed=True,
+                )
+        self.assertEqual(result.trade_count, 0)
+        self.assertTrue(result.setup_consumed)
+
 
 if __name__ == "__main__":
     unittest.main()

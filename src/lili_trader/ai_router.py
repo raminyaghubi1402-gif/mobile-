@@ -177,9 +177,19 @@ class LiliAIRouter:
             raise ValueError("clock must be callable")
         if type(cache_max_items) is not int or cache_max_items < 1:
             raise ValueError("cache_max_items must be a positive integer")
-        if not isfinite(cache_ttl_seconds) or cache_ttl_seconds <= 0:
+        if (
+            isinstance(cache_ttl_seconds, bool)
+            or not isinstance(cache_ttl_seconds, (int, float))
+            or not isfinite(cache_ttl_seconds)
+            or cache_ttl_seconds <= 0
+        ):
             raise ValueError("cache_ttl_seconds must be positive")
-        if not isfinite(duplicate_window_seconds) or duplicate_window_seconds < 0:
+        if (
+            isinstance(duplicate_window_seconds, bool)
+            or not isinstance(duplicate_window_seconds, (int, float))
+            or not isfinite(duplicate_window_seconds)
+            or duplicate_window_seconds < 0
+        ):
             raise ValueError("duplicate_window_seconds must be non-negative")
         provider_names = [provider.name for provider in providers]
         if len(provider_names) != len(set(provider_names)):
@@ -246,6 +256,9 @@ class LiliAIRouter:
             raise ValueError("messages must be a non-empty list")
         key = self._key(messages)
         now = self.clock()
+        for recent_key, seen_at in tuple(self._recent.items()):
+            if now - seen_at >= self.duplicate_window_seconds:
+                self._recent.pop(recent_key, None)
         cached = self._cache.get(key)
         if cached and now - cached[0] <= self.cache_ttl_seconds:
             response = cached[1]

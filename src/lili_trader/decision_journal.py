@@ -141,7 +141,7 @@ class DecisionJournal:
     @staticmethod
     def _validate_event(event: DecisionEvent) -> None:
         if event.event_type not in {"DECISION", "OUTCOME", "REVIEW"}:
-            raise DecisionJournalError("event_type must be DECISION or REVIEW")
+            raise DecisionJournalError("event_type must be DECISION, OUTCOME or REVIEW")
         _text(event.event_id, "event_id")
         _text(event.decision_id, "decision_id")
         _timestamp(event.occurred_at)

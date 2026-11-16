@@ -124,7 +124,7 @@ jobs:
               ]
           else:
               lines += ["", "- Journal: no decision file has been created yet."]
-          Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text("\\n".join(lines) + "\\n", encoding="utf-8")
+          Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text("\n".join(lines) + "\n", encoding="utf-8")
           PY
       - name: Persist paper journal and account state
         run: |

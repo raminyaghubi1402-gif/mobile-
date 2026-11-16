@@ -1,0 +1,47 @@
+{
+  "capital_allocation": "5 USD per symbol; total 10 USD",
+  "created_at": "2026-11-16T14:11:23+00:00",
+  "fee_rate": 0.0025,
+  "initial_capital_usd": 10.0,
+  "last_cycle_at": "2026-11-16T14:11:23+00:00",
+  "minimum_order_quote_irt": 3000000,
+  "mode": "PAPER_ONLY_NO_EXCHANGE_ORDERS",
+  "run_id": "forward-paper-v1",
+  "schema_version": 1,
+  "slippage_rate": 0.001,
+  "symbols": {
+    "BTCIRT": {
+      "closed_trades_last_cycle": 0,
+      "last_cycle_at": "2026-11-16T14:11:23+00:00",
+      "last_equity_irt": 13550000.0,
+      "last_marked_equity_irt": 13550000.0,
+      "last_market_data_at": "2026-11-16T14:10:00+00:00",
+      "last_processed_signal_close": 1794838200,
+      "new_decisions_last_cycle": 0,
+      "open_trade_id": null,
+      "replay_start_equity_irt": 13550000.0,
+      "replay_start_timestamp": 1794838500,
+      "setup_consumed": false,
+      "starting_capital_usd": 5.0,
+      "starting_equity_irt": 13550000.0
+    },
+    "ETHIRT": {
+      "closed_trades_last_cycle": 0,
+      "last_cycle_at": "2026-11-16T14:11:23+00:00",
+      "last_equity_irt": 13550000.0,
+      "last_marked_equity_irt": 13550000.0,
+      "last_market_data_at": "2026-11-16T14:10:00+00:00",
+      "last_processed_signal_close": 1794838200,
+      "new_decisions_last_cycle": 0,
+      "open_trade_id": null,
+      "replay_start_equity_irt": 13550000.0,
+      "replay_start_timestamp": 1794838500,
+      "setup_consumed": false,
+      "starting_capital_usd": 5.0,
+      "starting_equity_irt": 13550000.0
+    }
+  },
+  "usd_irt_rate": 2710000.0,
+  "usd_irt_rate_observed_at": "2026-11-16T14:07:57+00:00",
+  "usd_irt_rate_source": "Nobitex USDT/IRT market — user confirmed"
+}

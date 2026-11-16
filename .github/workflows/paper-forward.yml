@@ -40,6 +40,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Run one read-only market and paper cycle
+        id: paper_cycle
         env:
           FORWARD_USD_IRT_RATE: ${{ inputs.usd_irt_rate }}
           FORWARD_USD_IRT_SOURCE: ${{ inputs.rate_source }}
@@ -56,6 +57,75 @@ jobs:
             args+=(--forward-usd-irt-at "$FORWARD_USD_IRT_AT")
           fi
           PYTHONPATH=src python -m lili_trader "${args[@]}"
+      - name: Write Paper cycle summary
+        if: always()
+        env:
+          CYCLE_OUTCOME: ${{ steps.paper_cycle.outcome }}
+          TRIGGER_EVENT: ${{ github.event_name }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          lines = [
+              "# Li-Li Forward Paper",
+              "",
+              f"- Trigger: `{os.environ.get('TRIGGER_EVENT', 'unknown')}`",
+              f"- Cycle step: `{os.environ.get('CYCLE_OUTCOME', 'unknown')}`",
+          ]
+          account_path = Path("data/paper/forward/account.json")
+          journal_path = Path("data/paper/forward/decisions.jsonl")
+          if account_path.exists():
+              account = json.loads(account_path.read_text(encoding="utf-8"))
+              lines += [
+                  f"- Mode: `{account.get('mode', 'unknown')}`",
+                  f"- Last cycle (UTC): `{account.get('last_cycle_at', 'unknown')}`",
+                  f"- USD/IRT seed: `{account.get('usd_irt_rate', 'unknown')}`",
+                  "",
+                  "| Symbol | Last market data (UTC) | New decisions | Closed trades | Open position | Realized equity (IRT) | Marked equity (IRT) |",
+                  "|---|---:|---:|---:|---:|---:|---:|",
+              ]
+              for symbol in ("BTCIRT", "ETHIRT"):
+                  item = account.get("symbols", {}).get(symbol, {})
+                  lines.append(
+                      "| {symbol} | {market} | {decisions} | {closed} | {opened} | {realized} | {marked} |".format(
+                          symbol=symbol,
+                          market=item.get("last_market_data_at", "unknown"),
+                          decisions=item.get("new_decisions_last_cycle", 0),
+                          closed=item.get("closed_trades_last_cycle", 0),
+                          opened="yes" if item.get("open_trade_id") else "no",
+                          realized=item.get("last_equity_irt", "unknown"),
+                          marked=item.get("last_marked_equity_irt", "unknown"),
+                      )
+                  )
+          else:
+              lines += ["", "Account state is not present. Check the cycle logs; initialization may still be required or the cycle may have failed."]
+          if journal_path.exists():
+              decisions = 0
+              outcomes = 0
+              actions = {}
+              for raw in journal_path.read_text(encoding="utf-8").splitlines():
+                  if not raw.strip():
+                      continue
+                  event = json.loads(raw)
+                  event_type = event.get("event_type")
+                  if event_type == "DECISION":
+                      decisions += 1
+                      action = event.get("action", "unknown")
+                      actions[action] = actions.get(action, 0) + 1
+                  elif event_type in ("OUTCOME", "TRADE_OUTCOME"):
+                      outcomes += 1
+              lines += [
+                  "",
+                  f"- Journal decisions: **{decisions}**",
+                  f"- Journal outcomes: **{outcomes}**",
+                  f"- Decision actions: `{json.dumps(actions, ensure_ascii=False, sort_keys=True)}`",
+              ]
+          else:
+              lines += ["", "- Journal: no decision file has been created yet."]
+          Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text("\\n".join(lines) + "\\n", encoding="utf-8")
+          PY
       - name: Persist paper journal and account state
         run: |
           mkdir -p data/paper/forward

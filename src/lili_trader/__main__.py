@@ -24,7 +24,24 @@ def main() -> None:
     parser.add_argument("--symbol", default="BTCIRT", help="نماد نوبیتکس، مثل BTCIRT یا ETHIRT")
     parser.add_argument("--resolution", default="60", help="بازه: 1, 5, 15, 30, 60, 240 یا D")
     parser.add_argument("--count", type=int, default=100, help="تعداد کندل؛ بک‌تست ساختار قیمت تا ۵۰۰۰، سایر حالت‌ها تا ۵۰۰")
+    parser.add_argument("--journal-report", default=None, metavar="PATH", help="گزارش عملکرد ژورنال معاملات آزمایشی JSONL")
+    parser.add_argument("--journal-starting-equity", type=float, default=None, help="سرمایهٔ شروع برای محاسبهٔ افت سرمایهٔ ژورنال")
     args = parser.parse_args()
+
+    if args.journal_report is not None:
+        if args.journal_starting_equity is None:
+            parser.error("برای گزارش ژورنال، --journal-starting-equity را صریحاً وارد کنید.")
+        from .journal import TradeJournal
+        from .journal_report import render_journal_report, summarize_journal
+        try:
+            summary = summarize_journal(
+                TradeJournal(args.journal_report),
+                starting_equity=args.journal_starting_equity,
+            )
+            print(render_journal_report(summary))
+        except (OSError, ValueError, TypeError) as exc:
+            parser.error(f"گزارش ژورنال قابل تولید نیست: {type(exc).__name__}")
+        return
 
     if args.market_analysis:
         from .market_analysis_runner import fetch_and_analyze

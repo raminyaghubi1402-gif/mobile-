@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import isfinite
-from collections.abc import Sequence
+from collections.abc import Sequence, Callable
 
 from .price_action_trend import classify_price_action_trend
 from .timeframe_gate import evaluate_timeframe_gate
@@ -162,6 +162,9 @@ def run_three_timeframe_backtest(
     atr_period: int = 14,
     support_resistance_buffer_atr: float = 1.0,
     use_support_resistance_filter: bool = True,
+    decision_callback: Callable[[dict], None] | None = None,
+    decision_run_id: str | None = None,
+    symbol: str = "BTCIRT",
 ) -> ThreeTimeframeBacktestResult:
     """Backtest 1h direction / 15m setup / 5m trigger with no look-ahead.
 
@@ -198,6 +201,14 @@ def run_three_timeframe_backtest(
     hourly = _validated(hourly_candles, 3600, "1h")
     fifteen = _validated(fifteen_minute_candles, 900, "15m")
     five = _validated(five_minute_candles, 300, "5m")
+
+    if decision_callback is not None:
+        if not callable(decision_callback):
+            raise ValueError("decision_callback must be callable")
+        if not isinstance(decision_run_id, str) or not decision_run_id.strip():
+            raise ValueError("decision_run_id is required when recording decisions")
+        if symbol not in {"BTCIRT", "ETHIRT"}:
+            raise ValueError("decision journal supports only BTCIRT and ETHIRT")
 
     cash = float(starting_cash)
     position = None
@@ -284,6 +295,11 @@ def run_three_timeframe_backtest(
         # candle; never use same-candle high/low ordering to claim a stop fill.
     # i is the 5m candle on which a signal was confirmed; execution is at i+1 open.
     for i in range(1, len(five)):
+        decision_action = "WAIT"
+        decision_reason = "در این کندل بسته‌شده، شرایط ورود کامل نشد."
+        decision_evidence = {}
+        decision_entry = decision_stop = decision_target = decision_risk = None
+        decision_trade_id = None
         bar = five[i]
         if not check_existing_stop(bar):
             manage_open_position(bar)
@@ -391,6 +407,16 @@ def run_three_timeframe_backtest(
         gate_counts[gate_status] = gate_counts.get(gate_status, 0) + 1
 
         gate_ready = bool(decision is not None and decision.allowed)
+        decision_evidence = {
+            "gate_status": gate_status,
+            "gate_allowed": bool(decision is not None and decision.allowed),
+            "direction": getattr(decision, "direction", None),
+            "hourly_closed_count": hourly_closed_count,
+            "fifteen_closed_count": fifteen_closed_count,
+            "five_closed_count": len(closed_five),
+            "signal_close": signal_bar["close"],
+        }
+        decision_reason = getattr(decision, "reason", None) or gate_status
         if not gate_ready:
             setup_consumed = False
         new_setup = gate_ready and not setup_consumed
@@ -438,6 +464,8 @@ def run_three_timeframe_backtest(
             else:
                 gate_counts["sr_filter_disabled_diagnostic"] = gate_counts.get("sr_filter_disabled_diagnostic", 0) + 1
             if sr_blocked:
+                decision_reason = sr_status
+                decision_evidence["support_resistance_status"] = sr_status
                 new_setup = False
             else:
                 # Consume the setup once it has passed the opposing-zone filter,
@@ -479,8 +507,25 @@ def run_three_timeframe_backtest(
                     stop_hit = bar["low"] <= stop if side == 1 else bar["high"] >= stop
                     if stop_hit:
                         finish_position(bar, min(bar["open"], stop) if side == 1 else max(bar["open"], stop), "stop_loss_entry_bar")
+                        decision_reason = "ورود و برخورد حد ضرر در همان کندل؛ با ثبت قیمت اجرای محافظه‌کارانه."
                     else:
                         manage_open_position(bar)
+                        decision_reason = "تأیید هم‌جهت ۱h/۱۵m/۵m، عبور از فیلتر ناحیه و اندازه‌گذاری ریسک."
+                    decision_action = direction
+                    decision_entry = entry
+                    decision_stop = stop
+                    decision_target = entry + side * distance * 2.0
+                    decision_risk = distance * quantity
+                    decision_trade_id = f"{decision_run_id}:{symbol}:{signal_close_time}"
+                    decision_evidence.update({
+                        "support_resistance_status": "clear" if use_support_resistance_filter else "disabled_diagnostic",
+                        "atr_15m": atr_value,
+                        "risk_fraction": risk_fraction,
+                        "fee_rate": fee_rate,
+                        "slippage_rate": slippage_rate,
+                        "quantity": quantity,
+                        "stop_distance": distance,
+                    })
 
         if position is None:
             mark = cash
@@ -490,6 +535,26 @@ def run_three_timeframe_backtest(
             estimated_exit_fee = bar["close"] * position["remaining_quantity"] * fee_rate
             mark = cash + unrealized - estimated_exit_fee
         curve.append(mark)
+        if decision_callback is not None:
+            from datetime import datetime, timezone
+            decision_time = datetime.fromtimestamp(signal_close_time, timezone.utc).isoformat()
+            decision_callback({
+                "decision_id": f"{decision_run_id}:{symbol}:{signal_close_time}",
+                "occurred_at": decision_time,
+                "market_data_at": decision_time,
+                "symbol": symbol,
+                "action": decision_action,
+                "strategy": "three_timeframe_price_action",
+                "strategy_version": "0.2.0",
+                "reason": decision_reason,
+                "evidence": decision_evidence,
+                "entry_price": decision_entry,
+                "stop_loss": decision_stop,
+                "take_profit": decision_target,
+                "risk_quote": decision_risk,
+                "trade_id": decision_trade_id,
+                "timeframe": "1h/15m/5m",
+            })
         peak = max(peak, mark)
         if peak > 0:
             max_drawdown = max(max_drawdown, (peak - mark) / peak * 100)

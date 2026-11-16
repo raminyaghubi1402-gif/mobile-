@@ -84,6 +84,13 @@ class DecisionOutcomeLinkTests(unittest.TestCase):
             with self.assertRaises(DecisionOutcomeLinkError):
                 append_backtest_outcomes(result, journal, run_id=run_id, symbol=symbol)
 
+    def test_boolean_cost_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            journal, result, run_id, symbol = self.make_fixture(directory)
+            result.trades[0].fees = True
+            with self.assertRaises(DecisionOutcomeLinkError):
+                append_backtest_outcomes(result, journal, run_id=run_id, symbol=symbol)
+
 
 if __name__ == "__main__":
     unittest.main()

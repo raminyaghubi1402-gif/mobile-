@@ -527,7 +527,7 @@ def run_three_timeframe_backtest(
                         "quantity": quantity,
                         "stop_distance": distance,
                     })
-            elif decision is not None and decision.allowed and decision.direction == "down" and not allow_short:
+            elif decision is not None and decision.allowed and decision.direction == "down" and not allow_short and not sr_blocked:
                 decision_reason = "فروش استقراضی در حساب نقدی نوبیتکس مجاز نیست؛ تصمیم به WAIT تبدیل شد."
                 decision_evidence["execution_block"] = "spot_short_not_supported"
 

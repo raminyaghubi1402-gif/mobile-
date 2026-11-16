@@ -502,6 +502,36 @@ class DecisionCallbackTests(unittest.TestCase):
             self.assertEqual(result.trade_count, len(entered))
             self.assertEqual(journal.summary()["wait"] + len(entered), len(decisions))
 
+    def test_spot_audit_mode_turns_short_signal_into_wait(self):
+        trend = SimpleNamespace(
+            direction="down",
+            last_two_swing_highs=(110.0, 105.0),
+            last_two_swing_lows=(90.0, 85.0),
+        )
+        events = []
+        with patch("lili_trader.price_action_backtest.classify_price_action_trend",
+                   return_value=trend):
+            with patch("lili_trader.price_action_backtest.evaluate_timeframe_gate",
+                       side_effect=ready_gate):
+                result = run_three_timeframe_backtest(
+                    falling_bars(80, 3600, 0),
+                    falling_bars(220, 900, 0),
+                    falling_bars(650, 300, 0),
+                    starting_cash=100_000,
+                    use_support_resistance_filter=False,
+                    decision_callback=events.append,
+                    decision_run_id="spot-only-test",
+                    symbol="ETHIRT",
+                    allow_short=False,
+                )
+        self.assertEqual(result.trade_count, 0)
+        self.assertTrue(events)
+        self.assertTrue(all(event["action"] == "WAIT" for event in events))
+        self.assertTrue(all(
+            event["evidence"].get("execution_block") == "spot_short_not_supported"
+            for event in events
+        ))
+
 
 if __name__ == "__main__":
     unittest.main()

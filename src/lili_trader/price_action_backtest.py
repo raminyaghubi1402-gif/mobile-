@@ -165,6 +165,7 @@ def run_three_timeframe_backtest(
     decision_callback: Callable[[dict], None] | None = None,
     decision_run_id: str | None = None,
     symbol: str = "BTCIRT",
+    allow_short: bool = True,
 ) -> ThreeTimeframeBacktestResult:
     """Backtest 1h direction / 15m setup / 5m trigger with no look-ahead.
 
@@ -190,8 +191,8 @@ def run_three_timeframe_backtest(
         raise ValueError("fee_rate outside allowed bounds")
     if not 0 <= slippage_rate < 0.05:
         raise ValueError("slippage_rate outside allowed bounds")
-    if type(use_support_resistance_filter) is not bool:
-        raise ValueError("use_support_resistance_filter must be boolean")
+    if type(use_support_resistance_filter) is not bool or type(allow_short) is not bool:
+        raise ValueError("boolean backtest options must be boolean")
     if (type(trend_lookback) is not int or type(atr_period) is not int
             or trend_lookback < 20 or atr_period < 2):
         raise ValueError("lookback/ATR period must be integers within safe bounds")
@@ -475,7 +476,7 @@ def run_three_timeframe_backtest(
                 atr_value = _atr(fifteen[:fifteen_closed_count], atr_period)
             except ValueError:
                 atr_value = 0.0
-            if atr_value > 0 and cash > 0 and not sr_blocked:
+            if atr_value > 0 and cash > 0 and not sr_blocked and (allow_short or decision.direction == "up"):
                 direction = "BUY" if decision.direction == "up" else "SELL"
                 side = 1 if direction == "BUY" else -1
                 raw_entry = bar["open"]
@@ -526,6 +527,9 @@ def run_three_timeframe_backtest(
                         "quantity": quantity,
                         "stop_distance": distance,
                     })
+            elif decision is not None and decision.allowed and decision.direction == "down" and not allow_short:
+                decision_reason = "فروش استقراضی در حساب نقدی نوبیتکس مجاز نیست؛ تصمیم به WAIT تبدیل شد."
+                decision_evidence["execution_block"] = "spot_short_not_supported"
 
         if position is None:
             mark = cash

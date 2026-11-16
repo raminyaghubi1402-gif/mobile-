@@ -15,7 +15,6 @@ from typing import Any
 
 from .decision_journal import DecisionJournal
 from .decision_outcome import append_backtest_outcomes
-from .history_store import merge_candle_history
 from .nobitex_data import NobitexAdapter
 from .nobitex_limits import (
     NOBITEX_BASE_SPOT_FEE_RATE_IRT,
@@ -33,7 +32,6 @@ MAX_FIVE_MINUTE_LAG_SECONDS = 180
 FIVE_MINUTE_COUNT = 2000
 FIFTEEN_MINUTE_COUNT = 500
 HOURLY_COUNT = 500
-MAX_HISTORY_ROWS = 20_000
 FEE_RATE = NOBITEX_BASE_SPOT_FEE_RATE_IRT
 SLIPPAGE_RATE = 0.001
 
@@ -94,8 +92,10 @@ def _load_state(path: Path) -> dict[str, Any] | None:
         raise ForwardPaperError("paper account state is unreadable") from exc
     if not isinstance(state, dict) or state.get("schema_version") != 1:
         raise ForwardPaperError("unsupported paper account state schema")
-    if state.get("symbols") is None or set(state["symbols"]) != set(SYMBOLS):
+    if not isinstance(state.get("symbols"), dict) or set(state["symbols"]) != set(SYMBOLS):
         raise ForwardPaperError("paper account state must contain BTCIRT and ETHIRT")
+    if state.get("initial_capital_usd") != TOTAL_CAPITAL_USD:
+        raise ForwardPaperError("paper account initial capital mismatch")
     if state.get("run_id") != RUN_ID:
         raise ForwardPaperError("paper account run id mismatch")
     rate = state.get("usd_irt_rate")
@@ -115,7 +115,9 @@ def _load_state(path: Path) -> dict[str, Any] | None:
                 raise ForwardPaperError(f"invalid {symbol} state field: {key}")
         if type(item.get("setup_consumed")) is not bool:
             raise ForwardPaperError(f"invalid {symbol} state field: setup_consumed")
-        if item.get("open_trade_id") is not None and not isinstance(item.get("open_trade_id"), str):
+        if item.get("open_trade_id") is not None and (
+            not isinstance(item.get("open_trade_id"), str) or not item["open_trade_id"].strip()
+        ):
             raise ForwardPaperError(f"invalid {symbol} state field: open_trade_id")
         for key in ("replay_start_equity_irt", "last_equity_irt"):
             value = item.get(key)
@@ -163,19 +165,6 @@ def _initial_state(rate: float, source: str, observed_at: str,
         "symbols": symbols,
         "last_cycle_at": _iso_now(now_ts),
     }
-
-
-def _closed_and_current(candles, resolution_seconds: int, now_ts: int):
-    # Keep the current in-progress 5m candle as the execution/position-monitor
-    # bar. Higher timeframes are safely consumed only after their close by the
-    # backtest engine's own close-time cursors.
-    return [
-        candle for candle in candles
-        if candle.timestamp <= now_ts
-        and candle.timestamp + resolution_seconds > now_ts - resolution_seconds
-    ] if resolution_seconds == 300 else [
-        candle for candle in candles if candle.timestamp <= now_ts
-    ]
 
 
 def _timestamp_from_iso(value: str) -> int:
@@ -264,6 +253,8 @@ def run_forward_cycle(
         hourly, fifteen, five = market[symbol]
         account = state["symbols"][symbol]
         latest_signal_close = five[-1].timestamp
+        if latest_signal_close < account["last_processed_signal_close"]:
+            raise ForwardPaperError(f"{symbol} market data moved behind the last processed candle")
 
         replay_start = account["replay_start_timestamp"]
         replay_equity = float(account["replay_start_equity_irt"])

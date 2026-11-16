@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from math import isclose
 from math import isclose, isfinite
 from typing import Optional
 
@@ -162,8 +161,13 @@ class PaperTradeSession:
             self.journal.append(record)
             created.append(record)
 
+        if isinstance(quantity, bool) or not isinstance(quantity, (int, float)) or not isfinite(quantity) or quantity <= 0:
+            raise PaperSessionError("quantity must be finite and positive")
+        effective_entry_price = entry_price + entry_slippage_quote / quantity
+        if not isfinite(effective_entry_price) or effective_entry_price <= 0:
+            raise PaperSessionError("effective entry price is invalid")
         self.account.execute(
-            order_id, "buy", quantity, entry_price, before_commit=persist_open
+            order_id, "buy", quantity, effective_entry_price, before_commit=persist_open
         )
         if not created:
             raise PaperSessionError("entry order ID already exists in the paper account")
@@ -196,9 +200,10 @@ class PaperTradeSession:
             raise PaperSessionError("exit order ID already exists in the paper account")
 
         def persist_close(fill: PaperFill) -> None:
-            gross_pnl = (fill.price - opened.entry_price) * opened.quantity
+            actual_gross_pnl = (fill.price - opened.entry_price) * opened.quantity
             total_fees = opened.fees_quote + fill.fee_quote
             total_slippage = opened.slippage_quote + exit_slippage_quote
+            gross_pnl = actual_gross_pnl + total_slippage
             closed = TradeRecord(
                 trade_id=opened.trade_id,
                 symbol=opened.symbol,
@@ -215,7 +220,7 @@ class PaperTradeSession:
                 gross_pnl_quote=gross_pnl,
                 fees_quote=total_fees,
                 slippage_quote=total_slippage,
-                net_pnl_quote=gross_pnl - total_fees - total_slippage,
+                net_pnl_quote=actual_gross_pnl - total_fees,
                 exit_reason=exit_reason,
                 account_order_id=fill.order_id,
                 account_fill_side=fill.side,
@@ -230,8 +235,11 @@ class PaperTradeSession:
             self.journal.append(closed)
             created.append(closed)
 
+        effective_exit_price = exit_price - exit_slippage_quote / opened.quantity
+        if not isfinite(effective_exit_price) or effective_exit_price <= 0:
+            raise PaperSessionError("exit slippage makes effective exit price non-positive")
         self.account.execute(
-            order_id, "sell", opened.quantity, exit_price, before_commit=persist_close
+            order_id, "sell", opened.quantity, effective_exit_price, before_commit=persist_close
         )
         if not created:
             raise PaperSessionError("exit fill was not journaled")

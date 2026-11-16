@@ -475,19 +475,19 @@ class DecisionCallbackTests(unittest.TestCase):
                 )
 
             with patch("lili_trader.price_action_backtest.classify_price_action_trend",
-                       return_value=trend), \\
-                 patch("lili_trader.price_action_backtest.evaluate_timeframe_gate",
-                       side_effect=ready_gate):
-                result = run_three_timeframe_backtest(
-                    rising_bars(80, 3600, 0),
-                    rising_bars(220, 900, 0),
-                    rising_bars(650, 300, 0),
-                    starting_cash=100_000,
-                    use_support_resistance_filter=False,
-                    decision_callback=record,
-                    decision_run_id="unit-test-run",
-                    symbol="BTCIRT",
-                )
+                       return_value=trend):
+                with patch("lili_trader.price_action_backtest.evaluate_timeframe_gate",
+                           side_effect=ready_gate):
+                    result = run_three_timeframe_backtest(
+                        rising_bars(80, 3600, 0),
+                        rising_bars(220, 900, 0),
+                        rising_bars(650, 300, 0),
+                        starting_cash=100_000,
+                        use_support_resistance_filter=False,
+                        decision_callback=record,
+                        decision_run_id="unit-test-run",
+                        symbol="BTCIRT",
+                    )
 
             events = journal.events()
             decisions = [event for event in events if event.event_type == "DECISION"]

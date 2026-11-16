@@ -62,6 +62,18 @@ class ThreeTimeframeBacktestTests(unittest.TestCase):
         self.assertIn("حداقل ارزش سفارش در این اجرا اعمال شده است", warnings)
         self.assertNotIn("هنوز در مدل اعمال نشده‌اند", warnings)
 
+        research_result = run_three_timeframe_backtest(
+            rising_bars(80, 3600, 0),
+            rising_bars(220, 900, 0),
+            rising_bars(650, 300, 0),
+            starting_cash=100_000,
+            allow_short=True,
+            minimum_order_quote=None,
+        )
+        research_warnings = " ".join(research_result.warnings)
+        self.assertIn("شامل شبیه‌سازی موقعیت short است", research_warnings)
+        self.assertIn("حداقل ارزش سفارش و محدودیت‌های اجرایی بازار در این اجرا اعمال نشده‌اند", research_warnings)
+
     def test_stop_risk_estimate_includes_round_trip_costs_and_adverse_slippage(self):
         buy_no_cost = _estimated_stop_risk_per_unit(100.0, 90.0, "BUY", 0.0, 0.0)
         buy_with_cost = _estimated_stop_risk_per_unit(100.0, 90.0, "BUY", 0.001, 0.001)

@@ -2,7 +2,7 @@ name: Li-Li Trader CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'work/**']
   pull_request:
   workflow_dispatch:
   schedule:

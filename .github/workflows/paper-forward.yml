@@ -30,10 +30,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
-      - name: Checkout development branch
+      - name: Checkout default branch
         uses: actions/checkout@v4
         with:
-          ref: work/phase-1-risk-hardening
+          ref: main
           fetch-depth: 0
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -67,4 +67,4 @@ jobs:
             exit 0
           fi
           git commit -m "Persist Li-Li forward paper state"
-          git push origin HEAD:work/phase-1-risk-hardening
+          git push origin HEAD:main

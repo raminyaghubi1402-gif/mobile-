@@ -42,7 +42,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.paper_forward:
-        from .paper_forward import run_forward_cycle
+        from .paper_forward import ForwardPaperError, run_forward_cycle
         try:
             report = run_forward_cycle(
                 args.forward_state_dir,
@@ -51,6 +51,10 @@ def main() -> None:
                 usd_irt_rate_at=args.forward_usd_irt_at,
                 max_lag_seconds=args.forward_max_lag_seconds,
             )
+        except ForwardPaperError as exc:
+            # These messages are generated locally by the fail-closed validator;
+            # do not expose arbitrary upstream or unexpected exception text.
+            parser.error(f"چرخهٔ Paper متوقف شد؛ {exc}. هیچ سفارش واقعی ارسال نشده است.")
         except Exception as exc:
             parser.error(f"چرخهٔ Paper متوقف شد؛ داده یا وضعیت قابل‌اعتماد نیست ({type(exc).__name__}). هیچ سفارش واقعی ارسال نشده است.")
         print("لی‌لی تریدر — پایش و حساب Paper نوبیتکس")

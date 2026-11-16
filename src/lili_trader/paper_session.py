@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from math import isclose
 from math import isclose, isfinite
 from typing import Optional
 
@@ -42,6 +43,55 @@ class PaperTradeSession:
             raise PaperSessionError("journal must be a TradeJournal")
         self.account = account
         self.journal = journal
+
+    @classmethod
+    def restore(cls, journal: TradeJournal) -> "PaperTradeSession":
+        """Rebuild the paper account by replaying durable account snapshots.
+
+        Every event must contain a complete account snapshot. Mixed or legacy
+        journals fail closed rather than guessing the account balance.
+        """
+        events = journal.events()
+        if not events:
+            raise PaperSessionError("journal has no account events to restore")
+        first = events[0]
+        if first.account_starting_cash is None:
+            raise PaperSessionError("journal does not contain restorable account snapshots")
+        starting_cash = first.account_starting_cash
+        fee_rate = first.account_fee_rate
+        account = PaperAccount(starting_cash, fee_rate)
+        for index, event in enumerate(events, 1):
+            if event.account_order_id is None:
+                raise PaperSessionError(f"account snapshot missing at journal event {index}")
+            if (
+                event.account_starting_cash != starting_cash
+                or event.account_fee_rate != fee_rate
+            ):
+                raise PaperSessionError("paper account configuration changed within journal")
+            try:
+                fill = account.execute(
+                    event.account_order_id,
+                    event.account_fill_side,
+                    event.account_fill_quantity,
+                    event.account_fill_price,
+                )
+            except (ValueError, TypeError) as exc:
+                raise PaperSessionError(f"cannot replay account event {index}") from exc
+            checks = (
+                (fill.fee_quote, event.account_fill_fee_quote),
+                (fill.cash_after, event.account_cash_after),
+                (fill.position_after, event.account_position_after),
+            )
+            if any(not isclose(actual, expected, rel_tol=1e-9, abs_tol=1e-9)
+                   for actual, expected in checks):
+                raise PaperSessionError(f"account snapshot mismatch at journal event {index}")
+        open_records = [record for record in journal.records() if record.status == "open"]
+        expected_position = sum(record.quantity for record in open_records if record.side == "long")
+        if len(open_records) > 1 or not isclose(
+            account.position, expected_position, rel_tol=1e-9, abs_tol=1e-9
+        ):
+            raise PaperSessionError("restored account position does not match open journal trades")
+        return cls(account, journal)
 
     def _open_records(self) -> list[TradeRecord]:
         return [record for record in self.journal.records() if record.status == "open"]
@@ -99,6 +149,15 @@ class PaperTradeSession:
                 entry_reason=entry_reason,
                 fees_quote=fill.fee_quote,
                 slippage_quote=entry_slippage_quote,
+                account_order_id=fill.order_id,
+                account_fill_side=fill.side,
+                account_fill_quantity=fill.quantity,
+                account_fill_price=fill.price,
+                account_fill_fee_quote=fill.fee_quote,
+                account_cash_after=fill.cash_after,
+                account_position_after=fill.position_after,
+                account_starting_cash=self.account.starting_cash,
+                account_fee_rate=self.account.fee_rate,
             )
             self.journal.append(record)
             created.append(record)
@@ -158,6 +217,15 @@ class PaperTradeSession:
                 slippage_quote=total_slippage,
                 net_pnl_quote=gross_pnl - total_fees - total_slippage,
                 exit_reason=exit_reason,
+                account_order_id=fill.order_id,
+                account_fill_side=fill.side,
+                account_fill_quantity=fill.quantity,
+                account_fill_price=fill.price,
+                account_fill_fee_quote=fill.fee_quote,
+                account_cash_after=fill.cash_after,
+                account_position_after=fill.position_after,
+                account_starting_cash=self.account.starting_cash,
+                account_fee_rate=self.account.fee_rate,
             )
             self.journal.append(closed)
             created.append(closed)

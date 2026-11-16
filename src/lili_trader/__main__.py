@@ -149,6 +149,9 @@ def main() -> None:
             decision_run_id = uuid.uuid4().hex[:12]
 
             def decision_callback(event):
+                from .nobitex_limits import (
+                    NOBITEX_MINIMUM_SPOT_ORDER_IRT, NOBITEX_MINIMUM_ORDER_SOURCE,
+                )
                 decision_journal.append_decision(
                     decision_id=event["decision_id"],
                     occurred_at=event["occurred_at"],
@@ -160,8 +163,8 @@ def main() -> None:
                     reason=event["reason"],
                     evidence={
                         **event["evidence"],
-                        "minimum_order_quote": 3_000_000,
-                        "minimum_order_source": "Nobitex official API docs: SmallOrder for rial markets",
+                        "minimum_order_quote": NOBITEX_MINIMUM_SPOT_ORDER_IRT,
+                        "minimum_order_source": NOBITEX_MINIMUM_ORDER_SOURCE,
                         **({
                             "capital_conversion": {
                                 "usd_amount": args.backtest_cash,

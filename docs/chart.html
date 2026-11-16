@@ -44,6 +44,16 @@ button{cursor:pointer;background:#14532d;border-color:#166534}
 </div>
 <div id="rr-summary" style="margin:8px 0;padding:10px;border:1px solid #334155;border-radius:8px;color:#d1d5db">نسبت ریسک به سود پس از واردکردن ورود، حد ضرر و اهداف نمایش داده می‌شود.</div>
 <div style="margin:14px 0;padding:12px;border:2px solid #22c55e;border-radius:12px;background:#10251b"><button id="auto-analysis" type="button" style="display:block;width:100%;min-height:54px;font-size:1.1rem;font-weight:bold;background:#15803d;border:2px solid #4ade80">🤖 تحلیل خودکار لی‌لی — رسم ورود، SL و TP</button><p style="margin:8px 0 0;color:#bbf7d0">برای تحلیل روند بازار و نمایش سناریوی فرضی روی نمودار، این دکمه را بزن.</p></div>
+<section id="history-panel" style="margin:14px 0;padding:12px;border:1px solid #475569;border-radius:10px;background:#111827">
+<b>تاریخچه تحلیل و شبیه‌سازی</b>
+<p style="margin:6px 0">سوابق فقط در حافظه همین مرورگر ذخیره می‌شوند؛ به سرور ارسال یا بین دستگاه‌ها همگام‌سازی نمی‌شوند.</p>
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0">
+<button id="history-export" type="button">خروجی JSON تاریخچه</button>
+<button id="history-clear" type="button" style="background:#7f1d1d;border-color:#991b1b">پاک‌کردن تاریخچه</button>
+</div>
+<div id="history-status" aria-live="polite" style="font-size:.82rem;color:#9ca3af;margin:6px 0">تاریخچه هنوز خالی است.</div>
+<ol id="analysis-history" style="padding-inline-start:24px;margin:8px 0"></ol>
+</section>
 <div id="levels-note">این سطوح دستی و آموزشی هستند؛ معامله واقعی اجرا نمی‌شود.</div>
 <div id="mtf-panel" style="margin:12px 0;padding:12px;border:1px solid #475569;border-radius:10px;background:#111827;line-height:1.9"><b>نقشه حمایت و مقاومت چندتایم‌فریمی</b><div id="mtf-status">در انتظار دریافت داده از ۷ تایم‌فریم…</div><div id="trend-status" style="margin-top:10px;padding:10px;border:1px solid #475569;border-radius:8px">تشخیص روند قیمتی بدون اندیکاتور در انتظار داده‌هاست.</div><div style="overflow-x:auto"><table id="trend-table" style="width:100%;border-collapse:collapse;font-size:.85rem"><thead><tr><th>تایم‌فریم</th><th>نقش در تصمیم</th><th>ساختار قیمت</th><th>مبنای تشخیص</th></tr></thead><tbody></tbody></table></div><div style="overflow-x:auto"><table id="mtf-table" style="width:100%;border-collapse:collapse;font-size:.85rem"><thead><tr><th>بازه</th><th>حمایت نزدیک</th><th>مقاومت نزدیک</th><th>وضعیت قیمت</th></tr></thead><tbody></tbody></table></div><p style="font-size:.78rem;color:#9ca3af">سطوح از پیوت‌های تأییدشده و برخوردهای تکراری ساخته می‌شوند. نزدیکی به ناحیه یعنی احتیاط، نه پیش‌بینی قطعی برگشت.</p></div><div id="price-chart" class="chart"></div>
 <div id="rsi-chart" class="chart" style="height:160px;margin-top:10px"></div>
@@ -64,6 +74,53 @@ let zoneLines=[];
 let mtfReady=false;
 let mtfTrends={};
 const mtfOrder=[["M","ماهانه"],["W","هفتگی"],["D","روزانه"],["240","۴ ساعته"],["60","۱ ساعته"],["15","۱۵ دقیقه"],["5","۵ دقیقه"]];
+const HISTORY_KEY='lili-trader-analysis-history-v1';
+const HISTORY_LIMIT=50;
+function readHistory(){
+ try{const parsed=JSON.parse(localStorage.getItem(HISTORY_KEY)||'[]');return Array.isArray(parsed)?parsed.filter(x=>x&&typeof x==='object').slice(0,HISTORY_LIMIT):[];}
+ catch(_){return [];}
+}
+function renderHistory(){
+ const list=$('analysis-history');if(!list)return;
+ list.replaceChildren();
+ const items=readHistory();
+ $('history-status').textContent=items.length?'تعداد سوابق ذخیره‌شده: '+items.length+' (حداکثر '+HISTORY_LIMIT+' مورد، جدیدترین در بالا)':'تاریخچه هنوز خالی است.';
+ for(const item of items){
+  const li=document.createElement('li');
+  li.style.cssText='padding:8px 0;border-bottom:1px solid #334155;line-height:1.8';
+  const heading=document.createElement('b');
+  heading.textContent=(item.status||'')+' — '+(item.symbol||'—')+' / '+(item.resolution||'—')+' — '+(item.source||'تحلیل');
+  const detail=document.createElement('div');
+  detail.textContent='زمان: '+(item.recordedAt||'—')+' | سناریو: '+(item.side||'—')+' | Entry: '+(item.entry??'—')+' | SL: '+(item.sl??'—')+' | TP1: '+(item.tp1??'—')+' | TP2: '+(item.tp2??'—');
+  const reason=document.createElement('div');reason.style.color='#fbbf24';reason.textContent=item.reason||'';
+  li.append(heading,detail,reason);list.appendChild(li);
+ }
+}
+function recordHistory(source,status,reason=''){
+ const last=currentCandles.length?currentCandles[currentCandles.length-1]:null;
+ const numberOrNull=id=>{const raw=$(id).value.trim();if(!raw)return null;const n=Number(raw);return Number.isFinite(n)?n:null;};
+ const item={recordedAt:new Date().toISOString(),symbol:$('symbol').value,resolution:$('resolution').value,source,status,reason,
+  side:$('trade-side').value,entry:numberOrNull('trade-entry'),sl:numberOrNull('trade-sl'),tp1:numberOrNull('trade-tp1'),tp2:numberOrNull('trade-tp2'),
+  candleTime:last&&Number.isFinite(last.time)?new Date(last.time*1000).toISOString():null};
+ try{const items=readHistory();items.unshift(item);localStorage.setItem(HISTORY_KEY,JSON.stringify(items.slice(0,HISTORY_LIMIT)));renderHistory();}
+ catch(_){$('history-status').textContent='ذخیره‌سازی مرورگر در دسترس نیست؛ این نتیجه در تاریخچه باقی نماند.';}
+}
+function exportHistory(){
+ try{
+  const data=JSON.stringify({format:'lili-trader-local-history-v1',exportedAt:new Date().toISOString(),items:readHistory()},null,2);
+  const blob=new Blob([data],{type:'application/json;charset=utf-8'}),url=URL.createObjectURL(blob),link=document.createElement('a');
+  link.href=url;link.download='lili-trader-analysis-history.json';document.body.appendChild(link);link.click();link.remove();URL.revokeObjectURL(url);
+  $('history-status').textContent='فایل JSON تاریخچه آماده شد.';
+ }catch(_){$('history-status').textContent='ساخت خروجی ممکن نشد؛ امکان دانلود در این مرورگر وجود ندارد.';}
+}
+$('history-export').addEventListener('click',exportHistory);
+$('history-clear').addEventListener('click',()=>{
+ if(!window.confirm('همه سوابق ذخیره‌شده در همین مرورگر پاک شوند؟'))return;
+ try{localStorage.removeItem(HISTORY_KEY);renderHistory();}
+ catch(_){$('history-status').textContent='پاک‌کردن تاریخچه در این مرورگر ممکن نشد.';}
+});
+renderHistory();
+
 function clearTradeLines(){tradeLines.forEach(line=>candleSeries.removePriceLine(line));tradeLines.length=0;}
 function updateRiskReward(){
  const e=Number($('trade-entry').value),s=Number($('trade-sl').value),t1=Number($('trade-tp1').value),t2=Number($('trade-tp2').value),side=$('trade-side').value;
@@ -84,7 +141,7 @@ function updateRiskReward(){
 }
 ['trade-entry','trade-sl','trade-tp1','trade-tp2','trade-side'].forEach(id=>$(id).addEventListener('input',updateRiskReward));
 
-function drawTradeLines(){
+function drawTradeLines(source='سطوح دستی'){
  const side=$('trade-side').value;
  const specs=[['trade-entry','Entry','#facc15'],['trade-sl','SL','#ef4444'],['trade-tp1','TP1','#22c55e'],['trade-tp2','TP2','#34d399']];
  const levels=[];
@@ -110,7 +167,8 @@ function drawTradeLines(){
   tradeLines.push(line);
  });
  $('status').textContent='Entry، SL و TP روی نمودار مشخص شدند (صرفاً آموزشی).';
- showTradeValues('سطوح دستی');
+ recordHistory(source, 'PAPER ONLY', 'هیچ سفارشی ثبت نشده است.');
+ showTradeValues(source);
 }
 $('trade-draw').addEventListener('click',drawTradeLines);
 $('trade-clear').addEventListener('click',()=>{clearTradeLines();$('status').textContent='خطوط پاک شدند.';});
@@ -158,7 +216,7 @@ function autoAnalysis(){
  const gate=evaluateTradeGate(),last=five[five.length-1],atrValue=calculateAtr(fifteen,14);
  $('market-snapshot').innerHTML='<b>مبنای تحلیل</b><br>جهت اصلی: ۱ ساعت | ستاپ: ۱۵ دقیقه | ماشه: ۵ دقیقه<br>آخرین بسته‌شدن ۵ دقیقه: '+last.close.toLocaleString('fa-IR',{maximumFractionDigits:8})+'<br>زمان کندل: '+new Date(last.time*1000).toLocaleString('fa-IR')+'<br>زمان اجرای تحلیل: '+new Date().toLocaleString('fa-IR');
  if(!gate.allowed){
-  clearTradeLines();
+  clearTradeLines();recordHistory('تحلیل خودکار','WAIT',gate.reason);
   $('trend-status').textContent='⛔ '+(gate.direction==='up'?'فقط BUY مجاز است':gate.direction==='down'?'فقط SELL مجاز است':'معامله ممنوع')+' — '+gate.reason;
   $('levels-note').textContent='فعلاً ورود ساخته نشد: '+gate.reason;
   $('analysis-values').textContent='سناریوی ورود ساخته نشد؛ لی‌لی منتظر تأیید ساختار قیمت می‌ماند.';
@@ -168,17 +226,17 @@ function autoAnalysis(){
  const side=gate.direction==='up'?'long':'short',entry=last.close;
  if(!Number.isFinite(atrValue)||atrValue<=0||!Number.isFinite(entry)||entry<=0){clearTradeLines();$('status').textContent='داده معتبر برای حد ضرر در دسترس نیست.';return;}
  const atrPct=atrValue/entry*100;
- if(atrPct>5){clearTradeLines();$('levels-note').textContent='نوسان ۱۵ دقیقه بسیار بالاست (ATR حدود '+atrPct.toFixed(2)+'٪ قیمت). ورود فرضی متوقف شد.';$('status').textContent='به‌دلیل نوسان زیاد، سناریو ساخته نشد.';return;}
+ if(atrPct>5){clearTradeLines();recordHistory('تحلیل خودکار','WAIT','نوسان ۱۵ دقیقه بسیار بالاست (ATR حدود '+atrPct.toFixed(2)+'٪ قیمت).');$('levels-note').textContent='نوسان ۱۵ دقیقه بسیار بالاست (ATR حدود '+atrPct.toFixed(2)+'٪ قیمت). ورود فرضی متوقف شد.';$('status').textContent='به‌دلیل نوسان زیاد، سناریو ساخته نشد.';return;}
  const risk=atrValue*2;
- if(!Number.isFinite(risk)||risk<=0||risk/entry*100>5){clearTradeLines();$('status').textContent='فاصله حد ضرر بر اساس ATR بیش از حد مجاز است؛ ورود متوقف شد.';return;}
+ if(!Number.isFinite(risk)||risk<=0||risk/entry*100>5){clearTradeLines();recordHistory('تحلیل خودکار','WAIT','فاصله حد ضرر بر اساس ATR بیش از حد مجاز است.');$('status').textContent='فاصله حد ضرر بر اساس ATR بیش از حد مجاز است؛ ورود متوقف شد.';return;}
  const zoneAssessment=opposingZoneWarning(side,entry,risk);
- if(zoneAssessment.block){clearTradeLines();$('levels-note').textContent='ورود متوقف شد: '+zoneAssessment.block;$('status').textContent='⚠️ خطر ناحیه نزدیک در تایم‌فریم معاملاتی؛ سناریو ساخته نشد.';return;}
+ if(zoneAssessment.block){clearTradeLines();recordHistory('تحلیل خودکار','WAIT',zoneAssessment.block);$('levels-note').textContent='ورود متوقف شد: '+zoneAssessment.block;$('status').textContent='⚠️ خطر ناحیه نزدیک در تایم‌فریم معاملاتی؛ سناریو ساخته نشد.';return;}
  const sl=side==='long'?entry-risk:entry+risk;
  const tp1=side==='long'?entry+risk:entry-risk,tp2=side==='long'?entry+2*risk:entry-2*risk;
  $('trade-side').value=side;
  $('trade-entry').value=entry.toFixed(8);$('trade-sl').value=sl.toFixed(8);
  $('trade-tp1').value=tp1.toFixed(8);$('trade-tp2').value=tp2.toFixed(8);
- updateRiskReward();drawTradeLines();showTradeValues('تحلیل خودکار سه‌تایم‌فریمی');
+ updateRiskReward();drawTradeLines('تحلیل خودکار سه‌تایم‌فریمی');showTradeValues('تحلیل خودکار سه‌تایم‌فریمی');
  const context=zoneAssessment.warnings.length?' هشدار زمینه‌ای تایم‌فریم بالاتر: '+zoneAssessment.warnings.join('؛ '):'';
  $('levels-note').textContent='سناریوی فرضی '+(side==='long'?'خرید (BUY)':'فروش (SELL)')+'؛ ۱h جهت، ۱۵m ستاپ و ۵m ماشه را تأیید کرده‌اند. حد ضرر با ۲ برابر ATR تایم‌فریم ۱۵ دقیقه محاسبه شده است. '+context+' هیچ سفارشی ثبت نمی‌شود.';
  $('analysis-values').innerHTML+='<br>جهت ۱h: '+(gate.direction==='up'?'صعودی':'نزولی')+'<br>ستاپ ۱۵m: تأیید شد<br>ماشه ۵m: تأیید شد<br>ATR(14) پانزده‌دقیقه فقط برای فاصله SL: '+atrValue.toLocaleString('fa-IR',{maximumFractionDigits:8})+' ('+atrPct.toFixed(2)+'٪)';

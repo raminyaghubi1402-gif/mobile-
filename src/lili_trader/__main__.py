@@ -24,12 +24,26 @@ def main() -> None:
     parser.add_argument("--symbol", default="BTCIRT", help="نماد نوبیتکس، مثل BTCIRT یا ETHIRT")
     parser.add_argument("--resolution", default="60", help="بازه: 1, 5, 15, 30, 60, 240 یا D")
     parser.add_argument("--count", type=int, default=100, help="تعداد کندل؛ بک‌تست ساختار قیمت تا ۵۰۰۰، سایر حالت‌ها تا ۵۰۰")
+    parser.add_argument("--decision-journal", default=None, metavar="PATH", help="ثبت تمام تصمیم‌های هر کندل بسته‌شدهٔ ۵ دقیقه در دفتر ممیزی")
     parser.add_argument("--decision-journal-report", default=None, metavar="PATH", help="گزارش تصمیم‌های BUY/SELL/WAIT و بازبینی خطاها")
     parser.add_argument("--journal-report", default=None, metavar="PATH", help="گزارش عملکرد ژورنال معاملات آزمایشی JSONL")
     parser.add_argument("--journal-starting-equity", type=float, default=None, help="سرمایهٔ شروع برای محاسبهٔ افت سرمایهٔ ژورنال")
     parser.add_argument("--backtest-journal", default=None, metavar="PATH", help="ثبت معاملات بسته‌شدهٔ بک‌تست ساختار قیمت در ژورنال JSONL")
     parser.add_argument("--ai-review", action="store_true", help="بازبینی تحلیل قطعی با عامل تحلیل، منتقد و جمع‌بندی مدل‌های پیکربندی‌شده")
     args = parser.parse_args()
+
+    if args.decision_journal_report is not None:
+        from .decision_journal import DecisionJournal
+        try:
+            summary = DecisionJournal(args.decision_journal_report).summary()
+            print("گزارش دفتر تصمیم‌ها و بازبینی لی‌لی")
+            print(f"تصمیم‌ها: {summary['decisions']} | BUY={summary['buy']} | SELL={summary['sell']} | WAIT={summary['wait']}")
+            print(f"بازبینی‌ها: {summary['reviews']} | بازبینی منفی/خطای اجرا: {summary['bad_reviews']}")
+            print("برچسب‌های خطا: " + (", ".join(f"{key}={value}" for key, value in summary["failure_tags"].items()) or "هنوز موردی ثبت نشده"))
+            print(f"آخرین اثرانگشت: {summary['last_hash'] or 'دفتر خالی است'}")
+        except (OSError, ValueError, TypeError) as exc:
+            parser.error(f"گزارش دفتر تصمیم‌ها قابل تولید نیست: {type(exc).__name__}")
+        return
 
     if args.journal_report is not None:
         if args.journal_starting_equity is None:
@@ -108,9 +122,45 @@ def main() -> None:
         native_fifteen = load_and_refresh("15", min(args.count, 2000))
         five = load_and_refresh("5", args.count)
         fifteen = extend_fifteen_with_five(native_fifteen, five)
+        decision_callback = None
+        decision_run_id = None
+        if args.decision_journal is not None:
+            import uuid
+            from .decision_journal import DecisionJournal
+            if args.symbol not in {"BTCIRT", "ETHIRT"}:
+                parser.error("دفتر تصمیم فقط BTCIRT و ETHIRT را می‌پذیرد.")
+            decision_journal = DecisionJournal(args.decision_journal)
+            decision_run_id = uuid.uuid4().hex[:12]
+
+            def decision_callback(event):
+                decision_journal.append_decision(
+                    decision_id=event["decision_id"],
+                    occurred_at=event["occurred_at"],
+                    market_data_at=event["market_data_at"],
+                    symbol=event["symbol"],
+                    action=event["action"],
+                    strategy=event["strategy"],
+                    strategy_version=event["strategy_version"],
+                    reason=event["reason"],
+                    evidence=event["evidence"],
+                    entry_price=event["entry_price"],
+                    stop_loss=event["stop_loss"],
+                    take_profit=event["take_profit"],
+                    risk_quote=event["risk_quote"],
+                    timeframe=event["timeframe"],
+                    trade_id=event["trade_id"],
+                )
+
         result = run_three_timeframe_backtest(
-            hourly, fifteen, five, starting_cash=backtest_cash_local
+            hourly, fifteen, five, starting_cash=backtest_cash_local,
+            decision_callback=decision_callback,
+            decision_run_id=decision_run_id,
+            symbol=args.symbol,
         )
+        if args.decision_journal is not None:
+            summary = decision_journal.summary()
+            print(f"دفتر تصمیم‌ها: {args.decision_journal} | شناسه اجرا: {decision_run_id}")
+            print(f"تصمیم‌های این دفتر: BUY={summary['buy']} | SELL={summary['sell']} | WAIT={summary['wait']}")
         if args.backtest_journal is not None:
             from .journal import TradeJournal
             from .backtest_journal import append_backtest_result

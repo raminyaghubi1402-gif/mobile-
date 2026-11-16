@@ -57,6 +57,35 @@ class RiskGateTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             evaluate_order(1, limits, RiskSnapshot())
 
+    def test_boolean_and_string_numeric_values_fail_closed(self):
+        for invalid in (True, "10", float("inf"), float("nan")):
+            with self.subTest(invalid=invalid):
+                result = evaluate_order(invalid, self.limits, RiskSnapshot())
+                self.assertFalse(result.allowed)
+
+    def test_non_integer_daily_trade_limit_is_rejected(self):
+        for invalid in (True, 2.5, "5"):
+            with self.subTest(invalid=invalid):
+                limits = RiskLimits(100, 250, 20, 10, invalid)
+                with self.assertRaises(ValueError):
+                    evaluate_order(10, limits, RiskSnapshot())
+
+    def test_invalid_daily_trade_count_fails_closed(self):
+        for invalid in (True, 1.5, -1, "2"):
+            with self.subTest(invalid=invalid):
+                state = RiskSnapshot(daily_trade_count=invalid)
+                result = evaluate_order(10, self.limits, state)
+                self.assertFalse(result.allowed)
+                self.assertIn("شمارندهٔ معاملات روزانه نامعتبر است؛ توقف امن.", result.reasons)
+
+    def test_invalid_control_flags_fail_closed(self):
+        for invalid in (1, "false", None):
+            with self.subTest(invalid=invalid):
+                state = RiskSnapshot(kill_switch_active=invalid)
+                result = evaluate_order(10, self.limits, state)
+                self.assertFalse(result.allowed)
+                self.assertIn("وضعیت کنترلی نامعتبر است؛ توقف امن.", result.reasons)
+
 
 if __name__ == "__main__":
     unittest.main()

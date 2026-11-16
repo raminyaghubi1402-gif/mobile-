@@ -110,11 +110,12 @@ jobs:
                       continue
                   event = json.loads(raw)
                   event_type = event.get("event_type")
+                  payload = event.get("payload", {})
                   if event_type == "DECISION":
                       decisions += 1
-                      action = event.get("action", "unknown")
+                      action = payload.get("action", "unknown")
                       actions[action] = actions.get(action, 0) + 1
-                  elif event_type in ("OUTCOME", "TRADE_OUTCOME"):
+                  elif event_type == "OUTCOME":
                       outcomes += 1
               lines += [
                   "",

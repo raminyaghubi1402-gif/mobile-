@@ -146,7 +146,7 @@ class TradeJournal:
                 "quantity", "initial_risk_quote", "entry_reason",
             )
             if any(getattr(existing, field) != getattr(record, field) for field in immutable):
-                raise JournalError("closing event cannot change the original trade")
+                raise JournalError("trade identity cannot be changed by closing event")
         payload = json.dumps(asdict(record), ensure_ascii=False, allow_nan=False, separators=(",", ":"))
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)

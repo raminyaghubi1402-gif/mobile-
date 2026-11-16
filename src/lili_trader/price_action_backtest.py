@@ -168,6 +168,7 @@ def run_three_timeframe_backtest(
     allow_short: bool = True,
     minimum_order_quote: float | None = None,
     trade_start_timestamp: int | None = None,
+    allowed_entry_timestamps: set[int] | None = None,
 ) -> ThreeTimeframeBacktestResult:
     """Backtest 1h direction / 15m setup / 5m trigger with no look-ahead.
 
@@ -193,6 +194,11 @@ def run_three_timeframe_backtest(
         type(trade_start_timestamp) is not int or trade_start_timestamp <= 0
     ):
         raise ValueError("trade_start_timestamp must be a positive integer when supplied")
+    if allowed_entry_timestamps is not None and (
+        not isinstance(allowed_entry_timestamps, set)
+        or any(type(value) is not int or value <= 0 for value in allowed_entry_timestamps)
+    ):
+        raise ValueError("allowed_entry_timestamps must be a set of positive integers")
     if not 0 < risk_fraction <= 0.02:
         raise ValueError("risk_fraction must be > 0 and <= 2%")
     if not 0.1 <= stop_atr_multiple <= 10:
@@ -439,6 +445,9 @@ def run_three_timeframe_backtest(
         if not gate_ready:
             setup_consumed = False
         new_setup = gate_ready and not setup_consumed
+        if (allowed_entry_timestamps is not None
+                and signal_close_time not in allowed_entry_timestamps):
+            new_setup = False
 
         # One entry per READY setup that has passed the SR filter. A blocked
         # setup remains eligible for re-check; a traded setup cannot re-enter

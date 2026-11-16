@@ -1,0 +1,204 @@
+"""Append-only, local paper-trade journal. No network or broker access."""
+from __future__ import annotations
+
+import json
+from dataclasses import asdict, dataclass
+from datetime import datetime
+from math import isclose, isfinite
+from pathlib import Path
+from typing import Any
+
+
+class JournalError(ValueError):
+    """Invalid journal record or corrupted local journal."""
+
+
+def _finite(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and isfinite(value)
+
+
+def _timestamp(value: str, field: str) -> datetime:
+    if not isinstance(value, str) or not value.strip():
+        raise JournalError(f"{field} must be an ISO-8601 timestamp")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise JournalError(f"{field} must be an ISO-8601 timestamp") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise JournalError(f"{field} must include a timezone")
+    return parsed
+
+
+@dataclass(frozen=True)
+class TradeRecord:
+    trade_id: str
+    symbol: str
+    strategy: str
+    side: str
+    status: str
+    entry_time: str
+    entry_price: float
+    quantity: float
+    initial_risk_quote: float
+    entry_reason: str
+    exit_time: str | None = None
+    exit_price: float | None = None
+    gross_pnl_quote: float | None = None
+    fees_quote: float = 0.0
+    slippage_quote: float = 0.0
+    net_pnl_quote: float | None = None
+    exit_reason: str | None = None
+    account_order_id: str | None = None
+    account_fill_side: str | None = None
+    account_fill_quantity: float | None = None
+    account_fill_price: float | None = None
+    account_fill_fee_quote: float | None = None
+    account_cash_after: float | None = None
+    account_position_after: float | None = None
+    account_starting_cash: float | None = None
+    account_fee_rate: float | None = None
+
+    def validate(self) -> None:
+        for field in ("trade_id", "symbol", "strategy", "entry_reason"):
+            value = getattr(self, field)
+            if not isinstance(value, str) or not value.strip():
+                raise JournalError(f"{field} is required")
+        if self.side not in ("long", "short"):
+            raise JournalError("side must be long or short")
+        if self.status not in ("open", "closed"):
+            raise JournalError("status must be open or closed")
+        entry = _timestamp(self.entry_time, "entry_time")
+        required_positive = (self.entry_price, self.quantity, self.initial_risk_quote)
+        if any(not _finite(value) or value <= 0 for value in required_positive):
+            raise JournalError("entry price, quantity and initial risk must be finite and positive")
+        if any(not _finite(value) or value < 0 for value in (self.fees_quote, self.slippage_quote)):
+            raise JournalError("fees and slippage must be finite and non-negative")
+
+        snapshot_fields = (
+            self.account_order_id, self.account_fill_side,
+            self.account_fill_quantity, self.account_fill_price,
+            self.account_fill_fee_quote, self.account_cash_after,
+            self.account_position_after, self.account_starting_cash,
+            self.account_fee_rate,
+        )
+        if any(value is not None for value in snapshot_fields):
+            if any(value is None for value in snapshot_fields):
+                raise JournalError("account snapshot must be complete")
+            if not isinstance(self.account_order_id, str) or not self.account_order_id.strip():
+                raise JournalError("account order ID is invalid")
+            if self.account_fill_side not in ("buy", "sell"):
+                raise JournalError("account fill side is invalid")
+            if any(not _finite(value) or value <= 0 for value in (
+                self.account_fill_quantity, self.account_fill_price,
+                self.account_starting_cash,
+            )):
+                raise JournalError("account fill and starting cash must be finite and positive")
+            if any(not _finite(value) or value < 0 for value in (
+                self.account_fill_fee_quote, self.account_cash_after,
+                self.account_position_after,
+            )):
+                raise JournalError("account snapshot values must be finite and non-negative")
+            if not _finite(self.account_fee_rate) or not 0 <= self.account_fee_rate < 1:
+                raise JournalError("account fee rate is invalid")
+
+        if self.status == "open":
+            if any(value is not None for value in (
+                self.exit_time, self.exit_price, self.gross_pnl_quote,
+                self.net_pnl_quote, self.exit_reason,
+            )):
+                raise JournalError("open trade cannot contain exit fields")
+            return
+
+        if not isinstance(self.exit_reason, str) or not self.exit_reason.strip():
+            raise JournalError("closed trade requires an exit_reason")
+        exit_time = _timestamp(self.exit_time, "exit_time")
+        if exit_time < entry:
+            raise JournalError("exit_time cannot precede entry_time")
+        if not _finite(self.exit_price) or self.exit_price <= 0:
+            raise JournalError("closed trade requires a finite positive exit_price")
+        if not _finite(self.gross_pnl_quote) or not _finite(self.net_pnl_quote):
+            raise JournalError("closed trade requires finite gross and net PnL")
+        expected = self.gross_pnl_quote - self.fees_quote - self.slippage_quote
+        if not isclose(self.net_pnl_quote, expected, rel_tol=1e-9, abs_tol=1e-9):
+            raise JournalError("net PnL must equal gross PnL minus fees and slippage")
+
+    @property
+    def r_multiple(self) -> float | None:
+        if self.status != "closed" or self.net_pnl_quote is None:
+            return None
+        return self.net_pnl_quote / self.initial_risk_quote
+
+
+class TradeJournal:
+    """JSONL journal; records are append-only and trade IDs are unique."""
+
+    def __init__(self, path: str | Path) -> None:
+        self.path = Path(path)
+
+    def events(self) -> tuple[TradeRecord, ...]:
+        """Return every validated append-only event in original file order."""
+        if not self.path.exists():
+            return ()
+        events: list[TradeRecord] = []
+        latest: dict[str, TradeRecord] = {}
+        try:
+            with self.path.open("r", encoding="utf-8") as stream:
+                for line_number, line in enumerate(stream, 1):
+                    if not line.strip():
+                        continue
+                    try:
+                        raw = json.loads(line)
+                        record = TradeRecord(**raw)
+                        record.validate()
+                    except (json.JSONDecodeError, TypeError, JournalError) as exc:
+                        raise JournalError(f"journal corruption at line {line_number}") from exc
+                    previous = latest.get(record.trade_id)
+                    if previous is None:
+                        latest[record.trade_id] = record
+                    else:
+                        if previous.status != "open" or record.status != "closed":
+                            raise JournalError(f"invalid trade lifecycle at line {line_number}")
+                        immutable = (
+                            "symbol", "strategy", "side", "entry_time", "entry_price",
+                            "quantity", "initial_risk_quote", "entry_reason",
+                        )
+                        if any(getattr(previous, field) != getattr(record, field) for field in immutable):
+                            raise JournalError(f"trade identity changed at line {line_number}")
+                        latest[record.trade_id] = record
+                    events.append(record)
+        except OSError as exc:
+            raise JournalError("journal cannot be read") from exc
+        return tuple(events)
+
+    def records(self) -> tuple[TradeRecord, ...]:
+        """Return the latest state for each trade, preserving first-seen order."""
+        latest: dict[str, TradeRecord] = {}
+        order: list[str] = []
+        for record in self.events():
+            if record.trade_id not in latest:
+                order.append(record.trade_id)
+            latest[record.trade_id] = record
+        return tuple(latest[trade_id] for trade_id in order)
+
+    def append(self, record: TradeRecord) -> None:
+        if not isinstance(record, TradeRecord):
+            raise JournalError("record must be a TradeRecord")
+        record.validate()
+        existing = {item.trade_id: item for item in self.records()}.get(record.trade_id)
+        if existing is not None:
+            if existing.status != "open" or record.status != "closed":
+                raise JournalError("only an open trade may receive one closing event")
+            immutable = (
+                "symbol", "strategy", "side", "entry_time", "entry_price",
+                "quantity", "initial_risk_quote", "entry_reason",
+            )
+            if any(getattr(existing, field) != getattr(record, field) for field in immutable):
+                raise JournalError("trade identity cannot be changed by closing event")
+        payload = json.dumps(asdict(record), ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with self.path.open("a", encoding="utf-8", newline="") as stream:
+                stream.write(payload + "\n")
+                stream.flush()
+        except (OSError, TypeError, ValueError) as exc:
+            raise JournalError("journal record could not be appended") from exc

@@ -227,6 +227,33 @@ class ThreeTimeframeBacktestTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     run_three_timeframe_backtest(hourly, fifteen, five, **kwargs)
 
+
+    def test_backtest_numeric_parameters_reject_booleans_and_strings(self):
+        hourly = rising_bars(40, 3600, 0)
+        fifteen = rising_bars(80, 900, 0)
+        five = rising_bars(100, 300, 0)
+        invalid_options = (
+            {"starting_cash": True},
+            {"starting_cash": "10"},
+            {"risk_fraction": True},
+            {"risk_fraction": "0.005"},
+            {"stop_atr_multiple": True},
+            {"fee_rate": False},
+            {"slippage_rate": "0.001"},
+            {"support_resistance_buffer_atr": True},
+        )
+        for options in invalid_options:
+            with self.subTest(options=options):
+                with self.assertRaises(ValueError):
+                    run_three_timeframe_backtest(hourly, fifteen, five, **options)
+
+    def test_support_resistance_filter_requires_a_boolean(self):
+        with self.assertRaises(ValueError):
+            run_three_timeframe_backtest(
+                rising_bars(40, 3600, 0), rising_bars(80, 900, 0),
+                rising_bars(100, 300, 0), use_support_resistance_filter=1,
+            )
+
     def test_rejects_risk_above_two_percent(self):
         with self.assertRaises(ValueError):
             run_three_timeframe_backtest(
@@ -411,6 +438,231 @@ class ThreeTimeframeBacktestTests(unittest.TestCase):
             early_entries(extended),
             "Future candles changed trade entries before the cutoff",
         )
+
+
+
+class DecisionCallbackTests(unittest.TestCase):
+    def test_backtest_emits_every_closed_five_minute_decision_and_trade_levels(self):
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+        from lili_trader.decision_journal import DecisionJournal
+
+        trend = SimpleNamespace(
+            direction="up",
+            last_two_swing_highs=(110.0, 115.0),
+            last_two_swing_lows=(90.0, 95.0),
+        )
+        with TemporaryDirectory() as directory:
+            journal = DecisionJournal(Path(directory) / "decisions.jsonl")
+
+            def record(event):
+                journal.append_decision(
+                    decision_id=event["decision_id"],
+                    occurred_at=event["occurred_at"],
+                    market_data_at=event["market_data_at"],
+                    symbol=event["symbol"],
+                    action=event["action"],
+                    strategy=event["strategy"],
+                    strategy_version=event["strategy_version"],
+                    reason=event["reason"],
+                    evidence=event["evidence"],
+                    entry_price=event["entry_price"],
+                    stop_loss=event["stop_loss"],
+                    take_profit=event["take_profit"],
+                    risk_quote=event["risk_quote"],
+                    timeframe=event["timeframe"],
+                    trade_id=event["trade_id"],
+                )
+
+            with patch("lili_trader.price_action_backtest.classify_price_action_trend",
+                       return_value=trend):
+                with patch("lili_trader.price_action_backtest.evaluate_timeframe_gate",
+                           side_effect=ready_gate):
+                    result = run_three_timeframe_backtest(
+                        rising_bars(80, 3600, 0),
+                        rising_bars(220, 900, 0),
+                        rising_bars(650, 300, 0),
+                        starting_cash=100_000,
+                        use_support_resistance_filter=False,
+                        decision_callback=record,
+                        decision_run_id="unit-test-run",
+                        symbol="BTCIRT",
+                    )
+
+            events = journal.events()
+            decisions = [event for event in events if event.event_type == "DECISION"]
+            self.assertEqual(len(decisions), len(rising_bars(650, 300, 0)) - 1)
+            self.assertTrue(all(event.payload["action"] in {"BUY", "SELL", "WAIT"} for event in decisions))
+            entered = [event for event in decisions if event.payload["action"] in {"BUY", "SELL"}]
+            self.assertGreater(len(entered), 0)
+            self.assertTrue(all(event.payload["entry_price"] > 0 for event in entered))
+            self.assertTrue(all(event.payload["stop_loss"] > 0 for event in entered))
+            self.assertTrue(all(event.payload["take_profit"] > 0 for event in entered))
+            self.assertTrue(all(event.payload["risk_quote"] > 0 for event in entered))
+            self.assertEqual(result.trade_count, len(entered))
+            self.assertEqual(journal.summary()["wait"] + len(entered), len(decisions))
+
+    def test_spot_audit_mode_turns_short_signal_into_wait(self):
+        trend = SimpleNamespace(
+            direction="down",
+            last_two_swing_highs=(110.0, 105.0),
+            last_two_swing_lows=(90.0, 85.0),
+        )
+        events = []
+        with patch("lili_trader.price_action_backtest.classify_price_action_trend",
+                   return_value=trend):
+            with patch("lili_trader.price_action_backtest.evaluate_timeframe_gate",
+                       side_effect=ready_gate):
+                result = run_three_timeframe_backtest(
+                    falling_bars(80, 3600, 0),
+                    falling_bars(220, 900, 0),
+                    falling_bars(650, 300, 0),
+                    starting_cash=100_000,
+                    use_support_resistance_filter=False,
+                    decision_callback=events.append,
+                    decision_run_id="spot-only-test",
+                    symbol="ETHIRT",
+                    allow_short=False,
+                )
+        self.assertEqual(result.trade_count, 0)
+        self.assertTrue(events)
+        self.assertTrue(all(event["action"] == "WAIT" for event in events))
+        self.assertTrue(any(
+            event["evidence"].get("direction") == "down"
+            for event in events
+        ))
+
+    def test_audit_mode_blocks_orders_below_minimum_quote_value(self):
+        trend = SimpleNamespace(
+            direction="up",
+            last_two_swing_highs=(110.0, 115.0),
+            last_two_swing_lows=(90.0, 95.0),
+        )
+        events = []
+        with patch("lili_trader.price_action_backtest.classify_price_action_trend",
+                   return_value=trend):
+            with patch("lili_trader.price_action_backtest.evaluate_timeframe_gate",
+                       side_effect=ready_gate):
+                result = run_three_timeframe_backtest(
+                    rising_bars(80, 3600, 0),
+                    rising_bars(220, 900, 0),
+                    rising_bars(650, 300, 0),
+                    starting_cash=100_000,
+                    use_support_resistance_filter=False,
+                    decision_callback=events.append,
+                    decision_run_id="minimum-order-test",
+                    symbol="BTCIRT",
+                    allow_short=False,
+                    minimum_order_quote=1_000_000_000_000,
+                )
+        self.assertEqual(result.trade_count, 0)
+        blocked = [
+            event for event in events
+            if event["evidence"].get("execution_block") == "below_minimum_order_value"
+        ]
+        self.assertTrue(blocked)
+        self.assertTrue(all(event["action"] == "WAIT" for event in blocked))
+
+    def test_minimum_order_quote_rejects_boolean_and_non_positive_values(self):
+        bars = (
+            rising_bars(80, 3600, 0),
+            rising_bars(220, 900, 0),
+            rising_bars(650, 300, 0),
+        )
+        for invalid in (True, 0, -1, "100"):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(ValueError):
+                    run_three_timeframe_backtest(*bars, minimum_order_quote=invalid)
+
+    def test_forward_warmup_blocks_historical_entries(self):
+        events = []
+        five = rising_bars(650, 300, 0)
+        future_start = five[-1].timestamp + 300
+        trend = SimpleNamespace(
+            direction="up",
+            last_two_swing_highs=(110.0, 115.0),
+            last_two_swing_lows=(90.0, 95.0),
+        )
+        with patch("lili_trader.price_action_backtest.classify_price_action_trend",
+                   return_value=trend):
+            with patch("lili_trader.price_action_backtest.evaluate_timeframe_gate",
+                       side_effect=ready_gate):
+                result = run_three_timeframe_backtest(
+                    rising_bars(80, 3600, 0),
+                    rising_bars(220, 900, 0),
+                    five,
+                    starting_cash=100_000,
+                    use_support_resistance_filter=False,
+                    decision_callback=events.append,
+                    decision_run_id="forward-warmup-test",
+                    symbol="BTCIRT",
+                    allow_short=False,
+                    trade_start_timestamp=future_start,
+                )
+        self.assertEqual(result.trade_count, 0)
+        self.assertTrue(events)
+        self.assertTrue(all(event["action"] == "WAIT" for event in events))
+        self.assertTrue(all(event["evidence"]["warmup_only"] for event in events))
+
+    def test_forward_allowed_entry_timestamps_limit_simulated_entries(self):
+        events = []
+        five = rising_bars(650, 300, 0)
+        eligible = five[-1].timestamp
+        trend = SimpleNamespace(
+            direction="up",
+            last_two_swing_highs=(110.0, 115.0),
+            last_two_swing_lows=(90.0, 95.0),
+        )
+        with patch("lili_trader.price_action_backtest.classify_price_action_trend",
+                   return_value=trend):
+            with patch("lili_trader.price_action_backtest.evaluate_timeframe_gate",
+                       side_effect=ready_gate):
+                result = run_three_timeframe_backtest(
+                    rising_bars(80, 3600, 0),
+                    rising_bars(220, 900, 0),
+                    five,
+                    starting_cash=100_000,
+                    use_support_resistance_filter=False,
+                    decision_callback=events.append,
+                    decision_run_id="forward-allowed-entry-test",
+                    symbol="BTCIRT",
+                    allow_short=False,
+                    allowed_entry_timestamps={eligible},
+                )
+        self.assertLessEqual(result.trade_count, 1)
+        self.assertTrue(all(trade.entry_timestamp == eligible for trade in result.trades))
+
+    def test_forward_replay_preserves_consumed_setup(self):
+        five = rising_bars(650, 300, 0)
+        trend = SimpleNamespace(
+            direction="up",
+            last_two_swing_highs=(110.0, 115.0),
+            last_two_swing_lows=(90.0, 95.0),
+        )
+        with patch("lili_trader.price_action_backtest.classify_price_action_trend",
+                   return_value=trend):
+            with patch("lili_trader.price_action_backtest.evaluate_timeframe_gate",
+                       side_effect=ready_gate):
+                with patch("lili_trader.price_action_backtest.classify_market_regime",
+                           return_value=SimpleNamespace(trend="up", volatility="normal")):
+                    with patch("lili_trader.price_action_backtest.select_strategy_candidates",
+                               return_value=[SimpleNamespace(
+                                   eligible=True, name="trend_pullback_buy"
+                               )]):
+                        result = run_three_timeframe_backtest(
+                            rising_bars(80, 3600, 0),
+                            rising_bars(220, 900, 0),
+                            five,
+                            starting_cash=100_000,
+                            use_support_resistance_filter=False,
+                            allow_short=False,
+                            trade_start_timestamp=five[-1].timestamp,
+                            allowed_entry_timestamps={five[-1].timestamp},
+                            initial_setup_consumed=True,
+                        )
+        self.assertEqual(result.trade_count, 0)
+        self.assertTrue(result.setup_consumed)
+
 
 if __name__ == "__main__":
     unittest.main()

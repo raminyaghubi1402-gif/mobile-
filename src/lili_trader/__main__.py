@@ -21,17 +21,114 @@ def main() -> None:
     parser.add_argument("--backtest-cash", type=float, default=10.0, help="سرمایهٔ فرضی بک‌تست (پیش‌فرض ۱۰)")
     parser.add_argument("--backtest-currency", choices=("USD", "IRT"), default="USD", help="واحد سرمایهٔ بک‌تست")
     parser.add_argument("--usd-irt-rate", type=float, default=None, help="نرخ مستند تبدیل ۱ USD به IRT")
+    parser.add_argument("--usd-irt-rate-source", default=None, help="منبع نرخ تبدیل USD/IRT برای ثبت در دفتر ممیزی")
+    parser.add_argument("--usd-irt-rate-at", default=None, help="زمان دریافت نرخ تبدیل با ISO-8601 و منطقهٔ زمانی")
     parser.add_argument("--symbol", default="BTCIRT", help="نماد نوبیتکس، مثل BTCIRT یا ETHIRT")
     parser.add_argument("--resolution", default="60", help="بازه: 1, 5, 15, 30, 60, 240 یا D")
     parser.add_argument("--count", type=int, default=100, help="تعداد کندل؛ بک‌تست ساختار قیمت تا ۵۰۰۰، سایر حالت‌ها تا ۵۰۰")
+    parser.add_argument("--decision-journal", default=None, metavar="PATH", help="ثبت تمام تصمیم‌های هر کندل بسته‌شدهٔ ۵ دقیقه در دفتر ممیزی")
+    parser.add_argument("--decision-journal-report", default=None, metavar="PATH", help="گزارش تصمیم‌های BUY/SELL/WAIT و بازبینی خطاها")
+    parser.add_argument("--journal-report", default=None, metavar="PATH", help="گزارش عملکرد ژورنال معاملات آزمایشی JSONL")
+    parser.add_argument("--journal-starting-equity", type=float, default=None, help="سرمایهٔ شروع برای محاسبهٔ افت سرمایهٔ ژورنال")
+    parser.add_argument("--backtest-journal", default=None, metavar="PATH", help="ثبت معاملات بسته‌شدهٔ بک‌تست ساختار قیمت در ژورنال JSONL")
+    parser.add_argument("--ai-review", action="store_true", help="بازبینی تحلیل قطعی با عامل تحلیل، منتقد و جمع‌بندی مدل‌های پیکربندی‌شده")
+    parser.add_argument("--paper-forward", action="store_true", help="اجرای یک نوبت پایش و شبیه‌سازی زندهٔ Paper فقط برای BTC/ETH نوبیتکس")
+    parser.add_argument("--forward-state-dir", default="data/paper/forward", help="مسیر پایدار حساب و دفتر Paper")
+    parser.add_argument("--forward-usd-irt-rate", type=float, default=None, help="نرخ اولیهٔ دستی USD/IRT برای راه‌اندازی حساب ۱۰ دلاری")
+    parser.add_argument("--forward-usd-irt-source", default=None, help="منبع نرخ اولیهٔ USD/IRT")
+    parser.add_argument("--forward-usd-irt-at", default=None, help="زمان دریافت نرخ اولیه با ISO-8601 و منطقهٔ زمانی")
+    parser.add_argument("--forward-max-lag-seconds", type=int, default=180, help="حداکثر عمر کندل اجرایی ۵ دقیقه‌ای")
     args = parser.parse_args()
 
-    if args.market_analysis:
-        from .market_analysis_runner import fetch_and_analyze
+    if args.paper_forward:
+        from .paper_forward import run_forward_cycle
         try:
-            print(fetch_and_analyze(args.symbol, count=min(args.count, 500)))
+            report = run_forward_cycle(
+                args.forward_state_dir,
+                usd_irt_rate=args.forward_usd_irt_rate,
+                usd_irt_rate_source=args.forward_usd_irt_source,
+                usd_irt_rate_at=args.forward_usd_irt_at,
+                max_lag_seconds=args.forward_max_lag_seconds,
+            )
         except Exception as exc:
-            parser.error(f"تحلیل بازار انجام نشد؛ دادهٔ معتبر در دسترس نیست ({type(exc).__name__}). هیچ معامله‌ای انجام نشده است.")
+            parser.error(f"چرخهٔ Paper متوقف شد؛ داده یا وضعیت قابل‌اعتماد نیست ({type(exc).__name__}). هیچ سفارش واقعی ارسال نشده است.")
+        print("لی‌لی تریدر — پایش و حساب Paper نوبیتکس")
+        print(f"وضعیت: {report['status']} | حالت: {report.get('mode', 'در انتظار راه‌اندازی')}")
+        print(report.get("message", ""))
+        if report["status"] == "ok":
+            for symbol, item in report["symbols"].items():
+                print(
+                    f"{symbol}: تصمیم جدید={item['new_decisions']} | "
+                    f"معاملهٔ بستهٔ ثبت‌شده={item['closed_trades_linked']} | "
+                    f"موقعیت باز={'بله' if item['open_position'] else 'خیر'} | "
+                    f"ارزش تخمینی={item['marked_equity_irt']:,.0f} ریال | "
+                    f"افت بازپخش={item['max_drawdown_pct_in_replay']:.2f}%"
+                )
+            summary = report["journal_summary"]
+            print(
+                f"دفتر: تصمیم={summary['decisions']} | BUY={summary['buy']} | "
+                f"SELL={summary['sell']} | WAIT={summary['wait']} | "
+                f"نتیجهٔ بسته={summary['outcomes']}"
+            )
+        elif report["status"] == "initialized":
+            print(f"سرمایهٔ اولیه: {report['initial_capital_usd']} USD | نرخ seed: {report['usd_irt_rate']:,.2f} IRT/USD")
+            print("در این نوبت فقط حساب راه‌اندازی شد؛ هیچ سیگنال تاریخی به‌عنوان معامله ثبت نشد.")
+        return
+
+    if args.decision_journal_report is not None:
+        from .decision_journal import DecisionJournal
+        try:
+            summary = DecisionJournal(args.decision_journal_report).summary()
+            print("گزارش دفتر تصمیم‌ها و بازبینی لی‌لی")
+            print(f"تصمیم‌ها: {summary['decisions']} | BUY={summary['buy']} | SELL={summary['sell']} | WAIT={summary['wait']}")
+            print(f"نتایج معاملات متصل: {summary.get('outcomes', 0)} | برد: {summary.get('outcome_wins', 0)} | باخت: {summary.get('outcome_losses', 0)} | خالص: {summary.get('outcome_net_pnl_quote', 0):,.2f} IRT")
+            print(f"بازبینی انسانی: {summary['reviews']} | بازبینی منفی/خطای اجرا: {summary['bad_reviews']}")
+            print("برچسب‌های خطا: " + (", ".join(f"{key}={value}" for key, value in summary["failure_tags"].items()) or "هنوز موردی ثبت نشده"))
+            print(f"آخرین اثرانگشت: {summary['last_hash'] or 'دفتر خالی است'}")
+        except (OSError, ValueError, TypeError) as exc:
+            parser.error(f"گزارش دفتر تصمیم‌ها قابل تولید نیست: {type(exc).__name__}")
+        return
+
+    if args.journal_report is not None:
+        if args.journal_starting_equity is None:
+            parser.error("برای گزارش ژورنال، --journal-starting-equity را صریحاً وارد کنید.")
+        from .journal import TradeJournal
+        from .journal_report import render_journal_report, summarize_journal
+        try:
+            summary = summarize_journal(
+                TradeJournal(args.journal_report),
+                starting_equity=args.journal_starting_equity,
+            )
+            print(render_journal_report(summary))
+        except (OSError, ValueError, TypeError) as exc:
+            parser.error(f"گزارش ژورنال قابل تولید نیست: {type(exc).__name__}")
+        return
+
+    if args.ai_review and not args.market_analysis:
+        parser.error("--ai-review فقط همراه --market-analysis قابل استفاده است.")
+
+    if args.market_analysis:
+        try:
+            if args.ai_review:
+                from .market_analysis_runner import fetch_analysis_with_metadata
+                from .ai_router import LiliAIRouter
+                from .ai_team import LiliAnalysisTeam
+                analysis, source, observed_at = fetch_analysis_with_metadata(
+                    args.symbol, count=min(args.count, 500)
+                )
+                print(analysis.report_fa)
+                if not observed_at:
+                    parser.error("زمان دریافت داده از منبع قابل تأیید نیست؛ بازبینی هوش مصنوعی اجرا نشد.")
+                router = LiliAIRouter.from_env()
+                review = LiliAnalysisTeam(router).review(
+                    analysis, source=source, observed_at=observed_at
+                )
+                print("\n" + review.render_fa())
+            else:
+                from .market_analysis_runner import fetch_and_analyze
+                print(fetch_and_analyze(args.symbol, count=min(args.count, 500)))
+        except Exception as exc:
+            parser.error(f"تحلیل بازار انجام نشد؛ دادهٔ معتبر یا مدل در دسترس نیست ({type(exc).__name__}). هیچ معامله‌ای انجام نشده است.")
         return
 
     # Price-action backtest operates in the quote currency of Nobitex IRT pairs.
@@ -43,6 +140,19 @@ def main() -> None:
             if (args.usd_irt_rate is None or args.usd_irt_rate <= 0
                     or not math.isfinite(args.usd_irt_rate)):
                 parser.error("برای نمادهای IRT، سرمایهٔ USD به نرخ مثبت و معتبر --usd-irt-rate نیاز دارد؛ نرخ را حدس نمی‌زنیم.")
+            if not isinstance(args.usd_irt_rate_source, str) or not args.usd_irt_rate_source.strip():
+                parser.error("برای حساب USD، --usd-irt-rate-source الزامی است.")
+            if not isinstance(args.usd_irt_rate_at, str) or not args.usd_irt_rate_at.strip():
+                parser.error("برای حساب USD، --usd-irt-rate-at با زمان ISO-8601 الزامی است.")
+            try:
+                rate_time = datetime.fromisoformat(args.usd_irt_rate_at.replace("Z", "+00:00"))
+            except ValueError:
+                parser.error("زمان نرخ باید ISO-8601 معتبر و دارای منطقهٔ زمانی باشد.")
+            if rate_time.tzinfo is None or rate_time.utcoffset() is None:
+                parser.error("زمان نرخ باید منطقهٔ زمانی داشته باشد.")
+            rate_age = (datetime.now(timezone.utc) - rate_time.astimezone(timezone.utc)).total_seconds()
+            if rate_age < -60 or rate_age > 900:
+                parser.error("نرخ تبدیل قدیمی یا دارای زمان آینده است؛ نرخ حداکثر ۱۵ دقیقه‌ای لازم است.")
             backtest_cash_local = args.backtest_cash * args.usd_irt_rate
         elif args.backtest_currency == "IRT":
             backtest_cash_local = args.backtest_cash
@@ -69,9 +179,94 @@ def main() -> None:
         native_fifteen = load_and_refresh("15", min(args.count, 2000))
         five = load_and_refresh("5", args.count)
         fifteen = extend_fifteen_with_five(native_fifteen, five)
+        decision_callback = None
+        decision_run_id = None
+        if args.decision_journal is not None:
+            import uuid
+            from .decision_journal import DecisionJournal
+            if args.symbol not in {"BTCIRT", "ETHIRT"}:
+                parser.error("دفتر تصمیم فقط BTCIRT و ETHIRT را می‌پذیرد.")
+            decision_journal = DecisionJournal(args.decision_journal)
+            decision_run_id = uuid.uuid4().hex[:12]
+
+            def decision_callback(event):
+                from .nobitex_limits import (
+                    NOBITEX_MINIMUM_SPOT_ORDER_IRT, NOBITEX_MINIMUM_ORDER_SOURCE,
+                    NOBITEX_BASE_SPOT_FEE_RATE_IRT, NOBITEX_FEE_SOURCE,
+                )
+                decision_journal.append_decision(
+                    decision_id=event["decision_id"],
+                    occurred_at=event["occurred_at"],
+                    market_data_at=event["market_data_at"],
+                    symbol=event["symbol"],
+                    action=event["action"],
+                    strategy=event["strategy"],
+                    strategy_version=event["strategy_version"],
+                    reason=event["reason"],
+                    evidence={
+                        **event["evidence"],
+                        "minimum_order_quote": NOBITEX_MINIMUM_SPOT_ORDER_IRT,
+                        "minimum_order_source": NOBITEX_MINIMUM_ORDER_SOURCE,
+                        "fee_rate": NOBITEX_BASE_SPOT_FEE_RATE_IRT,
+                        "fee_source": NOBITEX_FEE_SOURCE,
+                        **({
+                            "capital_conversion": {
+                                "usd_amount": args.backtest_cash,
+                                "usd_irt_rate": args.usd_irt_rate,
+                                "rate_source": args.usd_irt_rate_source,
+                                "rate_observed_at": args.usd_irt_rate_at,
+                            }
+                        } if args.backtest_currency == "USD" else {}),
+                    },
+                    entry_price=event["entry_price"],
+                    stop_loss=event["stop_loss"],
+                    take_profit=event["take_profit"],
+                    risk_quote=event["risk_quote"],
+                    timeframe=event["timeframe"],
+                    trade_id=event["trade_id"],
+                )
+
+        minimum_order_quote = None
+        if args.decision_journal is not None:
+            from .nobitex_limits import (
+                NOBITEX_MINIMUM_SPOT_ORDER_IRT, NOBITEX_BASE_SPOT_FEE_RATE_IRT,
+            )
+            minimum_order_quote = NOBITEX_MINIMUM_SPOT_ORDER_IRT
+            audit_fee_rate = NOBITEX_BASE_SPOT_FEE_RATE_IRT
+        else:
+            audit_fee_rate = 0.001
+
         result = run_three_timeframe_backtest(
-            hourly, fifteen, five, starting_cash=backtest_cash_local
+            hourly, fifteen, five, starting_cash=backtest_cash_local,
+            decision_callback=decision_callback,
+            decision_run_id=decision_run_id,
+            symbol=args.symbol,
+            allow_short=args.decision_journal is None,
+            minimum_order_quote=minimum_order_quote,
+            fee_rate=audit_fee_rate,
         )
+        if args.decision_journal is not None:
+            from .decision_outcome import append_backtest_outcomes
+            try:
+                linked_outcomes = append_backtest_outcomes(
+                    result, decision_journal, run_id=decision_run_id, symbol=args.symbol
+                )
+            except (OSError, ValueError, TypeError) as exc:
+                parser.error(f"اتصال نتیجهٔ معاملات به تصمیم‌ها انجام نشد: {type(exc).__name__}")
+            print(f"نتایج بسته‌شدهٔ متصل‌شده به تصمیم‌ها: {linked_outcomes}")
+            summary = decision_journal.summary()
+            print(f"دفتر تصمیم‌ها: {args.decision_journal} | شناسه اجرا: {decision_run_id}")
+            print(f"تصمیم‌های این دفتر: BUY={summary['buy']} | SELL={summary['sell']} | WAIT={summary['wait']}")
+        if args.backtest_journal is not None:
+            from .journal import TradeJournal
+            from .backtest_journal import append_backtest_result
+            try:
+                journaled = append_backtest_result(
+                    result, TradeJournal(args.backtest_journal), symbol=args.symbol
+                )
+            except (OSError, ValueError, TypeError) as exc:
+                parser.error(f"ثبت معاملات بک‌تست در ژورنال انجام نشد: {type(exc).__name__}")
+            print(f"معاملات جدید ثبت‌شده در ژورنال: {journaled} | مسیر: {args.backtest_journal}")
         if args.sr_diagnostic:
             baseline = run_three_timeframe_backtest(
                 hourly, fifteen, five, starting_cash=backtest_cash_local,

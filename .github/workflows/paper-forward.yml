@@ -1,0 +1,70 @@
+name: Li-Li Forward Paper
+
+on:
+  workflow_dispatch:
+    inputs:
+      usd_irt_rate:
+        description: "Fresh manual seed rate: IRT per USD (only used on first initialization)"
+        required: false
+        type: string
+      rate_source:
+        description: "Source/name/URL for the seed rate"
+        required: false
+        type: string
+      rate_observed_at:
+        description: "ISO-8601 timestamp with timezone, no older than 15 minutes"
+        required: false
+        type: string
+  schedule:
+    - cron: "*/5 * * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: lili-forward-paper
+  cancel-in-progress: false
+
+jobs:
+  forward-paper:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout development branch
+        uses: actions/checkout@v4
+        with:
+          ref: work/phase-1-risk-hardening
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run one read-only market and paper cycle
+        env:
+          FORWARD_USD_IRT_RATE: ${{ inputs.usd_irt_rate }}
+          FORWARD_USD_IRT_SOURCE: ${{ inputs.rate_source }}
+          FORWARD_USD_IRT_AT: ${{ inputs.rate_observed_at }}
+        run: |
+          args=(--paper-forward --forward-state-dir data/paper/forward)
+          if [ -n "$FORWARD_USD_IRT_RATE" ]; then
+            args+=(--forward-usd-irt-rate "$FORWARD_USD_IRT_RATE")
+          fi
+          if [ -n "$FORWARD_USD_IRT_SOURCE" ]; then
+            args+=(--forward-usd-irt-source "$FORWARD_USD_IRT_SOURCE")
+          fi
+          if [ -n "$FORWARD_USD_IRT_AT" ]; then
+            args+=(--forward-usd-irt-at "$FORWARD_USD_IRT_AT")
+          fi
+          PYTHONPATH=src python -m lili_trader "${args[@]}"
+      - name: Persist paper journal and account state
+        run: |
+          mkdir -p data/paper/forward
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/paper/forward/
+          if git diff --cached --quiet; then
+            echo "No paper-state changes to persist."
+            exit 0
+          fi
+          git commit -m "Persist Li-Li forward paper state"
+          git push origin HEAD:work/phase-1-risk-hardening

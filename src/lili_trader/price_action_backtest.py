@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import isfinite
-from collections.abc import Sequence
+from collections.abc import Sequence, Callable
 
 from .price_action_trend import classify_price_action_trend
 from .timeframe_gate import evaluate_timeframe_gate
@@ -30,6 +30,8 @@ class PriceActionTrade:
     fees: float
     net_pnl: float
     exit_reason: str
+    initial_risk_quote: float = 0.0
+    slippage_quote: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -48,6 +50,11 @@ class ThreeTimeframeBacktestResult:
     equity_curve: tuple[float, ...]
     gate_counts: tuple[tuple[str, int], ...]
     warnings: tuple[str, ...]
+    setup_consumed: bool = False
+
+
+def _finite_number(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and isfinite(value)
 
 
 def _number(candle, field: str) -> float:
@@ -119,8 +126,8 @@ def _estimated_stop_risk_per_unit(
     make the actual stop fill worse.
     """
     values = (entry_price, stop_price, fee_rate, slippage_rate)
-    if any(not isfinite(value) for value in values):
-        raise ValueError("risk sizing values must be finite")
+    if any(not _finite_number(value) for value in values):
+        raise ValueError("risk sizing values must be finite numbers")
     if entry_price <= 0 or stop_price <= 0:
         raise ValueError("entry and stop prices must be positive")
     if direction not in ("BUY", "SELL"):
@@ -156,6 +163,14 @@ def run_three_timeframe_backtest(
     atr_period: int = 14,
     support_resistance_buffer_atr: float = 1.0,
     use_support_resistance_filter: bool = True,
+    decision_callback: Callable[[dict], None] | None = None,
+    decision_run_id: str | None = None,
+    symbol: str = "BTCIRT",
+    allow_short: bool = True,
+    minimum_order_quote: float | None = None,
+    trade_start_timestamp: int | None = None,
+    allowed_entry_timestamps: set[int] | None = None,
+    initial_setup_consumed: bool = False,
 ) -> ThreeTimeframeBacktestResult:
     """Backtest 1h direction / 15m setup / 5m trigger with no look-ahead.
 
@@ -165,26 +180,55 @@ def run_three_timeframe_backtest(
     Entries are additionally blocked when a confirmed 15m opposing zone is within
     support_resistance_buffer_atr * ATR of the signal close.
     """
-    if not isfinite(starting_cash) or starting_cash <= 0:
-        raise ValueError("starting_cash must be finite and positive")
-    if not isfinite(risk_fraction) or not 0 < risk_fraction <= 0.02:
+    numeric_parameters = (
+        starting_cash, risk_fraction, stop_atr_multiple, fee_rate,
+        slippage_rate, support_resistance_buffer_atr,
+    )
+    if any(not _finite_number(value) for value in numeric_parameters):
+        raise ValueError("backtest numeric parameters must be finite numbers, not bools or strings")
+    if starting_cash <= 0:
+        raise ValueError("starting_cash must be positive")
+    if minimum_order_quote is not None and (
+        not _finite_number(minimum_order_quote) or minimum_order_quote <= 0
+    ):
+        raise ValueError("minimum_order_quote must be finite and positive when supplied")
+    if trade_start_timestamp is not None and (
+        type(trade_start_timestamp) is not int or trade_start_timestamp <= 0
+    ):
+        raise ValueError("trade_start_timestamp must be a positive integer when supplied")
+    if allowed_entry_timestamps is not None and (
+        not isinstance(allowed_entry_timestamps, set)
+        or any(type(value) is not int or value <= 0 for value in allowed_entry_timestamps)
+    ):
+        raise ValueError("allowed_entry_timestamps must be a set of positive integers")
+    if not 0 < risk_fraction <= 0.02:
         raise ValueError("risk_fraction must be > 0 and <= 2%")
-    if not isfinite(stop_atr_multiple) or not 0.1 <= stop_atr_multiple <= 10:
+    if not 0.1 <= stop_atr_multiple <= 10:
         raise ValueError("stop_atr_multiple outside safe research bounds")
-    if not isfinite(fee_rate) or not 0 <= fee_rate < 0.05:
+    if not 0 <= fee_rate < 0.05:
         raise ValueError("fee_rate outside allowed bounds")
-    if not isfinite(slippage_rate) or not 0 <= slippage_rate < 0.05:
+    if not 0 <= slippage_rate < 0.05:
         raise ValueError("slippage_rate outside allowed bounds")
+    if (type(use_support_resistance_filter) is not bool or type(allow_short) is not bool
+            or type(initial_setup_consumed) is not bool):
+        raise ValueError("boolean backtest options must be boolean")
     if (type(trend_lookback) is not int or type(atr_period) is not int
             or trend_lookback < 20 or atr_period < 2):
         raise ValueError("lookback/ATR period must be integers within safe bounds")
-    if (not isfinite(support_resistance_buffer_atr)
-            or not 0 <= support_resistance_buffer_atr <= 5):
+    if not 0 <= support_resistance_buffer_atr <= 5:
         raise ValueError("support_resistance_buffer_atr must be between 0 and 5")
 
     hourly = _validated(hourly_candles, 3600, "1h")
     fifteen = _validated(fifteen_minute_candles, 900, "15m")
     five = _validated(five_minute_candles, 300, "5m")
+
+    if decision_callback is not None:
+        if not callable(decision_callback):
+            raise ValueError("decision_callback must be callable")
+        if not isinstance(decision_run_id, str) or not decision_run_id.strip():
+            raise ValueError("decision_run_id is required when recording decisions")
+        if symbol not in {"BTCIRT", "ETHIRT"}:
+            raise ValueError("decision journal supports only BTCIRT and ETHIRT")
 
     cash = float(starting_cash)
     position = None
@@ -196,7 +240,7 @@ def run_three_timeframe_backtest(
     # A setup is consumed only after it passes the SR filter. If SR blocks
     # the first READY candle, keep checking while READY persists so the setup
     # can become eligible when price moves away from the opposing zone.
-    setup_consumed = False
+    setup_consumed = initial_setup_consumed
     hourly_closed_count = 0
     fifteen_closed_count = 0
 
@@ -214,7 +258,17 @@ def run_three_timeframe_backtest(
         total_fees = pos['entry_fee'] + pos['exit_fees'] + exit_fee
         total_exit_value = pos['realized_exit_value'] + fill * qty
         average_exit_price = total_exit_value / pos['original_quantity']
-        trades.append(PriceActionTrade(direction=pos['direction'], entry_timestamp=pos['entry_timestamp'], exit_timestamp=bar['timestamp'], entry_price=pos['entry_price'], exit_price=average_exit_price, quantity=pos['original_quantity'], gross_pnl=total_gross, fees=total_fees, net_pnl=total_gross-total_fees, exit_reason=reason))
+        final_slippage = abs(fill - raw_price) * qty
+        pos["slippage_quote"] += final_slippage
+        trades.append(PriceActionTrade(
+            direction=pos['direction'], entry_timestamp=pos['entry_timestamp'],
+            exit_timestamp=bar['timestamp'], entry_price=pos['entry_price'],
+            exit_price=average_exit_price, quantity=pos['original_quantity'],
+            gross_pnl=total_gross, fees=total_fees,
+            net_pnl=total_gross-total_fees, exit_reason=reason,
+            initial_risk_quote=pos["initial_risk"] * pos["original_quantity"],
+            slippage_quote=pos["slippage_quote"],
+        ))
         position = None
 
     def check_existing_stop(bar: dict) -> bool:
@@ -249,6 +303,7 @@ def run_three_timeframe_backtest(
             pos['realized_gross'] += gross
             pos['realized_exit_value'] += fill * qty
             pos['exit_fees'] += fee
+            pos["slippage_quote"] += abs(fill - target) * qty
             pos['remaining_quantity'] -= qty
             pos['completed_targets'].add(stage_index)
         favorable = bar['high'] if side == 1 else bar['low']
@@ -260,6 +315,11 @@ def run_three_timeframe_backtest(
         # candle; never use same-candle high/low ordering to claim a stop fill.
     # i is the 5m candle on which a signal was confirmed; execution is at i+1 open.
     for i in range(1, len(five)):
+        decision_action = "WAIT"
+        decision_reason = "در این کندل بسته‌شده، شرایط ورود کامل نشد."
+        decision_evidence = {}
+        decision_entry = decision_stop = decision_target = decision_risk = None
+        decision_trade_id = None
         bar = five[i]
         if not check_existing_stop(bar):
             manage_open_position(bar)
@@ -367,9 +427,31 @@ def run_three_timeframe_backtest(
         gate_counts[gate_status] = gate_counts.get(gate_status, 0) + 1
 
         gate_ready = bool(decision is not None and decision.allowed)
-        if not gate_ready:
+        warmup_only = (
+            trade_start_timestamp is not None
+            and signal_close_time < trade_start_timestamp
+        )
+        if warmup_only:
+            gate_ready = False
+            decision_reason = "دادهٔ قبلی فقط برای گرم‌کردن تحلیل است؛ شروع حساب Paper هنوز نرسیده."
+        decision_evidence = {
+            "gate_status": gate_status,
+            "gate_allowed": bool(decision is not None and decision.allowed),
+            "direction": getattr(decision, "direction", None),
+            "hourly_closed_count": hourly_closed_count,
+            "fifteen_closed_count": fifteen_closed_count,
+            "five_closed_count": len(closed_five),
+            "signal_close": signal_bar["close"],
+            "paper_start_timestamp": trade_start_timestamp,
+            "warmup_only": warmup_only,
+        }
+        decision_reason = getattr(decision, "reason", None) or gate_status
+        if not gate_ready and not warmup_only:
             setup_consumed = False
         new_setup = gate_ready and not setup_consumed
+        if (allowed_entry_timestamps is not None
+                and signal_close_time not in allowed_entry_timestamps):
+            new_setup = False
 
         # One entry per READY setup that has passed the SR filter. A blocked
         # setup remains eligible for re-check; a traded setup cannot re-enter
@@ -414,6 +496,8 @@ def run_three_timeframe_backtest(
             else:
                 gate_counts["sr_filter_disabled_diagnostic"] = gate_counts.get("sr_filter_disabled_diagnostic", 0) + 1
             if sr_blocked:
+                decision_reason = sr_status
+                decision_evidence["support_resistance_status"] = sr_status
                 new_setup = False
             else:
                 # Consume the setup once it has passed the opposing-zone filter,
@@ -423,7 +507,7 @@ def run_three_timeframe_backtest(
                 atr_value = _atr(fifteen[:fifteen_closed_count], atr_period)
             except ValueError:
                 atr_value = 0.0
-            if atr_value > 0 and cash > 0 and not sr_blocked:
+            if atr_value > 0 and cash > 0 and not sr_blocked and (allow_short or decision.direction == "up"):
                 direction = "BUY" if decision.direction == "up" else "SELL"
                 side = 1 if direction == "BUY" else -1
                 raw_entry = bar["open"]
@@ -437,7 +521,14 @@ def run_three_timeframe_backtest(
                 # Gap risk remains unbounded by this estimate and is disclosed.
                 quantity = min(risk_cash / risk_per_unit,
                                cash / (entry * (1 + fee_rate)))
-                if quantity > 0 and isfinite(quantity):
+                order_quote = quantity * entry
+                if (minimum_order_quote is not None
+                        and (not isfinite(order_quote) or order_quote < minimum_order_quote)):
+                    decision_reason = "ارزش سفارش از حداقل ارزش بازار نوبیتکس کمتر است؛ ورود رد شد."
+                    decision_evidence["execution_block"] = "below_minimum_order_value"
+                    decision_evidence["order_quote"] = order_quote
+                    decision_evidence["minimum_order_quote"] = minimum_order_quote
+                elif quantity > 0 and isfinite(quantity):
                     entry_fee = entry * quantity * fee_rate
                     cash -= entry_fee
                     stop = entry - distance if side == 1 else entry + distance
@@ -448,13 +539,35 @@ def run_three_timeframe_backtest(
                         "remaining_quantity": quantity, "entry_fee": entry_fee,
                         "initial_risk": distance, "stop_state": stop_state,
                         "realized_gross": 0.0, "realized_exit_value": 0.0,
-                        "exit_fees": 0.0, "completed_targets": set(),
+                        "exit_fees": 0.0,
+                        "slippage_quote": abs(entry - raw_entry) * quantity,
+                        "completed_targets": set(),
                     }
                     stop_hit = bar["low"] <= stop if side == 1 else bar["high"] >= stop
                     if stop_hit:
                         finish_position(bar, min(bar["open"], stop) if side == 1 else max(bar["open"], stop), "stop_loss_entry_bar")
+                        decision_reason = "ورود و برخورد حد ضرر در همان کندل؛ با ثبت قیمت اجرای محافظه‌کارانه."
                     else:
                         manage_open_position(bar)
+                        decision_reason = "تأیید هم‌جهت ۱h/۱۵m/۵m، عبور از فیلتر ناحیه و اندازه‌گذاری ریسک."
+                    decision_action = direction
+                    decision_entry = entry
+                    decision_stop = stop
+                    decision_target = entry + side * distance * 2.0
+                    decision_risk = distance * quantity
+                    decision_trade_id = f"{decision_run_id}:{symbol}:{signal_close_time}"
+                    decision_evidence.update({
+                        "support_resistance_status": "clear" if use_support_resistance_filter else "disabled_diagnostic",
+                        "atr_15m": atr_value,
+                        "risk_fraction": risk_fraction,
+                        "fee_rate": fee_rate,
+                        "slippage_rate": slippage_rate,
+                        "quantity": quantity,
+                        "stop_distance": distance,
+                    })
+            elif decision is not None and decision.allowed and decision.direction == "down" and not allow_short and not sr_blocked:
+                decision_reason = "فروش استقراضی در حساب نقدی نوبیتکس مجاز نیست؛ تصمیم به WAIT تبدیل شد."
+                decision_evidence["execution_block"] = "spot_short_not_supported"
 
         if position is None:
             mark = cash
@@ -464,6 +577,26 @@ def run_three_timeframe_backtest(
             estimated_exit_fee = bar["close"] * position["remaining_quantity"] * fee_rate
             mark = cash + unrealized - estimated_exit_fee
         curve.append(mark)
+        if decision_callback is not None:
+            from datetime import datetime, timezone
+            decision_time = datetime.fromtimestamp(signal_close_time, timezone.utc).isoformat()
+            decision_callback({
+                "decision_id": f"{decision_run_id}:{symbol}:{signal_close_time}",
+                "occurred_at": decision_time,
+                "market_data_at": decision_time,
+                "symbol": symbol,
+                "action": decision_action,
+                "strategy": "three_timeframe_price_action",
+                "strategy_version": "0.2.0",
+                "reason": decision_reason,
+                "evidence": decision_evidence,
+                "entry_price": decision_entry,
+                "stop_loss": decision_stop,
+                "take_profit": decision_target,
+                "risk_quote": decision_risk,
+                "trade_id": decision_trade_id,
+                "timeframe": "1h/15m/5m",
+            })
         peak = max(peak, mark)
         if peak > 0:
             max_drawdown = max(max_drawdown, (peak - mark) / peak * 100)
@@ -500,4 +633,5 @@ def run_three_timeframe_backtest(
             "حد سود پله‌ای: ۲۵٪ در +1R و ۲۵٪ در +2R؛ ۵۰٪ باقی‌مانده با حد ضرر هوشمند مدیریت می‌شود.",
             "دادهٔ محدود API عمومی نوبیتکس و نتیجهٔ تاریخی تضمین‌کنندهٔ عملکرد آینده نیست.",
         ),
+        setup_consumed=setup_consumed,
     )

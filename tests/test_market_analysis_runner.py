@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from lili_trader.market_analysis_runner import fetch_and_analyze, _closed_only, _is_fresh_closed_history, _has_interval_gaps
+from lili_trader.market_analysis_runner import fetch_and_analyze, fetch_analysis_with_metadata, _closed_only, _is_fresh_closed_history, _has_interval_gaps
 
 
 class MarketAnalysisRunnerTests(unittest.TestCase):
@@ -28,6 +28,26 @@ class MarketAnalysisRunnerTests(unittest.TestCase):
         analyze.assert_called_once()
         self.assertEqual(analyze.call_args.args[0], "BTCIRT")
         self.assertEqual(set(analyze.call_args.args[1]), set(expected))
+
+    @patch("lili_trader.market_analysis_runner.analyze_market")
+    @patch("lili_trader.market_analysis_runner.NobitexAdapter")
+    def test_analysis_bundle_exposes_source_and_latest_fetch_time(self, adapter_cls, analyze):
+        from types import SimpleNamespace
+        adapter = adapter_cls.return_value
+        durations = {"60": 3600, "15": 900, "5": 300, "240": 14400, "D": 86400}
+        base = 1_800_000_000
+        adapter.fetch_history.side_effect = lambda **kwargs: [{
+            "timestamp": base,
+            "fetched_at": base + durations[kwargs["resolution"]] * 2,
+            "open": 10, "high": 11, "low": 9, "close": 10,
+        }]
+        analyze.return_value = SimpleNamespace(
+            symbol="BTCIRT", decision="WAIT", report_fa="گزارش"
+        )
+        result, source, observed_at = fetch_analysis_with_metadata("BTCIRT", count=10)
+        self.assertEqual(result.symbol, "BTCIRT")
+        self.assertEqual(source, "Nobitex public API")
+        self.assertEqual(observed_at, "2027-01-17T08:00:00+00:00")
 
     def test_excludes_currently_forming_candle_for_each_timeframe(self):
         durations = {"1h": 3600, "15m": 900, "5m": 300, "4h": 14400, "1D": 86400}

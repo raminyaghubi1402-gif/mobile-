@@ -3,6 +3,15 @@ from dataclasses import dataclass
 from math import isfinite
 
 
+def _is_finite_number(value: object) -> bool:
+    """Accept real int/float values, but never bools or coercible strings."""
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and isfinite(value)
+    )
+
+
 @dataclass(frozen=True)
 class RiskLimits:
     max_order_quote: float
@@ -19,12 +28,14 @@ class RiskLimits:
             self.max_daily_loss_quote,
             self.max_market_data_age_seconds,
         )
-        if any(not isfinite(value) or value <= 0 for value in positive):
-            raise ValueError("risk limits must be finite and positive")
-        if not isfinite(self.max_drawdown_pct) or not 0 < self.max_drawdown_pct <= 100:
+        if any(not _is_finite_number(value) or value <= 0 for value in positive):
+            raise ValueError("risk limits must be finite positive numbers")
+        if (not _is_finite_number(self.max_drawdown_pct)
+                or not 0 < self.max_drawdown_pct <= 100):
             raise ValueError("max_drawdown_pct must be in (0, 100]")
-        if isinstance(self.max_daily_trades, bool) or self.max_daily_trades < 1:
-            raise ValueError("max_daily_trades must be >= 1")
+        if (type(self.max_daily_trades) is not int
+                or self.max_daily_trades < 1):
+            raise ValueError("max_daily_trades must be a positive integer")
 
 
 @dataclass(frozen=True)
@@ -52,7 +63,8 @@ def evaluate_order(
 ) -> RiskDecision:
     """Check a hypothetical order against hard limits; no trading side effects."""
     limits.validate()
-    reasons: list[str] = []
+    if not isinstance(state, RiskSnapshot):
+        return RiskDecision(False, ("وضعیت ریسک نامعتبر است؛ توقف امن.",))
 
     numeric_values = (
         order_quote,
@@ -61,9 +73,19 @@ def evaluate_order(
         state.open_position_quote,
         state.market_data_age_seconds,
     )
-    if any(not isfinite(value) for value in numeric_values):
+    if any(not _is_finite_number(value) for value in numeric_values):
         return RiskDecision(False, ("دادهٔ عددی نامعتبر است؛ توقف امن.",))
+    if type(state.daily_trade_count) is not int or state.daily_trade_count < 0:
+        return RiskDecision(False, ("شمارندهٔ معاملات روزانه نامعتبر است؛ توقف امن.",))
+    boolean_values = (
+        state.exchange_state_confirmed,
+        state.kill_switch_active,
+        state.cooldown_active,
+    )
+    if any(type(value) is not bool for value in boolean_values):
+        return RiskDecision(False, ("وضعیت کنترلی نامعتبر است؛ توقف امن.",))
 
+    reasons: list[str] = []
     if order_quote <= 0:
         reasons.append("اندازه سفارش باید مثبت باشد.")
     if order_quote > limits.max_order_quote:
@@ -74,7 +96,7 @@ def evaluate_order(
         reasons.append("حد ضرر روزانه فعال شده است.")
     if state.drawdown_pct < 0 or state.drawdown_pct >= limits.max_drawdown_pct:
         reasons.append("حد افت سرمایه فعال شده است.")
-    if state.daily_trade_count < 0 or state.daily_trade_count >= limits.max_daily_trades:
+    if state.daily_trade_count >= limits.max_daily_trades:
         reasons.append("سقف تعداد معاملات روزانه پر شده است.")
     if state.market_data_age_seconds < 0 or state.market_data_age_seconds > limits.max_market_data_age_seconds:
         reasons.append("دادهٔ بازار قدیمی یا زمان آن نامعتبر است.")

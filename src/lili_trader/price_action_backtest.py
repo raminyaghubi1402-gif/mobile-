@@ -166,6 +166,7 @@ def run_three_timeframe_backtest(
     decision_run_id: str | None = None,
     symbol: str = "BTCIRT",
     allow_short: bool = True,
+    minimum_order_quote: float | None = None,
 ) -> ThreeTimeframeBacktestResult:
     """Backtest 1h direction / 15m setup / 5m trigger with no look-ahead.
 
@@ -183,6 +184,10 @@ def run_three_timeframe_backtest(
         raise ValueError("backtest numeric parameters must be finite numbers, not bools or strings")
     if starting_cash <= 0:
         raise ValueError("starting_cash must be positive")
+    if minimum_order_quote is not None and (
+        not _finite_number(minimum_order_quote) or minimum_order_quote <= 0
+    ):
+        raise ValueError("minimum_order_quote must be finite and positive when supplied")
     if not 0 < risk_fraction <= 0.02:
         raise ValueError("risk_fraction must be > 0 and <= 2%")
     if not 0.1 <= stop_atr_multiple <= 10:
@@ -490,7 +495,14 @@ def run_three_timeframe_backtest(
                 # Gap risk remains unbounded by this estimate and is disclosed.
                 quantity = min(risk_cash / risk_per_unit,
                                cash / (entry * (1 + fee_rate)))
-                if quantity > 0 and isfinite(quantity):
+                order_quote = quantity * entry
+                if (minimum_order_quote is not None
+                        and (not isfinite(order_quote) or order_quote < minimum_order_quote)):
+                    decision_reason = "ارزش سفارش از حداقل ارزش بازار نوبیتکس کمتر است؛ ورود رد شد."
+                    decision_evidence["execution_block"] = "below_minimum_order_value"
+                    decision_evidence["order_quote"] = order_quote
+                    decision_evidence["minimum_order_quote"] = minimum_order_quote
+                elif quantity > 0 and isfinite(quantity):
                     entry_fee = entry * quantity * fee_rate
                     cash -= entry_fee
                     stop = entry - distance if side == 1 else entry + distance

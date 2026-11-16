@@ -78,6 +78,52 @@ class TradeJournalTests(unittest.TestCase):
                 entry_reason="test", exit_price=110,
             ).validate()
 
+
+    def test_open_trade_can_receive_one_matching_close_event(self):
+        with tempfile.TemporaryDirectory() as directory:
+            journal = TradeJournal(Path(directory) / "trades.jsonl")
+            opened = TradeRecord(
+                trade_id="lifecycle-1", symbol="BTCIRT", strategy="bos_pullback",
+                side="long", status="open", entry_time="2026-11-16T10:00:00Z",
+                entry_price=100, quantity=0.1, initial_risk_quote=2,
+                entry_reason="confirmed 5m trigger",
+            )
+            closed = closed_trade(
+                trade_id="lifecycle-1", entry_time="2026-11-16T10:00:00Z",
+                exit_time="2026-11-16T11:00:00Z",
+            )
+            journal.append(opened)
+            journal.append(closed)
+            records = journal.records()
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0].status, "closed")
+            self.assertAlmostEqual(records[0].r_multiple, 0.185)
+            self.assertEqual(len(journal.path.read_text(encoding="utf-8").splitlines()), 2)
+
+    def test_closed_trade_cannot_be_closed_twice(self):
+        with tempfile.TemporaryDirectory() as directory:
+            journal = TradeJournal(Path(directory) / "trades.jsonl")
+            journal.append(closed_trade())
+            with self.assertRaises(JournalError):
+                journal.append(closed_trade(exit_price=105, gross_pnl_quote=0.5,
+                                            net_pnl_quote=0.47))
+
+    def test_close_event_cannot_change_trade_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            journal = TradeJournal(Path(directory) / "trades.jsonl")
+            opened = TradeRecord(
+                trade_id="identity-1", symbol="BTCIRT", strategy="trend",
+                side="long", status="open", entry_time="2026-11-16T10:00:00Z",
+                entry_price=100, quantity=0.1, initial_risk_quote=2,
+                entry_reason="entry",
+            )
+            journal.append(opened)
+            with self.assertRaisesRegex(JournalError, "identity"):
+                journal.append(closed_trade(
+                    trade_id="identity-1", strategy="different",
+                    entry_time="2026-11-16T10:00:00Z",
+                ))
+
     def test_corrupt_journal_fails_closed(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "trades.jsonl"

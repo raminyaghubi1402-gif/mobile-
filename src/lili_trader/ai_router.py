@@ -44,6 +44,7 @@ class ProviderConfig:
     requests_per_minute: int = 10
     cooldown_seconds: float = 30.0
     max_tokens: int = 700
+    free_tier: bool = False
 
     def validate(self) -> None:
         if not isinstance(self.name, str) or not self.name.strip():
@@ -65,6 +66,8 @@ class ProviderConfig:
             raise ValueError("cooldown_seconds must be between 1 and 3600")
         if type(self.max_tokens) is not int or not 1 <= self.max_tokens <= 8192:
             raise ValueError("max_tokens must be an integer from 1 to 8192")
+        if type(self.free_tier) is not bool:
+            raise ValueError("free_tier must be boolean")
         if self.api_key_env and (
             not self.api_key_env.replace("_", "").isalnum()
             or self.api_key_env[0].isdigit()
@@ -166,7 +169,12 @@ class LiliAIRouter:
         cache_max_items: int = 100,
         duplicate_window_seconds: float = 3.0,
     ) -> None:
-        self.providers = tuple(providers)
+        self.providers = tuple(sorted(
+            providers,
+            key=lambda provider: not getattr(
+                getattr(provider, "config", None), "free_tier", False
+            ),
+        ))
         self.clock = clock
         self.cache_ttl_seconds = cache_ttl_seconds
         self.cache_max_items = cache_max_items

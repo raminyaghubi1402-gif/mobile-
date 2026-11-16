@@ -203,7 +203,7 @@ class DecisionJournal:
             if not any(item.event_type == "DECISION" and item.decision_id == decision_id for item in existing):
                 raise DecisionJournalError(f"cannot append {event_type.lower()} for an unknown decision")
             if any(item.event_type == event_type and item.decision_id == decision_id for item in existing):
-                raise DecisionJournalError(f"decision already has a {event_type.lower()})
+                raise DecisionJournalError(f"decision already has a {event_type.lower()}")
         sequence = len(existing) + 1
         previous_hash = existing[-1].event_hash if existing else "GENESIS"
         body = {

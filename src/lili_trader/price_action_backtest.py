@@ -169,6 +169,7 @@ def run_three_timeframe_backtest(
     minimum_order_quote: float | None = None,
     trade_start_timestamp: int | None = None,
     allowed_entry_timestamps: set[int] | None = None,
+    initial_setup_consumed: bool = False,
 ) -> ThreeTimeframeBacktestResult:
     """Backtest 1h direction / 15m setup / 5m trigger with no look-ahead.
 
@@ -207,7 +208,8 @@ def run_three_timeframe_backtest(
         raise ValueError("fee_rate outside allowed bounds")
     if not 0 <= slippage_rate < 0.05:
         raise ValueError("slippage_rate outside allowed bounds")
-    if type(use_support_resistance_filter) is not bool or type(allow_short) is not bool:
+    if (type(use_support_resistance_filter) is not bool or type(allow_short) is not bool
+            or type(initial_setup_consumed) is not bool):
         raise ValueError("boolean backtest options must be boolean")
     if (type(trend_lookback) is not int or type(atr_period) is not int
             or trend_lookback < 20 or atr_period < 2):
@@ -237,7 +239,7 @@ def run_three_timeframe_backtest(
     # A setup is consumed only after it passes the SR filter. If SR blocks
     # the first READY candle, keep checking while READY persists so the setup
     # can become eligible when price moves away from the opposing zone.
-    setup_consumed = False
+    setup_consumed = initial_setup_consumed
     hourly_closed_count = 0
     fifteen_closed_count = 0
 

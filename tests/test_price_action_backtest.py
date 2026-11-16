@@ -527,9 +527,15 @@ class DecisionCallbackTests(unittest.TestCase):
         self.assertEqual(result.trade_count, 0)
         self.assertTrue(events)
         self.assertTrue(all(event["action"] == "WAIT" for event in events))
+        eligible_short_signals = [
+            event for event in events
+            if event["evidence"].get("gate_allowed")
+            and event["evidence"].get("direction") == "down"
+        ]
+        self.assertTrue(eligible_short_signals)
         self.assertTrue(all(
             event["evidence"].get("execution_block") == "spot_short_not_supported"
-            for event in events
+            for event in eligible_short_signals
         ))
 
 

@@ -51,6 +51,10 @@ class ProviderConfig:
             raise ValueError("provider name is required")
         if not isinstance(self.model, str) or not self.model.strip():
             raise ValueError("provider model is required")
+        if not isinstance(self.base_url, str):
+            raise ValueError("provider base_url must be a string")
+        if not isinstance(self.api_key_env, str):
+            raise ValueError("api_key_env must be a string")
         parsed = urlparse(self.base_url)
         if parsed.scheme not in ("https", "http") or not parsed.netloc:
             raise ValueError("provider base_url must be an HTTP(S) URL")
@@ -169,6 +173,17 @@ class LiliAIRouter:
         cache_max_items: int = 100,
         duplicate_window_seconds: float = 3.0,
     ) -> None:
+        if not callable(clock):
+            raise ValueError("clock must be callable")
+        if type(cache_max_items) is not int or cache_max_items < 1:
+            raise ValueError("cache_max_items must be a positive integer")
+        if not isfinite(cache_ttl_seconds) or cache_ttl_seconds <= 0:
+            raise ValueError("cache_ttl_seconds must be positive")
+        if not isfinite(duplicate_window_seconds) or duplicate_window_seconds < 0:
+            raise ValueError("duplicate_window_seconds must be non-negative")
+        provider_names = [provider.name for provider in providers]
+        if len(provider_names) != len(set(provider_names)):
+            raise ValueError("provider names must be unique")
         self.providers = tuple(sorted(
             providers,
             key=lambda provider: not getattr(

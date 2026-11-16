@@ -115,8 +115,10 @@ class ForwardPaperTests(unittest.TestCase):
             )
             self.assertEqual(report["status"], "ok")
             self.assertEqual(set(report["symbols"]), {"BTCIRT", "ETHIRT"})
-            self.assertEqual(report["symbols"]["BTCIRT"]["new_decisions"], 0)
-            self.assertEqual(report["symbols"]["ETHIRT"]["new_decisions"], 0)
+            total_new_decisions = sum(
+                item["new_decisions"] for item in report["symbols"].values()
+            )
+            self.assertGreater(total_new_decisions, 0)
             import json
             state = json.loads((Path(directory) / "account.json").read_text(encoding="utf-8"))
             self.assertEqual(state["last_cycle_at"], datetime.fromtimestamp(next_now, timezone.utc).isoformat())
@@ -126,6 +128,13 @@ class ForwardPaperTests(unittest.TestCase):
                     (next_now - next_now % 300),
                 )
                 self.assertEqual(state["symbols"][symbol]["last_cycle_status"], "ok")
+            repeated = run_forward_cycle(
+                directory, adapter=FakeAdapter(next_now), now_ts=next_now,
+            )
+            self.assertEqual(repeated["status"], "ok")
+            self.assertEqual(repeated["journal_summary"]["decisions"], total_new_decisions)
+            for symbol in ("BTCIRT", "ETHIRT"):
+                self.assertEqual(repeated["symbols"][symbol]["new_decisions"], 0)
 
     def test_repeated_poll_same_candle_does_not_backdate_or_duplicate(self):
         now = 1_795_000_000

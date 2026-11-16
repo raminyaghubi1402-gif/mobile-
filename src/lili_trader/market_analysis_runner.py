@@ -97,12 +97,7 @@ def _is_fresh_closed_history(candles, timeframe, *, max_stale_intervals=3):
     return age_after_close <= duration * max_stale_intervals and age_after_close >= -duration
 
 
-def fetch_and_analyze(symbol: str = "BTCIRT", *, count: int = 500) -> str:
-    """Fetch closed 1h/15m/5m and context candles; return a Persian report.
-
-    Weekly/monthly context is intentionally not synthesized in this first version.
-    The analyst will state unavailable context rather than fabricate it.
-    """
+def _fetch_analysis_bundle(symbol: str, count: int):
     adapter = NobitexAdapter()
     resolutions = {
         "1h": "60",
@@ -114,10 +109,19 @@ def fetch_and_analyze(symbol: str = "BTCIRT", *, count: int = 500) -> str:
     candles = {}
     stale_timeframes = []
     invalid_history_timeframes = []
+    fetched_at_values = []
     for timeframe, resolution in resolutions.items():
         fetched = adapter.fetch_history(
             symbol=symbol, resolution=resolution, count=count
         )
+        for candle in fetched:
+            raw = candle.get("fetched_at") if isinstance(candle, dict) else getattr(candle, "fetched_at", None)
+            try:
+                numeric = float(raw)
+                if isfinite(numeric) and numeric > 0:
+                    fetched_at_values.append(numeric)
+            except (TypeError, ValueError, OverflowError):
+                pass
         closed = _closed_only(fetched, timeframe, require_fetch_metadata=True)
         if closed and not _is_fresh_closed_history(closed, timeframe):
             stale_timeframes.append(timeframe)
@@ -127,6 +131,12 @@ def fetch_and_analyze(symbol: str = "BTCIRT", *, count: int = 500) -> str:
             closed = []
         candles[timeframe] = closed
     result = analyze_market(symbol, candles)
+    observed_at = None
+    if fetched_at_values:
+        from datetime import datetime, timezone
+        observed_at = datetime.fromtimestamp(
+            max(fetched_at_values), timezone.utc
+        ).isoformat()
     report = result.report_fa
     if stale_timeframes:
         labels = "، ".join(stale_timeframes)
@@ -144,4 +154,18 @@ def fetch_and_analyze(symbol: str = "BTCIRT", *, count: int = 500) -> str:
             + " فاصله زمانی، ترتیب یا زمان کندل‌ها با بازه مورد انتظار سازگار نیست؛ "
             "این تاریخچه‌ها از تحلیل حذف شدند و ورود مجاز نیست."
         )
-    return report
+    from dataclasses import replace
+    result = replace(result, report_fa=report)
+    return result, observed_at
+
+
+def fetch_analysis_with_metadata(symbol: str = "BTCIRT", *, count: int = 500):
+    """Return deterministic analysis plus the provider's fetch timestamp."""
+    result, observed_at = _fetch_analysis_bundle(symbol, count)
+    return result, "Nobitex public API", observed_at
+
+
+def fetch_and_analyze(symbol: str = "BTCIRT", *, count: int = 500) -> str:
+    """Fetch closed 1h/15m/5m and context candles; return a Persian report."""
+    result, _ = _fetch_analysis_bundle(symbol, count)
+    return result.report_fa

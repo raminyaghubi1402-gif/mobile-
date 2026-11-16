@@ -154,8 +154,12 @@ def _fetch_analysis_bundle(symbol: str, count: int):
             + " فاصله زمانی، ترتیب یا زمان کندل‌ها با بازه مورد انتظار سازگار نیست؛ "
             "این تاریخچه‌ها از تحلیل حذف شدند و ورود مجاز نیست."
         )
-    from dataclasses import replace
-    result = replace(result, report_fa=report)
+    from dataclasses import is_dataclass, replace
+    if is_dataclass(result):
+        result = replace(result, report_fa=report)
+    else:
+        # Test doubles and external adapters may provide a mutable report object.
+        result.report_fa = report
     return result, observed_at
 
 

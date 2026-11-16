@@ -100,6 +100,24 @@ class ForwardPaperTests(unittest.TestCase):
                     adapter=adapter, now_ts=now,
                 )
 
+    def test_repeated_poll_same_candle_does_not_backdate_or_duplicate(self):
+        now = 1_795_000_000
+        rate_at = datetime.fromtimestamp(now - 30, timezone.utc).isoformat()
+        with tempfile.TemporaryDirectory() as directory:
+            adapter = FakeAdapter(now)
+            run_forward_cycle(
+                directory, usd_irt_rate=1_000_000,
+                usd_irt_rate_source="manual verified quote",
+                usd_irt_rate_at=rate_at, adapter=adapter, now_ts=now,
+            )
+            report = run_forward_cycle(
+                directory, adapter=adapter, now_ts=now,
+            )
+            self.assertEqual(report["status"], "ok")
+            self.assertEqual(report["symbols"]["BTCIRT"]["new_decisions"], 0)
+            self.assertEqual(report["symbols"]["ETHIRT"]["new_decisions"], 0)
+            self.assertEqual(report["journal_summary"]["decisions"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

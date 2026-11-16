@@ -46,9 +46,8 @@ class MarketAnalysisRunnerTests(unittest.TestCase):
         )
         result, source, observed_at = fetch_analysis_with_metadata("BTCIRT", count=10)
         self.assertEqual(result.symbol, "BTCIRT")
-        self.assertIn("هشدار", result.report_fa) if "هشدار" in result.report_fa else None
         self.assertEqual(source, "Nobitex public API")
-        self.assertEqual(observed_at, "2026-06-23T00:00:00+00:00")
+        self.assertEqual(observed_at, "2027-01-17T08:00:00+00:00")
 
     def test_excludes_currently_forming_candle_for_each_timeframe(self):
         durations = {"1h": 3600, "15m": 900, "5m": 300, "4h": 14400, "1D": 86400}

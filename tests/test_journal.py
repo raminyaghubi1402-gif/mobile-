@@ -86,7 +86,7 @@ class TradeJournalTests(unittest.TestCase):
                 trade_id="lifecycle-1", symbol="BTCIRT", strategy="bos_pullback",
                 side="long", status="open", entry_time="2026-11-16T10:00:00Z",
                 entry_price=100, quantity=0.1, initial_risk_quote=2,
-                entry_reason="confirmed 5m trigger",
+                entry_reason="1h bullish BOS; 15m pullback; 5m close confirmation",
             )
             closed = closed_trade(
                 trade_id="lifecycle-1", entry_time="2026-11-16T10:00:00Z",

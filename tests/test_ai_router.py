@@ -131,6 +131,25 @@ class AIRouterTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     ProviderConfig(name="bad", base_url=url, model="m").validate()
 
+    def test_user_marked_free_tier_providers_are_tried_first(self):
+        from lili_trader.ai_router import OpenAICompatibleProvider
+        paid = OpenAICompatibleProvider(ProviderConfig(
+            name="paid", base_url="https://paid.example/v1", model="p"
+        ), opener=lambda *args, **kwargs: None, environ={})
+        free = OpenAICompatibleProvider(ProviderConfig(
+            name="free", base_url="https://free.example/v1", model="f",
+            free_tier=True,
+        ), opener=lambda *args, **kwargs: None, environ={})
+        router = LiliAIRouter([paid, free])
+        self.assertEqual([provider.name for provider in router.providers], ["free", "paid"])
+
+    def test_router_rejects_duplicate_provider_names_and_invalid_cache_size(self):
+        provider = FakeProvider()
+        with self.assertRaises(ValueError):
+            LiliAIRouter([provider, FakeProvider()])
+        with self.assertRaises(ValueError):
+            LiliAIRouter([provider], cache_max_items=0)
+
 
 class AITeamTests(unittest.TestCase):
     def test_three_roles_review_evidence_without_overriding_deterministic_decision(self):

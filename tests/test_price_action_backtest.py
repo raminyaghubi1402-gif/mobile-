@@ -439,5 +439,69 @@ class ThreeTimeframeBacktestTests(unittest.TestCase):
             "Future candles changed trade entries before the cutoff",
         )
 
+
+
+class DecisionCallbackTests(unittest.TestCase):
+    def test_backtest_emits_every_closed_five_minute_decision_and_trade_levels(self):
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+        from lili_trader.decision_journal import DecisionJournal
+
+        trend = SimpleNamespace(
+            direction="up",
+            last_two_swing_highs=(110.0, 115.0),
+            last_two_swing_lows=(90.0, 95.0),
+        )
+        with TemporaryDirectory() as directory:
+            journal = DecisionJournal(Path(directory) / "decisions.jsonl")
+
+            def record(event):
+                journal.append_decision(
+                    decision_id=event["decision_id"],
+                    occurred_at=event["occurred_at"],
+                    market_data_at=event["market_data_at"],
+                    symbol=event["symbol"],
+                    action=event["action"],
+                    strategy=event["strategy"],
+                    strategy_version=event["strategy_version"],
+                    reason=event["reason"],
+                    evidence=event["evidence"],
+                    entry_price=event["entry_price"],
+                    stop_loss=event["stop_loss"],
+                    take_profit=event["take_profit"],
+                    risk_quote=event["risk_quote"],
+                    timeframe=event["timeframe"],
+                    trade_id=event["trade_id"],
+                )
+
+            with patch("lili_trader.price_action_backtest.classify_price_action_trend",
+                       return_value=trend), \\
+                 patch("lili_trader.price_action_backtest.evaluate_timeframe_gate",
+                       side_effect=ready_gate):
+                result = run_three_timeframe_backtest(
+                    rising_bars(80, 3600, 0),
+                    rising_bars(220, 900, 0),
+                    rising_bars(650, 300, 0),
+                    starting_cash=100_000,
+                    use_support_resistance_filter=False,
+                    decision_callback=record,
+                    decision_run_id="unit-test-run",
+                    symbol="BTCIRT",
+                )
+
+            events = journal.events()
+            decisions = [event for event in events if event.event_type == "DECISION"]
+            self.assertEqual(len(decisions), len(rising_bars(650, 300, 0)) - 1)
+            self.assertTrue(all(event.payload["action"] in {"BUY", "SELL", "WAIT"} for event in decisions))
+            entered = [event for event in decisions if event.payload["action"] in {"BUY", "SELL"}]
+            self.assertGreater(len(entered), 0)
+            self.assertTrue(all(event.payload["entry_price"] > 0 for event in entered))
+            self.assertTrue(all(event.payload["stop_loss"] > 0 for event in entered))
+            self.assertTrue(all(event.payload["take_profit"] > 0 for event in entered))
+            self.assertTrue(all(event.payload["risk_quote"] > 0 for event in entered))
+            self.assertEqual(result.trade_count, len(entered))
+            self.assertEqual(journal.summary()["wait"] + len(entered), len(decisions))
+
+
 if __name__ == "__main__":
     unittest.main()

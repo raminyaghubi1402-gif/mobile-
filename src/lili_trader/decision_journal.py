@@ -89,6 +89,7 @@ class DecisionJournal:
         previous_hash = "GENESIS"
         decision_ids: set[str] = set()
         reviewed_ids: set[str] = set()
+        outcome_ids: set[str] = set()
         try:
             with self.path.open("r", encoding="utf-8") as stream:
                 for line_number, line in enumerate(stream, 1):
@@ -119,6 +120,12 @@ class DecisionJournal:
                         if event.decision_id in decision_ids:
                             raise DecisionJournalError("duplicate decision_id")
                         decision_ids.add(event.decision_id)
+                    elif event.event_type == "OUTCOME":
+                        if event.decision_id not in decision_ids:
+                            raise DecisionJournalError("outcome references an unknown decision_id")
+                        if event.decision_id in outcome_ids:
+                            raise DecisionJournalError("decision has more than one outcome")
+                        outcome_ids.add(event.decision_id)
                     else:
                         if event.decision_id not in decision_ids:
                             raise DecisionJournalError("review references an unknown decision_id")
@@ -133,7 +140,7 @@ class DecisionJournal:
 
     @staticmethod
     def _validate_event(event: DecisionEvent) -> None:
-        if event.event_type not in {"DECISION", "REVIEW"}:
+        if event.event_type not in {"DECISION", "OUTCOME", "REVIEW"}:
             raise DecisionJournalError("event_type must be DECISION or REVIEW")
         _text(event.event_id, "event_id")
         _text(event.decision_id, "decision_id")
@@ -155,6 +162,23 @@ class DecisionJournal:
             if p["action"] in {"BUY", "SELL"}:
                 for key in ("entry_price", "stop_loss", "take_profit", "risk_quote"):
                     _positive(p.get(key), key)
+        elif event.event_type == "OUTCOME":
+            p = event.payload
+            _text(p.get("trade_id"), "trade_id")
+            _timestamp(p.get("entry_at"))
+            _timestamp(p.get("exit_at"))
+            if p.get("side") not in {"BUY", "SELL"}:
+                raise DecisionJournalError("outcome side must be BUY or SELL")
+            for key in ("gross_pnl_quote", "fees_quote", "slippage_quote", "net_pnl_quote"):
+                value = p.get(key)
+                if isinstance(value, bool) or not isinstance(value, (int, float)) or not isfinite(value):
+                    raise DecisionJournalError(f"{key} must be finite")
+            if p["fees_quote"] < 0 or p["slippage_quote"] < 0:
+                raise DecisionJournalError("fees and slippage must be non-negative")
+            expected = p["gross_pnl_quote"] - p["fees_quote"] - p["slippage_quote"]
+            if abs(p["net_pnl_quote"] - expected) > max(1e-8, abs(expected) * 1e-9):
+                raise DecisionJournalError("net PnL must equal gross minus fees and slippage")
+            _text(p.get("exit_reason"), "exit_reason")
         else:
             p = event.payload
             if p.get("outcome") not in _ALLOWED_OUTCOMES:
@@ -175,11 +199,11 @@ class DecisionJournal:
             raise DecisionJournalError("event_id has already been used")
         if event_type == "DECISION" and any(item.decision_id == decision_id for item in existing):
             raise DecisionJournalError("decision_id has already been used")
-        if event_type == "REVIEW":
+        if event_type in {"OUTCOME", "REVIEW"}:
             if not any(item.event_type == "DECISION" and item.decision_id == decision_id for item in existing):
-                raise DecisionJournalError("cannot review an unknown decision")
-            if any(item.event_type == "REVIEW" and item.decision_id == decision_id for item in existing):
-                raise DecisionJournalError("decision has already been reviewed")
+                raise DecisionJournalError(f"cannot append {event_type.lower()} for an unknown decision")
+            if any(item.event_type == event_type and item.decision_id == decision_id for item in existing):
+                raise DecisionJournalError(f"decision already has a {event_type.lower()})
         sequence = len(existing) + 1
         previous_hash = existing[-1].event_hash if existing else "GENESIS"
         body = {
@@ -226,6 +250,26 @@ class DecisionJournal:
         }
         return self._append("DECISION", occurred_at, decision_id, payload)
 
+    def append_outcome(
+        self, *, decision_id: str, occurred_at: str, trade_id: str,
+        side: str, entry_at: str, exit_at: str, gross_pnl_quote: float,
+        fees_quote: float, slippage_quote: float, net_pnl_quote: float,
+        exit_reason: str,
+    ) -> DecisionEvent:
+        """Link a completed simulated trade to its originating decision.
+
+        Gross PnL is reconstructed before fees and modeled slippage. No causal
+        diagnosis is inferred from a profitable or losing result.
+        """
+        payload = {
+            "trade_id": trade_id, "side": side, "entry_at": entry_at,
+            "exit_at": exit_at, "gross_pnl_quote": gross_pnl_quote,
+            "fees_quote": fees_quote, "slippage_quote": slippage_quote,
+            "net_pnl_quote": net_pnl_quote, "exit_reason": exit_reason,
+            "review_status": "needs_human_review",
+        }
+        return self._append("OUTCOME", occurred_at, decision_id, payload)
+
     def append_review(
         self, *, decision_id: str, occurred_at: str, trade_id: str,
         outcome: str, failure_tags: list[str], root_cause: str,
@@ -242,6 +286,7 @@ class DecisionJournal:
     def summary(self) -> dict[str, Any]:
         events = self.events()
         decisions = [e for e in events if e.event_type == "DECISION"]
+        outcomes = [e for e in events if e.event_type == "OUTCOME"]
         reviews = [e for e in events if e.event_type == "REVIEW"]
         tags = Counter(tag for e in reviews for tag in e.payload["failure_tags"])
         return {
@@ -249,6 +294,10 @@ class DecisionJournal:
             "buy": sum(e.payload["action"] == "BUY" for e in decisions),
             "sell": sum(e.payload["action"] == "SELL" for e in decisions),
             "wait": sum(e.payload["action"] == "WAIT" for e in decisions),
+            "outcomes": len(outcomes),
+            "outcome_wins": sum(e.payload["net_pnl_quote"] > 0 for e in outcomes),
+            "outcome_losses": sum(e.payload["net_pnl_quote"] < 0 for e in outcomes),
+            "outcome_net_pnl_quote": sum(e.payload["net_pnl_quote"] for e in outcomes),
             "reviews": len(reviews),
             "bad_reviews": sum(e.payload["outcome"] in {"BAD", "EXECUTION_ERROR"} for e in reviews),
             "failure_tags": dict(sorted(tags.items())),

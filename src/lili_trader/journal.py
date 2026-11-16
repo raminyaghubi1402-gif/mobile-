@@ -48,6 +48,15 @@ class TradeRecord:
     slippage_quote: float = 0.0
     net_pnl_quote: float | None = None
     exit_reason: str | None = None
+    account_order_id: str | None = None
+    account_fill_side: str | None = None
+    account_fill_quantity: float | None = None
+    account_fill_price: float | None = None
+    account_fill_fee_quote: float | None = None
+    account_cash_after: float | None = None
+    account_position_after: float | None = None
+    account_starting_cash: float | None = None
+    account_fee_rate: float | None = None
 
     def validate(self) -> None:
         for field in ("trade_id", "symbol", "strategy", "entry_reason"):
@@ -64,6 +73,33 @@ class TradeRecord:
             raise JournalError("entry price, quantity and initial risk must be finite and positive")
         if any(not _finite(value) or value < 0 for value in (self.fees_quote, self.slippage_quote)):
             raise JournalError("fees and slippage must be finite and non-negative")
+
+        snapshot_fields = (
+            self.account_order_id, self.account_fill_side,
+            self.account_fill_quantity, self.account_fill_price,
+            self.account_fill_fee_quote, self.account_cash_after,
+            self.account_position_after, self.account_starting_cash,
+            self.account_fee_rate,
+        )
+        if any(value is not None for value in snapshot_fields):
+            if any(value is None for value in snapshot_fields):
+                raise JournalError("account snapshot must be complete")
+            if not isinstance(self.account_order_id, str) or not self.account_order_id.strip():
+                raise JournalError("account order ID is invalid")
+            if self.account_fill_side not in ("buy", "sell"):
+                raise JournalError("account fill side is invalid")
+            if any(not _finite(value) or value <= 0 for value in (
+                self.account_fill_quantity, self.account_fill_price,
+                self.account_starting_cash,
+            )):
+                raise JournalError("account fill and starting cash must be finite and positive")
+            if any(not _finite(value) or value < 0 for value in (
+                self.account_fill_fee_quote, self.account_cash_after,
+                self.account_position_after,
+            )):
+                raise JournalError("account snapshot values must be finite and non-negative")
+            if not _finite(self.account_fee_rate) or not 0 <= self.account_fee_rate < 1:
+                raise JournalError("account fee rate is invalid")
 
         if self.status == "open":
             if any(value is not None for value in (
@@ -99,11 +135,12 @@ class TradeJournal:
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
 
-    def records(self) -> tuple[TradeRecord, ...]:
+    def events(self) -> tuple[TradeRecord, ...]:
+        """Return every validated append-only event in original file order."""
         if not self.path.exists():
             return ()
+        events: list[TradeRecord] = []
         latest: dict[str, TradeRecord] = {}
-        order: list[str] = []
         try:
             with self.path.open("r", encoding="utf-8") as stream:
                 for line_number, line in enumerate(stream, 1):
@@ -118,7 +155,6 @@ class TradeJournal:
                     previous = latest.get(record.trade_id)
                     if previous is None:
                         latest[record.trade_id] = record
-                        order.append(record.trade_id)
                     else:
                         if previous.status != "open" or record.status != "closed":
                             raise JournalError(f"invalid trade lifecycle at line {line_number}")
@@ -129,8 +165,19 @@ class TradeJournal:
                         if any(getattr(previous, field) != getattr(record, field) for field in immutable):
                             raise JournalError(f"trade identity changed at line {line_number}")
                         latest[record.trade_id] = record
+                    events.append(record)
         except OSError as exc:
             raise JournalError("journal cannot be read") from exc
+        return tuple(events)
+
+    def records(self) -> tuple[TradeRecord, ...]:
+        """Return the latest state for each trade, preserving first-seen order."""
+        latest: dict[str, TradeRecord] = {}
+        order: list[str] = []
+        for record in self.events():
+            if record.trade_id not in latest:
+                order.append(record.trade_id)
+            latest[record.trade_id] = record
         return tuple(latest[trade_id] for trade_id in order)
 
     def append(self, record: TradeRecord) -> None:

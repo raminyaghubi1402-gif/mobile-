@@ -64,7 +64,7 @@ def main() -> None:
                 review = LiliAnalysisTeam(router).review(
                     analysis, source=source, observed_at=observed_at
                 )
-                print("\\n" + review.render_fa())
+                print("\n" + review.render_fa())
             else:
                 from .market_analysis_runner import fetch_and_analyze
                 print(fetch_and_analyze(args.symbol, count=min(args.count, 500)))

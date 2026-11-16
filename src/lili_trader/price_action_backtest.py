@@ -427,7 +427,11 @@ def run_three_timeframe_backtest(
         gate_counts[gate_status] = gate_counts.get(gate_status, 0) + 1
 
         gate_ready = bool(decision is not None and decision.allowed)
-        if trade_start_timestamp is not None and signal_close_time < trade_start_timestamp:
+        warmup_only = (
+            trade_start_timestamp is not None
+            and signal_close_time < trade_start_timestamp
+        )
+        if warmup_only:
             gate_ready = False
             decision_reason = "دادهٔ قبلی فقط برای گرم‌کردن تحلیل است؛ شروع حساب Paper هنوز نرسیده."
         decision_evidence = {
@@ -439,13 +443,10 @@ def run_three_timeframe_backtest(
             "five_closed_count": len(closed_five),
             "signal_close": signal_bar["close"],
             "paper_start_timestamp": trade_start_timestamp,
-            "warmup_only": bool(
-                trade_start_timestamp is not None
-                and signal_close_time < trade_start_timestamp
-            ),
+            "warmup_only": warmup_only,
         }
         decision_reason = getattr(decision, "reason", None) or gate_status
-        if not gate_ready:
+        if not gate_ready and not warmup_only:
             setup_consumed = False
         new_setup = gate_ready and not setup_consumed
         if (allowed_entry_timestamps is not None

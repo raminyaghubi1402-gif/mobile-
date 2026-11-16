@@ -27,6 +27,7 @@ def main() -> None:
     parser.add_argument("--journal-report", default=None, metavar="PATH", help="گزارش عملکرد ژورنال معاملات آزمایشی JSONL")
     parser.add_argument("--journal-starting-equity", type=float, default=None, help="سرمایهٔ شروع برای محاسبهٔ افت سرمایهٔ ژورنال")
     parser.add_argument("--backtest-journal", default=None, metavar="PATH", help="ثبت معاملات بسته‌شدهٔ بک‌تست ساختار قیمت در ژورنال JSONL")
+    parser.add_argument("--ai-review", action="store_true", help="بازبینی تحلیل قطعی با عامل تحلیل، منتقد و جمع‌بندی مدل‌های پیکربندی‌شده")
     args = parser.parse_args()
 
     if args.journal_report is not None:
@@ -44,12 +45,31 @@ def main() -> None:
             parser.error(f"گزارش ژورنال قابل تولید نیست: {type(exc).__name__}")
         return
 
+    if args.ai_review and not args.market_analysis:
+        parser.error("--ai-review فقط همراه --market-analysis قابل استفاده است.")
+
     if args.market_analysis:
-        from .market_analysis_runner import fetch_and_analyze
         try:
-            print(fetch_and_analyze(args.symbol, count=min(args.count, 500)))
+            if args.ai_review:
+                from .market_analysis_runner import fetch_analysis_with_metadata
+                from .ai_router import LiliAIRouter
+                from .ai_team import LiliAnalysisTeam
+                analysis, source, observed_at = fetch_analysis_with_metadata(
+                    args.symbol, count=min(args.count, 500)
+                )
+                print(analysis.report_fa)
+                if not observed_at:
+                    parser.error("زمان دریافت داده از منبع قابل تأیید نیست؛ بازبینی هوش مصنوعی اجرا نشد.")
+                router = LiliAIRouter.from_env()
+                review = LiliAnalysisTeam(router).review(
+                    analysis, source=source, observed_at=observed_at
+                )
+                print("\\n" + review.render_fa())
+            else:
+                from .market_analysis_runner import fetch_and_analyze
+                print(fetch_and_analyze(args.symbol, count=min(args.count, 500)))
         except Exception as exc:
-            parser.error(f"تحلیل بازار انجام نشد؛ دادهٔ معتبر در دسترس نیست ({type(exc).__name__}). هیچ معامله‌ای انجام نشده است.")
+            parser.error(f"تحلیل بازار انجام نشد؛ دادهٔ معتبر یا مدل در دسترس نیست ({type(exc).__name__}). هیچ معامله‌ای انجام نشده است.")
         return
 
     # Price-action backtest operates in the quote currency of Nobitex IRT pairs.

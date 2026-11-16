@@ -3,7 +3,11 @@ name: Li-Li Trader CI
 on:
   push:
     branches: [main, 'work/**']
+    paths-ignore:
+      - 'data/paper/forward/**'
   pull_request:
+    paths-ignore:
+      - 'data/paper/forward/**'
   workflow_dispatch:
   schedule:
     - cron: "30 14 * * *"

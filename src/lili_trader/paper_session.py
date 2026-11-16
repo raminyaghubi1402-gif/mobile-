@@ -163,6 +163,8 @@ class PaperTradeSession:
 
         if isinstance(quantity, bool) or not isinstance(quantity, (int, float)) or not isfinite(quantity) or quantity <= 0:
             raise PaperSessionError("quantity must be finite and positive")
+        if isinstance(entry_price, bool) or not isinstance(entry_price, (int, float)) or not isfinite(entry_price) or entry_price <= 0:
+            raise PaperSessionError("entry_price must be finite and positive")
         effective_entry_price = entry_price + entry_slippage_quote / quantity
         if not isfinite(effective_entry_price) or effective_entry_price <= 0:
             raise PaperSessionError("effective entry price is invalid")
@@ -235,6 +237,8 @@ class PaperTradeSession:
             self.journal.append(closed)
             created.append(closed)
 
+        if isinstance(exit_price, bool) or not isinstance(exit_price, (int, float)) or not isfinite(exit_price) or exit_price <= 0:
+            raise PaperSessionError("exit_price must be finite and positive")
         effective_exit_price = exit_price - exit_slippage_quote / opened.quantity
         if not isfinite(effective_exit_price) or effective_exit_price <= 0:
             raise PaperSessionError("exit slippage makes effective exit price non-positive")

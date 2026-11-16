@@ -70,12 +70,16 @@ def summarize_journal(
     equity = float(starting_equity)
     peak = equity
     max_drawdown = 0.0
+    max_drawdown_pct = 0.0
     losing_streak = 0
     max_losing_streak = 0
     for value in net_values:
         equity += value
         peak = max(peak, equity)
-        max_drawdown = max(max_drawdown, peak - equity)
+        drawdown = peak - equity
+        max_drawdown = max(max_drawdown, drawdown)
+        if peak > 0:
+            max_drawdown_pct = max(max_drawdown_pct, drawdown / peak * 100)
         if value < 0:
             losing_streak += 1
             max_losing_streak = max(max_losing_streak, losing_streak)
@@ -104,7 +108,7 @@ def summarize_journal(
             if count else None
         ),
         max_drawdown_quote=max_drawdown,
-        max_drawdown_pct=max_drawdown / peak * 100 if peak > 0 else 0.0,
+        max_drawdown_pct=max_drawdown_pct,
         best_trade_net=max(net_values) if net_values else None,
         worst_trade_net=min(net_values) if net_values else None,
         max_losing_streak=max_losing_streak,

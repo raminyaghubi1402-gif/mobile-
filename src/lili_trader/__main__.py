@@ -26,6 +26,7 @@ def main() -> None:
     parser.add_argument("--count", type=int, default=100, help="تعداد کندل؛ بک‌تست ساختار قیمت تا ۵۰۰۰، سایر حالت‌ها تا ۵۰۰")
     parser.add_argument("--journal-report", default=None, metavar="PATH", help="گزارش عملکرد ژورنال معاملات آزمایشی JSONL")
     parser.add_argument("--journal-starting-equity", type=float, default=None, help="سرمایهٔ شروع برای محاسبهٔ افت سرمایهٔ ژورنال")
+    parser.add_argument("--backtest-journal", default=None, metavar="PATH", help="ثبت معاملات بسته‌شدهٔ بک‌تست ساختار قیمت در ژورنال JSONL")
     args = parser.parse_args()
 
     if args.journal_report is not None:
@@ -89,6 +90,16 @@ def main() -> None:
         result = run_three_timeframe_backtest(
             hourly, fifteen, five, starting_cash=backtest_cash_local
         )
+        if args.backtest_journal is not None:
+            from .journal import TradeJournal
+            from .backtest_journal import append_backtest_result
+            try:
+                journaled = append_backtest_result(
+                    result, TradeJournal(args.backtest_journal), symbol=args.symbol
+                )
+            except (OSError, ValueError, TypeError) as exc:
+                parser.error(f"ثبت معاملات بک‌تست در ژورنال انجام نشد: {type(exc).__name__}")
+            print(f"معاملات جدید ثبت‌شده در ژورنال: {journaled} | مسیر: {args.backtest_journal}")
         if args.sr_diagnostic:
             baseline = run_three_timeframe_backtest(
                 hourly, fifteen, five, starting_cash=backtest_cash_local,

@@ -50,6 +50,7 @@ class ThreeTimeframeBacktestResult:
     equity_curve: tuple[float, ...]
     gate_counts: tuple[tuple[str, int], ...]
     warnings: tuple[str, ...]
+    setup_consumed: bool = False
 
 
 def _finite_number(value) -> bool:
@@ -631,4 +632,5 @@ def run_three_timeframe_backtest(
             "حد سود پله‌ای: ۲۵٪ در +1R و ۲۵٪ در +2R؛ ۵۰٪ باقی‌مانده با حد ضرر هوشمند مدیریت می‌شود.",
             "دادهٔ محدود API عمومی نوبیتکس و نتیجهٔ تاریخی تضمین‌کنندهٔ عملکرد آینده نیست.",
         ),
+        setup_consumed=setup_consumed,
     )

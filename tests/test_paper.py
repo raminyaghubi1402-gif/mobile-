@@ -48,5 +48,33 @@ class PaperAccountTests(unittest.TestCase):
             self.account.equity(0)
 
 
+    def test_persistence_hook_runs_before_account_state_commit(self):
+        seen = []
+        def persist(fill):
+            seen.append(fill)
+            self.assertEqual(self.account.cash, 1000)
+            self.assertEqual(self.account.position, 0)
+        fill = self.account.execute("hooked", "buy", 1, 100, before_commit=persist)
+        self.assertEqual(seen, [fill])
+        self.assertEqual(self.account.position, 1)
+
+    def test_persistence_hook_failure_leaves_account_unchanged(self):
+        def fail(_fill):
+            raise OSError("local journal unavailable")
+        with self.assertRaisesRegex(OSError, "journal unavailable"):
+            self.account.execute("failed-hook", "buy", 1, 100, before_commit=fail)
+        self.assertEqual(self.account.cash, 1000)
+        self.assertEqual(self.account.position, 0)
+        self.assertEqual(self.account.fills, ())
+
+    def test_boolean_and_string_financial_inputs_are_rejected(self):
+        for value in (True, "100"):
+            with self.subTest(value=value):
+                with self.assertRaises(PaperTradingError):
+                    self.account.execute("invalid-" + str(value), "buy", value, 100)
+                with self.assertRaises(PaperTradingError):
+                    self.account.execute("invalid-price-" + str(value), "buy", 1, value)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -91,6 +91,15 @@ class DecisionOutcomeLinkTests(unittest.TestCase):
             with self.assertRaises(DecisionOutcomeLinkError):
                 append_backtest_outcomes(result, journal, run_id=run_id, symbol=symbol)
 
+    def test_open_end_of_data_position_is_not_recorded_as_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            journal, result, run_id, symbol = self.make_fixture(directory)
+            result.trades[0].exit_reason = "end_of_data"
+            self.assertEqual(
+                append_backtest_outcomes(result, journal, run_id=run_id, symbol=symbol), 0
+            )
+            self.assertEqual(journal.summary()["outcomes"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -532,6 +532,48 @@ class DecisionCallbackTests(unittest.TestCase):
             for event in events
         ))
 
+    def test_audit_mode_blocks_orders_below_minimum_quote_value(self):
+        trend = SimpleNamespace(
+            direction="up",
+            last_two_swing_highs=(110.0, 115.0),
+            last_two_swing_lows=(90.0, 95.0),
+        )
+        events = []
+        with patch("lili_trader.price_action_backtest.classify_price_action_trend",
+                   return_value=trend):
+            with patch("lili_trader.price_action_backtest.evaluate_timeframe_gate",
+                       side_effect=ready_gate):
+                result = run_three_timeframe_backtest(
+                    rising_bars(80, 3600, 0),
+                    rising_bars(220, 900, 0),
+                    rising_bars(650, 300, 0),
+                    starting_cash=100_000,
+                    use_support_resistance_filter=False,
+                    decision_callback=events.append,
+                    decision_run_id="minimum-order-test",
+                    symbol="BTCIRT",
+                    allow_short=False,
+                    minimum_order_quote=1_000_000_000_000,
+                )
+        self.assertEqual(result.trade_count, 0)
+        blocked = [
+            event for event in events
+            if event["evidence"].get("execution_block") == "below_minimum_order_value"
+        ]
+        self.assertTrue(blocked)
+        self.assertTrue(all(event["action"] == "WAIT" for event in blocked))
+
+    def test_minimum_order_quote_rejects_boolean_and_non_positive_values(self):
+        bars = (
+            rising_bars(80, 3600, 0),
+            rising_bars(220, 900, 0),
+            rising_bars(650, 300, 0),
+        )
+        for invalid in (True, 0, -1, "100"):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(ValueError):
+                    run_three_timeframe_backtest(*bars, minimum_order_quote=invalid)
+
 
 if __name__ == "__main__":
     unittest.main()

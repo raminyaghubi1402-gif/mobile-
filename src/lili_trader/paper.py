@@ -10,6 +10,14 @@ class PaperTradingError(ValueError):
     """Invalid simulated trade or insufficient simulated funds."""
 
 
+def _finite_number(value: object) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and isfinite(value)
+    )
+
+
 @dataclass(frozen=True)
 class PaperFill:
     order_id: str
@@ -25,9 +33,9 @@ class PaperAccount:
     """Small deterministic spot-only simulator; state exists only in memory."""
 
     def __init__(self, starting_cash: float, fee_rate: float = 0.001) -> None:
-        if not isfinite(starting_cash) or starting_cash <= 0:
+        if not _finite_number(starting_cash) or starting_cash <= 0:
             raise PaperTradingError("starting_cash must be finite and positive")
-        if not isfinite(fee_rate) or not 0 <= fee_rate < 1:
+        if not _finite_number(fee_rate) or not 0 <= fee_rate < 1:
             raise PaperTradingError("fee_rate must be in [0, 1)")
         self.starting_cash = float(starting_cash)
         self.cash = float(starting_cash)
@@ -60,7 +68,7 @@ class PaperAccount:
             return self._fills[order_id]
         if side not in {"buy", "sell"}:
             raise PaperTradingError("side must be buy or sell")
-        if any(not isfinite(v) or v <= 0 for v in (quantity, price)):
+        if not _finite_number(quantity) or not _finite_number(price) or quantity <= 0 or price <= 0:
             raise PaperTradingError("quantity and price must be finite and positive")
         if before_commit is not None and not callable(before_commit):
             raise PaperTradingError("before_commit must be callable")
@@ -69,9 +77,11 @@ class PaperAccount:
         if not isfinite(gross):
             raise PaperTradingError("trade value overflow")
         fee = gross * self.fee_rate
+        if not isfinite(fee):
+            raise PaperTradingError("trade fee overflow")
         if side == "buy":
             total = gross + fee
-            if total > self.cash:
+            if not isfinite(total) or total > self.cash:
                 raise PaperTradingError("insufficient simulated cash")
             next_cash = self.cash - total
             next_position = self.position + quantity
@@ -80,6 +90,8 @@ class PaperAccount:
                 raise PaperTradingError("cannot sell more than simulated position")
             next_cash = self.cash + gross - fee
             next_position = self.position - quantity
+        if not isfinite(next_cash) or not isfinite(next_position):
+            raise PaperTradingError("simulated account state overflow")
 
         fill = PaperFill(order_id, side, quantity, price, fee, next_cash, next_position)
         if before_commit is not None:
@@ -89,6 +101,9 @@ class PaperAccount:
         return fill
 
     def equity(self, mark_price: float) -> float:
-        if not isfinite(mark_price) or mark_price <= 0:
+        if not _finite_number(mark_price) or mark_price <= 0:
             raise PaperTradingError("mark_price must be finite and positive")
-        return self.cash + self.position * mark_price
+        value = self.cash + self.position * mark_price
+        if not isfinite(value):
+            raise PaperTradingError("simulated equity overflow")
+        return value

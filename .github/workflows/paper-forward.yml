@@ -58,6 +58,7 @@ jobs:
           fi
           PYTHONPATH=src python -m lili_trader "${args[@]}"
       - name: Write Paper cycle summary
+        id: paper_summary
         if: always()
         env:
           CYCLE_OUTCOME: ${{ steps.paper_cycle.outcome }}
@@ -65,6 +66,7 @@ jobs:
           PAPER_STATE_DIR: data/paper/forward
         run: PYTHONPATH=src python -m lili_trader.paper_summary
       - name: Persist paper journal and account state
+        if: steps.paper_cycle.outcome == 'success' && steps.paper_summary.outcome == 'success'
         run: |
           mkdir -p data/paper/forward
           git config user.name "github-actions[bot]"

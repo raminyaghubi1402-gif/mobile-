@@ -449,9 +449,19 @@ def run_three_timeframe_backtest(
         if not gate_ready and not warmup_only:
             setup_consumed = False
         new_setup = gate_ready and not setup_consumed
+        if position is not None and gate_ready:
+            decision_reason = "موقعیت Paper هنوز باز است؛ برای جلوگیری از ورود هم‌زمان، ورود تازه انجام نشد."
+            decision_evidence["execution_block"] = "position_already_open"
+        elif gate_ready and setup_consumed:
+            decision_reason = "این ستاپ قبلاً مصرف شده است؛ تا خروج از وضعیت READY و تشکیل ستاپ تازه، ورود مجدد ممنوع است."
+            decision_evidence["execution_block"] = "setup_already_consumed"
+
         if (allowed_entry_timestamps is not None
                 and signal_close_time not in allowed_entry_timestamps):
             new_setup = False
+            if gate_ready and not setup_consumed and position is None:
+                decision_reason = "زمان این سیگنال خارج از پنجرهٔ مجاز ورود Paper است؛ سیگنال به‌صورت WAIT ثبت شد."
+                decision_evidence["execution_block"] = "outside_allowed_entry_window"
 
         # One entry per READY setup that has passed the SR filter. A blocked
         # setup remains eligible for re-check; a traded setup cannot re-enter

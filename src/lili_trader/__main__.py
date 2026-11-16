@@ -156,6 +156,7 @@ def main() -> None:
             decision_callback=decision_callback,
             decision_run_id=decision_run_id,
             symbol=args.symbol,
+            allow_short=args.decision_journal is None,
         )
         if args.decision_journal is not None:
             summary = decision_journal.summary()

@@ -277,39 +277,46 @@ def run_forward_cycle(
 
         new_decisions = 0
 
-        def record_latest_decision(event: dict) -> None:
+        def record_new_decision(event: dict) -> None:
             nonlocal new_decisions
             event_timestamp = _timestamp_from_iso(event["occurred_at"])
-            if event_timestamp != latest_signal_close:
-                return
             if event_timestamp <= previous_last_processed:
                 return
             if event["decision_id"] in existing_decision_ids:
                 return
+            skipped_late = event_timestamp < latest_signal_close
+            action = "WAIT" if skipped_late else event["action"]
+            reason = (
+                "سیگنال به‌علت تأخیر زمان‌بند از پنجرهٔ اجرای مجاز خارج شد؛ ورود انجام نشد."
+                if skipped_late else event["reason"]
+            )
+            evidence = {
+                **event["evidence"],
+                "forward_paper": True,
+                "execution_mode": "PAPER_ONLY_NO_EXCHANGE_ORDERS",
+                "execution_window": "latest_signal_only",
+                "skipped_late_signal": skipped_late,
+                "capital_usd_allocated": account["starting_capital_usd"],
+                "capital_seed_usd_irt_rate": state["usd_irt_rate"],
+                "capital_seed_rate_source": state["usd_irt_rate_source"],
+                "capital_seed_rate_at": state["usd_irt_rate_observed_at"],
+            }
             journal.append_decision(
                 decision_id=event["decision_id"],
                 occurred_at=event["occurred_at"],
                 market_data_at=event["market_data_at"],
                 symbol=event["symbol"],
-                action=event["action"],
+                action=action,
                 strategy=event["strategy"],
                 strategy_version=event["strategy_version"],
-                reason=event["reason"],
-                evidence={
-                    **event["evidence"],
-                    "forward_paper": True,
-                    "execution_mode": "PAPER_ONLY_NO_EXCHANGE_ORDERS",
-                    "capital_usd_allocated": account["starting_capital_usd"],
-                    "capital_seed_usd_irt_rate": state["usd_irt_rate"],
-                    "capital_seed_rate_source": state["usd_irt_rate_source"],
-                    "capital_seed_rate_at": state["usd_irt_rate_observed_at"],
-                },
-                entry_price=event["entry_price"],
-                stop_loss=event["stop_loss"],
-                take_profit=event["take_profit"],
-                risk_quote=event["risk_quote"],
+                reason=reason,
+                evidence=evidence,
+                entry_price=None if skipped_late else event["entry_price"],
+                stop_loss=None if skipped_late else event["stop_loss"],
+                take_profit=None if skipped_late else event["take_profit"],
+                risk_quote=None if skipped_late else event["risk_quote"],
                 timeframe=event["timeframe"],
-                trade_id=event["trade_id"],
+                trade_id=None if skipped_late else event["trade_id"],
             )
             existing_decision_ids.add(event["decision_id"])
             new_decisions += 1
@@ -320,7 +327,7 @@ def run_forward_cycle(
                 starting_cash=replay_equity,
                 fee_rate=FEE_RATE,
                 slippage_rate=SLIPPAGE_RATE,
-                decision_callback=record_latest_decision,
+                decision_callback=record_new_decision,
                 decision_run_id=RUN_ID,
                 symbol=symbol,
                 allow_short=False,
@@ -374,7 +381,6 @@ def run_forward_cycle(
         }
 
     state["last_cycle_at"] = _iso_now(now)
-    state["symbols"] = state["symbols"]
     _atomic_json(state_path, state)
     return {
         "status": "ok",

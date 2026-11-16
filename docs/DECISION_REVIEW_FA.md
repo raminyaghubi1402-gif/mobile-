@@ -78,3 +78,14 @@ PYTHONPATH=src python -m lili_trader --decision-journal-report data/paper/decisi
 https://github.com/nobitex/docs-api/blob/master/source/includes/_market_trade.md
 
 این حد باید پیش از هر تغییر یا اتصال زنده دوباره از مستندات و صفحهٔ سفارش روز بررسی شود. واحد قیمت بازارهای ریالی در مستند API ریال است، نه تومان. این کنترل به‌تنهایی نرخ تبدیل USD/IRT را تعیین نمی‌کند؛ نرخ ۱۰ دلار باید جداگانه، صریح و با منبع معتبر وارد شود.
+
+
+### اجرای ممیزی با سرمایهٔ فرضی ۱۰ دلار
+
+برای اینکه ۱۰ دلار به‌اشتباه ۱۰ ریال/تومان تلقی نشود، نرخ تبدیل باید صریح وارد شود. زمان نرخ باید ISO-8601 دارای منطقهٔ زمانی و حداکثر ۱۵ دقیقه قدیمی باشد؛ منبع و زمان در شواهد هر تصمیم ذخیره می‌شود:
+
+```bash
+PYTHONPATH=src python -m lili_trader --price-action-backtest --symbol BTCIRT --count 500 --backtest-cash 10 --backtest-currency USD --usd-irt-rate RATE --usd-irt-rate-source "SOURCE_NAME_OR_URL" --usd-irt-rate-at "2026-11-16T12:00:00+03:30" --decision-journal data/paper/decisions.jsonl
+```
+
+`RATE` و `SOURCE_NAME_OR_URL` نمونه‌نما هستند و باید با نرخ واقعی و منبعی که در همان زمان بررسی کرده‌اید جایگزین شوند؛ این برنامه نرخ دلار را حدس نمی‌زند یا خودکار از بازار دیگری برداشت نمی‌کند. اگر نرخ قدیمی‌تر از ۱۵ دقیقه باشد، اجرای ممیزی متوقف می‌شود. حداقل ارزش سفارش ۳٬۰۰۰٬۰۰۰ ریال طبق مستند رسمی API است و سفارش کوچک‌تر به WAIT تبدیل می‌شود.

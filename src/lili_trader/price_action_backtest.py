@@ -50,6 +50,10 @@ class ThreeTimeframeBacktestResult:
     warnings: tuple[str, ...]
 
 
+def _finite_number(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and isfinite(value)
+
+
 def _number(candle, field: str) -> float:
     raw = candle.get(field) if isinstance(candle, dict) else getattr(candle, field)
     if isinstance(raw, bool):
@@ -119,8 +123,8 @@ def _estimated_stop_risk_per_unit(
     make the actual stop fill worse.
     """
     values = (entry_price, stop_price, fee_rate, slippage_rate)
-    if any(not isfinite(value) for value in values):
-        raise ValueError("risk sizing values must be finite")
+    if any(not _finite_number(value) for value in values):
+        raise ValueError("risk sizing values must be finite numbers")
     if entry_price <= 0 or stop_price <= 0:
         raise ValueError("entry and stop prices must be positive")
     if direction not in ("BUY", "SELL"):
@@ -165,21 +169,28 @@ def run_three_timeframe_backtest(
     Entries are additionally blocked when a confirmed 15m opposing zone is within
     support_resistance_buffer_atr * ATR of the signal close.
     """
-    if not isfinite(starting_cash) or starting_cash <= 0:
-        raise ValueError("starting_cash must be finite and positive")
-    if not isfinite(risk_fraction) or not 0 < risk_fraction <= 0.02:
+    numeric_parameters = (
+        starting_cash, risk_fraction, stop_atr_multiple, fee_rate,
+        slippage_rate, support_resistance_buffer_atr,
+    )
+    if any(not _finite_number(value) for value in numeric_parameters):
+        raise ValueError("backtest numeric parameters must be finite numbers, not bools or strings")
+    if starting_cash <= 0:
+        raise ValueError("starting_cash must be positive")
+    if not 0 < risk_fraction <= 0.02:
         raise ValueError("risk_fraction must be > 0 and <= 2%")
-    if not isfinite(stop_atr_multiple) or not 0.1 <= stop_atr_multiple <= 10:
+    if not 0.1 <= stop_atr_multiple <= 10:
         raise ValueError("stop_atr_multiple outside safe research bounds")
-    if not isfinite(fee_rate) or not 0 <= fee_rate < 0.05:
+    if not 0 <= fee_rate < 0.05:
         raise ValueError("fee_rate outside allowed bounds")
-    if not isfinite(slippage_rate) or not 0 <= slippage_rate < 0.05:
+    if not 0 <= slippage_rate < 0.05:
         raise ValueError("slippage_rate outside allowed bounds")
+    if type(use_support_resistance_filter) is not bool:
+        raise ValueError("use_support_resistance_filter must be boolean")
     if (type(trend_lookback) is not int or type(atr_period) is not int
             or trend_lookback < 20 or atr_period < 2):
         raise ValueError("lookback/ATR period must be integers within safe bounds")
-    if (not isfinite(support_resistance_buffer_atr)
-            or not 0 <= support_resistance_buffer_atr <= 5):
+    if not 0 <= support_resistance_buffer_atr <= 5:
         raise ValueError("support_resistance_buffer_atr must be between 0 and 5")
 
     hourly = _validated(hourly_candles, 3600, "1h")

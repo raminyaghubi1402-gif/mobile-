@@ -32,7 +32,48 @@ def main() -> None:
     parser.add_argument("--journal-starting-equity", type=float, default=None, help="سرمایهٔ شروع برای محاسبهٔ افت سرمایهٔ ژورنال")
     parser.add_argument("--backtest-journal", default=None, metavar="PATH", help="ثبت معاملات بسته‌شدهٔ بک‌تست ساختار قیمت در ژورنال JSONL")
     parser.add_argument("--ai-review", action="store_true", help="بازبینی تحلیل قطعی با عامل تحلیل، منتقد و جمع‌بندی مدل‌های پیکربندی‌شده")
+    parser.add_argument("--paper-forward", action="store_true", help="اجرای یک نوبت پایش و شبیه‌سازی زندهٔ Paper فقط برای BTC/ETH نوبیتکس")
+    parser.add_argument("--forward-state-dir", default="data/paper/forward", help="مسیر پایدار حساب و دفتر Paper")
+    parser.add_argument("--forward-usd-irt-rate", type=float, default=None, help="نرخ اولیهٔ دستی USD/IRT برای راه‌اندازی حساب ۱۰ دلاری")
+    parser.add_argument("--forward-usd-irt-source", default=None, help="منبع نرخ اولیهٔ USD/IRT")
+    parser.add_argument("--forward-usd-irt-at", default=None, help="زمان دریافت نرخ اولیه با ISO-8601 و منطقهٔ زمانی")
+    parser.add_argument("--forward-max-lag-seconds", type=int, default=180, help="حداکثر عمر کندل اجرایی ۵ دقیقه‌ای")
     args = parser.parse_args()
+
+    if args.paper_forward:
+        from .paper_forward import run_forward_cycle
+        try:
+            report = run_forward_cycle(
+                args.forward_state_dir,
+                usd_irt_rate=args.forward_usd_irt_rate,
+                usd_irt_rate_source=args.forward_usd_irt_source,
+                usd_irt_rate_at=args.forward_usd_irt_at,
+                max_lag_seconds=args.forward_max_lag_seconds,
+            )
+        except Exception as exc:
+            parser.error(f"چرخهٔ Paper متوقف شد؛ داده یا وضعیت قابل‌اعتماد نیست ({type(exc).__name__}). هیچ سفارش واقعی ارسال نشده است.")
+        print("لی‌لی تریدر — پایش و حساب Paper نوبیتکس")
+        print(f"وضعیت: {report['status']} | حالت: {report.get('mode', 'در انتظار راه‌اندازی')}")
+        print(report.get("message", ""))
+        if report["status"] == "ok":
+            for symbol, item in report["symbols"].items():
+                print(
+                    f"{symbol}: تصمیم جدید={item['new_decisions']} | "
+                    f"معاملهٔ بستهٔ ثبت‌شده={item['closed_trades_linked']} | "
+                    f"موقعیت باز={'بله' if item['open_position'] else 'خیر'} | "
+                    f"ارزش تخمینی={item['marked_equity_irt']:,.0f} ریال | "
+                    f"افت بازپخش={item['max_drawdown_pct_in_replay']:.2f}%"
+                )
+            summary = report["journal_summary"]
+            print(
+                f"دفتر: تصمیم={summary['decisions']} | BUY={summary['buy']} | "
+                f"SELL={summary['sell']} | WAIT={summary['wait']} | "
+                f"نتیجهٔ بسته={summary['outcomes']}"
+            )
+        elif report["status"] == "initialized":
+            print(f"سرمایهٔ اولیه: {report['initial_capital_usd']} USD | نرخ seed: {report['usd_irt_rate']:,.2f} IRT/USD")
+            print("در این نوبت فقط حساب راه‌اندازی شد؛ هیچ سیگنال تاریخی به‌عنوان معامله ثبت نشد.")
+        return
 
     if args.decision_journal_report is not None:
         from .decision_journal import DecisionJournal

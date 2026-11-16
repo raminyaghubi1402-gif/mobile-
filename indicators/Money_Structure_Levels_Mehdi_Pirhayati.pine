@@ -309,7 +309,24 @@ label.delete(tp1Rl[1])
 tp2RL = levels ? label.new(bar_index + lvlDistance, tp2RL_y, "2:1 TP " + str.tostring(tp2RL_y, decimals), xloc.bar_index, yloc.price, bullcolor, label.style_label_left, color.white, size.normal) : na
 label.delete(tp2RL[1])
 
-tp3RL = levels ? label.new(bar_index + lvlDistance, tp3RL_y, "3:1 TP " + str.tostring(tp3RL_y, decimals), xloc.bar_index, extend.none, bullcolor, style, 2) : na
+tp3RL = levels ? label.new(bar_index + lvlDistance, tp3RL_y, "3:1 TP " + str.tostring(tp3RL_y, decimals), xloc.bar_index, yloc.price, bullcolor, label.style_label_left, color.white, size.normal) : na
+label.delete(tp3RL[1])
+
+style = linesStyle == "SOLID" ? line.style_solid : linesStyle == "DASHED" ? line.style_dashed : line.style_dotted
+
+lineEntry = levels and lvlLines ? line.new(bar_index - barsSinceSignal, lastTrade(close), bar_index + lvlDistance, lastTrade(close), xloc.bar_index, extend.none, #1A1A1A, style, 2) : na
+line.delete(lineEntry[1])
+
+lineStop = levels and lvlLines ? line.new(bar_index - barsSinceSignal, stop_y, bar_index + lvlDistance, stop_y, xloc.bar_index, extend.none, #CC0000, style, 2) : na
+line.delete(lineStop[1])
+
+lineTp1Rl = levels and lvlLines ? line.new(bar_index - barsSinceSignal, tp1Rl_y, bar_index + lvlDistance, tp1Rl_y, xloc.bar_index, extend.none, bullcolor, style, 2) : na
+line.delete(lineTp1Rl[1])
+
+lineTp2RL = levels and lvlLines ? line.new(bar_index - barsSinceSignal, tp2RL_y, bar_index + lvlDistance, tp2RL_y, xloc.bar_index, extend.none, bullcolor, style, 2) : na
+line.delete(lineTp2RL[1])
+
+lineTp3RL = levels and lvlLines ? line.new(bar_index - barsSinceSignal, tp3RL_y, bar_index + lvlDistance, tp3RL_y, xloc.bar_index, extend.none, bullcolor, style, 2) : na
 line.delete(lineTp3RL[1])
 
 // SMC
@@ -483,8 +500,8 @@ pos := long_signal ? 1 : short_signal ? -1 : nz(pos[1])
 plot(ShowTrailingSl ? trailing_sl : na, "Trailing StopLoss", linewidth=2, color=pos == 1 ? bullcolor : bearcolor)
 
 // Alerts
-alertcondition(dir == 1 and dir[1] == -1, "BUY", "Pair : {{ticker}} | Type: Long 🟢 | TimeFrame : {{interval}} | Entry Price - {{close}} | SL - {{plot(""SL"")}} | TP1 - {{plot(""TP1"")}} | TP2 - {{plot(""TP2"")}} | TP3 - {{plot(""TP3"")}}")
-alertcondition(dir == -1 and dir[1] == 1, "SELL", "Pair : {{ticker}} | Type: Short 🔴 | TimeFrame : {{interval}} | Entry Price - {{close}} | SL - {{plot(""SL"")}} | TP1 - {{plot(""TP1"")}} | TP2 - {{plot(""TP2"")}} | TP3 - {{plot(""TP3"")}}")
+alertcondition(dir == 1 and dir[1] == -1, "BUY", "Pair : {{ticker}} | Type: Long 🟢 | TimeFrame : {{interval}} | Entry Price - {{close}} | SL - {{plot(\"SL\")}} | TP1 - {{plot(\"TP1\")}} | TP2 - {{plot(\"TP2\")}} | TP3 - {{plot(\"TP3\")}}")
+alertcondition(dir == -1 and dir[1] == 1, "SELL", "Pair : {{ticker}} | Type: Short 🔴 | TimeFrame : {{interval}} | Entry Price - {{close}} | SL - {{plot(\"SL\")}} | TP1 - {{plot(\"TP1\")}} | TP2 - {{plot(\"TP2\")}} | TP3 - {{plot(\"TP3\")}}")
 alertcondition((long_sl2 and last_longCondition2 > nz(last_long_close2[1])) or (short_sl2 and last_shortCondition2 > nz(last_short_close2[1])), "SL Hit - DYNAMIC")
 alertcondition((short_sl and last_shortCondition > nz(last_short_close[1])) or (long_sl and last_longCondition > nz(last_long_close[1])), "BREAKEVEN - DYNAMIC")
 alertcondition((short_tp and last_shortCondition > nz(last_short_close[1])) or (long_tp and last_longCondition > nz(last_long_close[1])), "Target 1 Hit - DYNAMIC")

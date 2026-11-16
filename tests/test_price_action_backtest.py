@@ -227,6 +227,33 @@ class ThreeTimeframeBacktestTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     run_three_timeframe_backtest(hourly, fifteen, five, **kwargs)
 
+
+    def test_backtest_numeric_parameters_reject_booleans_and_strings(self):
+        hourly = rising_bars(40, 3600, 0)
+        fifteen = rising_bars(80, 900, 0)
+        five = rising_bars(100, 300, 0)
+        invalid_options = (
+            {"starting_cash": True},
+            {"starting_cash": "10"},
+            {"risk_fraction": True},
+            {"risk_fraction": "0.005"},
+            {"stop_atr_multiple": True},
+            {"fee_rate": False},
+            {"slippage_rate": "0.001"},
+            {"support_resistance_buffer_atr": True},
+        )
+        for options in invalid_options:
+            with self.subTest(options=options):
+                with self.assertRaises(ValueError):
+                    run_three_timeframe_backtest(hourly, fifteen, five, **options)
+
+    def test_support_resistance_filter_requires_a_boolean(self):
+        with self.assertRaises(ValueError):
+            run_three_timeframe_backtest(
+                rising_bars(40, 3600, 0), rising_bars(80, 900, 0),
+                rising_bars(100, 300, 0), use_support_resistance_filter=1,
+            )
+
     def test_rejects_risk_above_two_percent(self):
         with self.assertRaises(ValueError):
             run_three_timeframe_backtest(

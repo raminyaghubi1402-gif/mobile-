@@ -90,7 +90,7 @@ class PaperTradeSessionTests(unittest.TestCase):
                 )
             self.assertEqual(len(journal.records()), 1)
 
-    def test_close_fails_closed_if_in_memory_position_was_not_restored(self):
+    def test_restart_restores_open_position_and_can_close_it(self):
         with tempfile.TemporaryDirectory() as directory:
             account, journal, session = self.make_session(directory)
             session.open_trade(
@@ -98,11 +98,40 @@ class PaperTradeSessionTests(unittest.TestCase):
                 quantity=1, entry_price=100, initial_risk_quote=5,
                 entry_reason="test setup",
             )
-            restarted_account = PaperAccount(1000, fee_rate=0.01)
-            restarted_session = PaperTradeSession(restarted_account, journal)
-            with self.assertRaisesRegex(PaperSessionError, "does not match journal"):
-                restarted_session.close_trade(exit_price=110, exit_reason="exit")
-            self.assertEqual(restarted_account.position, 0)
+            restored = PaperTradeSession.restore(journal)
+            self.assertAlmostEqual(restored.account.position, 1)
+            self.assertAlmostEqual(restored.account.cash, account.cash)
+            closed = restored.close_trade(exit_price=110, exit_reason="after restart")
+            self.assertEqual(closed.status, "closed")
+            self.assertEqual(restored.account.position, 0)
+
+    def test_restart_restores_closed_account_cash_and_order_ids(self):
+        with tempfile.TemporaryDirectory() as directory:
+            _, journal, session = self.make_session(directory)
+            session.open_trade(
+                trade_id="paper-006b", symbol="BTCIRT", strategy="test",
+                quantity=1, entry_price=100, initial_risk_quote=5,
+                entry_reason="test setup",
+            )
+            session.close_trade(exit_price=110, exit_reason="target")
+            restored = PaperTradeSession.restore(journal)
+            self.assertEqual(restored.account.position, 0)
+            self.assertAlmostEqual(restored.account.cash, session.account.cash)
+            self.assertEqual(len(restored.account.fills), 2)
+
+    def test_restore_fails_closed_on_tampered_account_snapshot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            _, journal, session = self.make_session(directory)
+            session.open_trade(
+                trade_id="paper-006c", symbol="BTCIRT", strategy="test",
+                quantity=1, entry_price=100, initial_risk_quote=5,
+                entry_reason="test setup",
+            )
+            raw = journal.path.read_text(encoding="utf-8")
+            raw = raw.replace('"account_cash_after":899.0', '"account_cash_after":1.0')
+            journal.path.write_text(raw, encoding="utf-8")
+            with self.assertRaisesRegex(PaperSessionError, "snapshot mismatch"):
+                PaperTradeSession.restore(journal)
 
     def test_invalid_cost_is_rejected_before_account_changes(self):
         with tempfile.TemporaryDirectory() as directory:

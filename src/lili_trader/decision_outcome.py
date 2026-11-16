@@ -34,6 +34,10 @@ def append_backtest_outcomes(result, journal: DecisionJournal, *, run_id: str, s
     outcomes = {e.decision_id: e for e in events if e.event_type == "OUTCOME"}
     appended = 0
     for trade in trades:
+        # The backtester marks an open position at the final candle using
+        # end_of_data. That is a valuation snapshot, not a closed trade.
+        if trade.exit_reason == "end_of_data":
+            continue
         if trade.direction not in {"BUY", "SELL"}:
             raise DecisionOutcomeLinkError("unsupported trade direction")
         raw_costs = (trade.fees, trade.slippage_quote, trade.net_pnl)

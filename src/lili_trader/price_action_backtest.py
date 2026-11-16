@@ -167,6 +167,7 @@ def run_three_timeframe_backtest(
     symbol: str = "BTCIRT",
     allow_short: bool = True,
     minimum_order_quote: float | None = None,
+    trade_start_timestamp: int | None = None,
 ) -> ThreeTimeframeBacktestResult:
     """Backtest 1h direction / 15m setup / 5m trigger with no look-ahead.
 
@@ -188,6 +189,10 @@ def run_three_timeframe_backtest(
         not _finite_number(minimum_order_quote) or minimum_order_quote <= 0
     ):
         raise ValueError("minimum_order_quote must be finite and positive when supplied")
+    if trade_start_timestamp is not None and (
+        type(trade_start_timestamp) is not int or trade_start_timestamp <= 0
+    ):
+        raise ValueError("trade_start_timestamp must be a positive integer when supplied")
     if not 0 < risk_fraction <= 0.02:
         raise ValueError("risk_fraction must be > 0 and <= 2%")
     if not 0.1 <= stop_atr_multiple <= 10:
@@ -413,6 +418,9 @@ def run_three_timeframe_backtest(
         gate_counts[gate_status] = gate_counts.get(gate_status, 0) + 1
 
         gate_ready = bool(decision is not None and decision.allowed)
+        if trade_start_timestamp is not None and signal_close_time < trade_start_timestamp:
+            gate_ready = False
+            decision_reason = "دادهٔ قبلی فقط برای گرم‌کردن تحلیل است؛ شروع حساب Paper هنوز نرسیده."
         decision_evidence = {
             "gate_status": gate_status,
             "gate_allowed": bool(decision is not None and decision.allowed),
@@ -421,6 +429,11 @@ def run_three_timeframe_backtest(
             "fifteen_closed_count": fifteen_closed_count,
             "five_closed_count": len(closed_five),
             "signal_close": signal_bar["close"],
+            "paper_start_timestamp": trade_start_timestamp,
+            "warmup_only": bool(
+                trade_start_timestamp is not None
+                and signal_close_time < trade_start_timestamp
+            ),
         }
         decision_reason = getattr(decision, "reason", None) or gate_status
         if not gate_ready:

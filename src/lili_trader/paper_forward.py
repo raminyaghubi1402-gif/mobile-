@@ -98,6 +98,14 @@ def _load_state(path: Path) -> dict[str, Any] | None:
         raise ForwardPaperError("paper account state must contain BTCIRT and ETHIRT")
     if state.get("run_id") != RUN_ID:
         raise ForwardPaperError("paper account run id mismatch")
+    rate = state.get("usd_irt_rate")
+    if isinstance(rate, bool) or not isinstance(rate, (int, float)) or not isfinite(rate) or rate <= 0:
+        raise ForwardPaperError("paper account USD/IRT seed rate is invalid")
+    if not isinstance(state.get("usd_irt_rate_source"), str) or not state["usd_irt_rate_source"].strip():
+        raise ForwardPaperError("paper account seed rate source is missing")
+    _parse_aware_timestamp(state.get("usd_irt_rate_observed_at"), "stored USD/IRT rate timestamp")
+    if state.get("mode") != "PAPER_ONLY_NO_EXCHANGE_ORDERS":
+        raise ForwardPaperError("paper account mode mismatch")
     for symbol in SYMBOLS:
         item = state["symbols"].get(symbol)
         if not isinstance(item, dict):
@@ -276,9 +284,11 @@ def run_forward_cycle(
 
         # If a scheduled run was delayed, only the latest signal may open a
         # new position. Missed intermediate signals are never backfilled.
-        eligible_entries = {latest_signal_close}
+        eligible_entries: set[int] = set()
         if open_trade_id:
             eligible_entries.add(replay_start)
+        if latest_signal_close > previous_last_processed:
+            eligible_entries.add(latest_signal_close)
 
         new_decisions = 0
 
@@ -370,7 +380,9 @@ def run_forward_cycle(
             account["last_marked_equity_irt"] = result.ending_equity
 
         account["setup_consumed"] = result.setup_consumed
-        account["last_processed_signal_close"] = latest_signal_close
+        account["last_processed_signal_close"] = max(
+            previous_last_processed, latest_signal_close
+        )
         account["last_market_data_at"] = _iso_now(latest_signal_close)
         account["last_cycle_at"] = _iso_now(now)
         account["new_decisions_last_cycle"] = new_decisions

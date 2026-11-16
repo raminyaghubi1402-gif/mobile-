@@ -615,7 +615,7 @@ class DecisionCallbackTests(unittest.TestCase):
             last_two_swing_lows=(90.0, 95.0),
         )
         with patch("lili_trader.price_action_backtest.classify_price_action_trend",
-                   return_value=trend), \\
+                   return_value=trend), \
              patch("lili_trader.price_action_backtest.evaluate_timeframe_gate",
                    side_effect=ready_gate):
             result = run_three_timeframe_backtest(

@@ -26,7 +26,7 @@ class PaperTradeSessionTests(unittest.TestCase):
             )
             self.assertEqual(opened.status, "open")
             self.assertEqual(account.position, 2)
-            self.assertAlmostEqual(opened.fees_quote, 2)
+            self.assertAlmostEqual(opened.fees_quote, 2.005)
 
             closed = session.close_trade(
                 exit_price=120, exit_reason="target reached",
@@ -35,11 +35,12 @@ class PaperTradeSessionTests(unittest.TestCase):
             )
             self.assertEqual(closed.status, "closed")
             self.assertAlmostEqual(closed.gross_pnl_quote, 40)
-            self.assertAlmostEqual(closed.fees_quote, 4.4)
+            self.assertAlmostEqual(closed.fees_quote, 4.402)
             self.assertAlmostEqual(closed.slippage_quote, 0.8)
-            self.assertAlmostEqual(closed.net_pnl_quote, 34.8)
-            self.assertAlmostEqual(closed.r_multiple, 3.48)
+            self.assertAlmostEqual(closed.net_pnl_quote, 34.798)
+            self.assertAlmostEqual(closed.r_multiple, 3.4798)
             self.assertEqual(account.position, 0)
+            self.assertAlmostEqual(account.cash, 1000 + closed.net_pnl_quote)
             self.assertEqual(len(journal.records()), 1)
             self.assertEqual(len(journal.path.read_text(encoding="utf-8").splitlines()), 2)
 

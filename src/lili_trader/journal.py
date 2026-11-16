@@ -102,8 +102,8 @@ class TradeJournal:
     def records(self) -> tuple[TradeRecord, ...]:
         if not self.path.exists():
             return ()
-        found: list[TradeRecord] = []
-        seen: set[str] = set()
+        latest: dict[str, TradeRecord] = {}
+        order: list[str] = []
         try:
             with self.path.open("r", encoding="utf-8") as stream:
                 for line_number, line in enumerate(stream, 1):
@@ -115,20 +115,38 @@ class TradeJournal:
                         record.validate()
                     except (json.JSONDecodeError, TypeError, JournalError) as exc:
                         raise JournalError(f"journal corruption at line {line_number}") from exc
-                    if record.trade_id in seen:
-                        raise JournalError(f"duplicate trade_id at line {line_number}")
-                    seen.add(record.trade_id)
-                    found.append(record)
+                    previous = latest.get(record.trade_id)
+                    if previous is None:
+                        latest[record.trade_id] = record
+                        order.append(record.trade_id)
+                    else:
+                        if previous.status != "open" or record.status != "closed":
+                            raise JournalError(f"invalid trade lifecycle at line {line_number}")
+                        immutable = (
+                            "symbol", "strategy", "side", "entry_time", "entry_price",
+                            "quantity", "initial_risk_quote", "entry_reason",
+                        )
+                        if any(getattr(previous, field) != getattr(record, field) for field in immutable):
+                            raise JournalError(f"trade identity changed at line {line_number}")
+                        latest[record.trade_id] = record
         except OSError as exc:
             raise JournalError("journal cannot be read") from exc
-        return tuple(found)
+        return tuple(latest[trade_id] for trade_id in order)
 
     def append(self, record: TradeRecord) -> None:
         if not isinstance(record, TradeRecord):
             raise JournalError("record must be a TradeRecord")
         record.validate()
-        if any(existing.trade_id == record.trade_id for existing in self.records()):
-            raise JournalError("trade_id already exists; journal is append-only")
+        existing = {item.trade_id: item for item in self.records()}.get(record.trade_id)
+        if existing is not None:
+            if existing.status != "open" or record.status != "closed":
+                raise JournalError("only an open trade may receive one closing event")
+            immutable = (
+                "symbol", "strategy", "side", "entry_time", "entry_price",
+                "quantity", "initial_risk_quote", "entry_reason",
+            )
+            if any(getattr(existing, field) != getattr(record, field) for field in immutable):
+                raise JournalError("closing event cannot change the original trade")
         payload = json.dumps(asdict(record), ensure_ascii=False, allow_nan=False, separators=(",", ":"))
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)

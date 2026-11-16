@@ -604,6 +604,40 @@ class DecisionCallbackTests(unittest.TestCase):
         self.assertTrue(all(event["action"] == "WAIT" for event in events))
         self.assertTrue(all(event["evidence"]["warmup_only"] for event in events))
 
+    def test_gate_ready_outside_allowed_window_is_explained_as_wait(self):
+        events = []
+        hourly = rising_bars(80, 3600, 0)
+        fifteen = rising_bars(220, 900, 0)
+        five = rising_bars(650, 300, 0)
+        trend = SimpleNamespace(
+            direction="up",
+            last_two_swing_highs=(110.0, 115.0),
+            last_two_swing_lows=(90.0, 95.0),
+        )
+        with patch("lili_trader.price_action_backtest.classify_price_action_trend",
+                   return_value=trend), \\
+             patch("lili_trader.price_action_backtest.evaluate_timeframe_gate",
+                   side_effect=ready_gate):
+            result = run_three_timeframe_backtest(
+                hourly, fifteen, five,
+                starting_cash=100_000,
+                use_support_resistance_filter=False,
+                decision_callback=events.append,
+                decision_run_id="outside-window-diagnostic",
+                symbol="BTCIRT",
+                allow_short=False,
+                allowed_entry_timestamps=set(),
+            )
+        self.assertEqual(result.trade_count, 0)
+        blocked = [
+            event for event in events
+            if event["evidence"].get("execution_block") == "outside_allowed_entry_window"
+        ]
+        self.assertTrue(blocked)
+        self.assertTrue(all(event["action"] == "WAIT" for event in blocked))
+        self.assertTrue(all("پنجرهٔ مجاز" in event["reason"] for event in blocked))
+
+
     def test_forward_allowed_entry_timestamps_limit_simulated_entries(self):
         events = []
         five = rising_bars(650, 300, 0)

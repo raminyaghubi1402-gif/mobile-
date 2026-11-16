@@ -16,7 +16,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: nobitex-public-api
+  group: nobitex-public-api-spot-audit
   cancel-in-progress: false
 
 jobs:

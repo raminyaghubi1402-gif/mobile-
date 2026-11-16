@@ -152,12 +152,18 @@ def main() -> None:
                     trade_id=event["trade_id"],
                 )
 
+        minimum_order_quote = None
+        if args.decision_journal is not None:
+            from .nobitex_limits import NOBITEX_MINIMUM_SPOT_ORDER_IRT
+            minimum_order_quote = NOBITEX_MINIMUM_SPOT_ORDER_IRT
+
         result = run_three_timeframe_backtest(
             hourly, fifteen, five, starting_cash=backtest_cash_local,
             decision_callback=decision_callback,
             decision_run_id=decision_run_id,
             symbol=args.symbol,
             allow_short=args.decision_journal is None,
+            minimum_order_quote=minimum_order_quote,
         )
         if args.decision_journal is not None:
             from .decision_outcome import append_backtest_outcomes

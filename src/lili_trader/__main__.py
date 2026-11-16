@@ -38,7 +38,8 @@ def main() -> None:
             summary = DecisionJournal(args.decision_journal_report).summary()
             print("گزارش دفتر تصمیم‌ها و بازبینی لی‌لی")
             print(f"تصمیم‌ها: {summary['decisions']} | BUY={summary['buy']} | SELL={summary['sell']} | WAIT={summary['wait']}")
-            print(f"بازبینی‌ها: {summary['reviews']} | بازبینی منفی/خطای اجرا: {summary['bad_reviews']}")
+            print(f"نتایج معاملات متصل: {summary.get('outcomes', 0)} | برد: {summary.get('outcome_wins', 0)} | باخت: {summary.get('outcome_losses', 0)} | خالص: {summary.get('outcome_net_pnl_quote', 0):,.2f} IRT")
+            print(f"بازبینی انسانی: {summary['reviews']} | بازبینی منفی/خطای اجرا: {summary['bad_reviews']}")
             print("برچسب‌های خطا: " + (", ".join(f"{key}={value}" for key, value in summary["failure_tags"].items()) or "هنوز موردی ثبت نشده"))
             print(f"آخرین اثرانگشت: {summary['last_hash'] or 'دفتر خالی است'}")
         except (OSError, ValueError, TypeError) as exc:
@@ -159,6 +160,14 @@ def main() -> None:
             allow_short=args.decision_journal is None,
         )
         if args.decision_journal is not None:
+            from .decision_outcome import append_backtest_outcomes
+            try:
+                linked_outcomes = append_backtest_outcomes(
+                    result, decision_journal, run_id=decision_run_id, symbol=args.symbol
+                )
+            except (OSError, ValueError, TypeError) as exc:
+                parser.error(f"اتصال نتیجهٔ معاملات به تصمیم‌ها انجام نشد: {type(exc).__name__}")
+            print(f"نتایج بسته‌شدهٔ متصل‌شده به تصمیم‌ها: {linked_outcomes}")
             summary = decision_journal.summary()
             print(f"دفتر تصمیم‌ها: {args.decision_journal} | شناسه اجرا: {decision_run_id}")
             print(f"تصمیم‌های این دفتر: BUY={summary['buy']} | SELL={summary['sell']} | WAIT={summary['wait']}")

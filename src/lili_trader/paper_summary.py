@@ -55,6 +55,10 @@ def render_paper_summary(
     if journal_path.exists():
         decisions = 0
         outcomes = 0
+        reviews = 0
+        wins = 0
+        losses = 0
+        net_pnl = 0.0
         actions: dict[str, int] = {}
         for raw in journal_path.read_text(encoding="utf-8").splitlines():
             if not raw.strip():
@@ -68,10 +72,18 @@ def render_paper_summary(
                 actions[action] = actions.get(action, 0) + 1
             elif event_type == "OUTCOME":
                 outcomes += 1
+                pnl = float(payload.get("net_pnl_quote", 0.0))
+                net_pnl += pnl
+                wins += pnl > 0
+                losses += pnl < 0
+            elif event_type == "REVIEW":
+                reviews += 1
         lines.extend([
             "",
             f"- Journal decisions: **{decisions}**",
-            f"- Journal outcomes: **{outcomes}**",
+            f"- Journal outcomes: **{outcomes}** (wins: {wins}, losses: {losses})",
+            f"- Net realized PnL (IRT): **{net_pnl:,.2f}**",
+            f"- Human reviews: **{reviews}**",
             f"- Decision actions: `{json.dumps(actions, ensure_ascii=False, sort_keys=True)}`",
         ])
     else:

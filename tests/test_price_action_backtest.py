@@ -48,6 +48,20 @@ def falling_bars(count, seconds, start):
 
 
 class ThreeTimeframeBacktestTests(unittest.TestCase):
+    def test_execution_warnings_match_spot_only_and_minimum_order_settings(self):
+        result = run_three_timeframe_backtest(
+            rising_bars(80, 3600, 0),
+            rising_bars(220, 900, 0),
+            rising_bars(650, 300, 0),
+            starting_cash=100_000,
+            allow_short=False,
+            minimum_order_quote=3_000_000,
+        )
+        warnings = " ".join(result.warnings)
+        self.assertIn("فروش استقراضی در این اجرا غیرفعال است", warnings)
+        self.assertIn("حداقل ارزش سفارش در این اجرا اعمال شده است", warnings)
+        self.assertNotIn("هنوز در مدل اعمال نشده‌اند", warnings)
+
     def test_stop_risk_estimate_includes_round_trip_costs_and_adverse_slippage(self):
         buy_no_cost = _estimated_stop_risk_per_unit(100.0, 90.0, "BUY", 0.0, 0.0)
         buy_with_cost = _estimated_stop_risk_per_unit(100.0, 90.0, "BUY", 0.001, 0.001)

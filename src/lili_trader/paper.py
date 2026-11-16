@@ -1,8 +1,9 @@
-"""Offline paper-trading ledger. No broker, network, or live-order capability."""
+"Offline paper-trading ledger. No broker, network, or live-order capability."
 from __future__ import annotations
 
 from dataclasses import dataclass
 from math import isfinite
+from typing import Callable
 
 
 class PaperTradingError(ValueError):
@@ -38,8 +39,21 @@ class PaperAccount:
     def fills(self) -> tuple[PaperFill, ...]:
         return tuple(self._fills.values())
 
-    def execute(self, order_id: str, side: str, quantity: float, price: float) -> PaperFill:
-        """Simulate a market fill. Repeated order IDs return the original fill."""
+    def execute(
+        self,
+        order_id: str,
+        side: str,
+        quantity: float,
+        price: float,
+        *,
+        before_commit: Callable[[PaperFill], None] | None = None,
+    ) -> PaperFill:
+        """Simulate a fill with an optional local persistence hook.
+
+        The hook receives the validated candidate fill before account state
+        changes. If it raises, cash, position and fills remain unchanged.
+        Repeated order IDs return the original fill without invoking the hook.
+        """
         if not isinstance(order_id, str) or not order_id.strip():
             raise PaperTradingError("order_id is required")
         if order_id in self._fills:
@@ -48,6 +62,8 @@ class PaperAccount:
             raise PaperTradingError("side must be buy or sell")
         if any(not isfinite(v) or v <= 0 for v in (quantity, price)):
             raise PaperTradingError("quantity and price must be finite and positive")
+        if before_commit is not None and not callable(before_commit):
+            raise PaperTradingError("before_commit must be callable")
 
         gross = quantity * price
         if not isfinite(gross):
@@ -65,8 +81,9 @@ class PaperAccount:
             next_cash = self.cash + gross - fee
             next_position = self.position - quantity
 
-        # Commit state only after all validation succeeds.
         fill = PaperFill(order_id, side, quantity, price, fee, next_cash, next_position)
+        if before_commit is not None:
+            before_commit(fill)
         self.cash, self.position = next_cash, next_position
         self._fills[order_id] = fill
         return fill

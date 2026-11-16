@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from math import isclose, isfinite
 from typing import Optional
 
-from .journal import JournalError, TradeJournal, TradeRecord
+from .journal import TradeJournal, TradeRecord
 from .paper import PaperAccount, PaperFill
 
 
@@ -29,10 +29,9 @@ class PaperTradeSession:
     """Connect a spot-only PaperAccount to TradeJournal.
 
     This adapter supports one open long trade at a time. It never accesses a
-    broker or network. The account itself is in-memory: after a process restart,
-    an open journal record must not be treated as proof that account inventory
-    has been restored. Closing therefore requires the live in-memory position
-    to match the journal quantity exactly (within floating-point tolerance).
+    broker or network. Every fill is stored with an account snapshot in the
+    append-only journal. The restore() classmethod replays those events and
+    verifies cash, position, fees and order IDs before returning a usable session.
     """
 
     def __init__(self, account: PaperAccount, journal: TradeJournal) -> None:

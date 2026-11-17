@@ -53,6 +53,41 @@ class StrategyEngineRegistryTests(unittest.TestCase):
         registry.evaluate_selected({}, ("trend_pullback",))
         self.assertEqual(engine.calls, 0)
 
+    def test_one_engine_cannot_mutate_another_engines_snapshot(self):
+        class MutatingEngine:
+            strategy_id = "breakout"
+            enabled = True
+
+            def evaluate(self, snapshot):
+                snapshot["nested"]["value"] = "changed"
+                return StrategyDecision(self.strategy_id, "WAIT", "mutated private copy")
+
+        class ObservingEngine:
+            strategy_id = "volume_trading"
+            enabled = True
+
+            def __init__(self):
+                self.observed = None
+
+            def evaluate(self, snapshot):
+                self.observed = snapshot["nested"]["value"]
+                return StrategyDecision(self.strategy_id, "WAIT", "observed input")
+
+        observer = ObservingEngine()
+        registry = StrategyRegistry((MutatingEngine(), observer))
+        registry.evaluate_selected(
+            {"nested": {"value": "original"}},
+            ("breakout", "volume_trading"),
+        )
+        self.assertEqual(observer.observed, "original")
+
+    def test_selected_ids_must_be_a_tuple_of_strings(self):
+        registry = StrategyRegistry()
+        with self.assertRaises(ValueError):
+            registry.evaluate_selected({}, ["ict"])
+        with self.assertRaises(ValueError):
+            registry.evaluate_selected({}, (1,))
+
     def test_duplicate_engine_registration_is_rejected(self):
         engine = IndependentEngine()
         with self.assertRaises(ValueError):

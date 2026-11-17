@@ -39,7 +39,8 @@ class PaperSummaryTests(unittest.TestCase):
                 encoding="utf-8",
             )
             report = render_paper_summary(
-                root, trigger_event="schedule", cycle_outcome="success"
+                root, trigger_event="schedule", cycle_outcome="success",
+                cycle_status="skipped_stale_data",
             )
             self.assertIn("BTCIRT", report)
             self.assertIn("ETHIRT", report)
@@ -49,6 +50,7 @@ class PaperSummaryTests(unittest.TestCase):
             self.assertIn("Human reviews: **1**", report)
             self.assertIn('{"BUY": 1, "WAIT": 1}', report)
             self.assertIn("Trigger: `schedule`", report)
+            self.assertIn("Cycle status: `skipped_stale_data`", report)
 
     def test_missing_state_and_journal_are_reported_without_inventing_data(self):
         with tempfile.TemporaryDirectory() as directory:

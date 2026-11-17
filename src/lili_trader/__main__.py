@@ -1,5 +1,6 @@
 """CLI for Li-Li Trader. Demo mode is synthetic; Nobitex mode reads public data only."""
 import argparse
+import os
 from datetime import datetime, timedelta, timezone
 from .analysis import Candle, analyze_candle
 
@@ -42,7 +43,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.paper_forward:
-        from .paper_forward import ForwardPaperError, run_forward_cycle
+        from .paper_forward import ForwardPaperError, StaleMarketDataError, run_forward_cycle
         try:
             report = run_forward_cycle(
                 args.forward_state_dir,
@@ -51,6 +52,9 @@ def main() -> None:
                 usd_irt_rate_at=args.forward_usd_irt_at,
                 max_lag_seconds=args.forward_max_lag_seconds,
             )
+        except StaleMarketDataError as exc:
+            # Stale candles are a safe no-op, not a trading or account-state failure.
+            report = {"status": "skipped_stale_data", "message": str(exc)}
         except ForwardPaperError as exc:
             # These messages are generated locally by the fail-closed validator;
             # do not expose arbitrary upstream or unexpected exception text.
@@ -60,7 +64,13 @@ def main() -> None:
         print("لی‌لی تریدر — پایش و حساب Paper نوبیتکس")
         print(f"وضعیت: {report['status']} | حالت: {report.get('mode', 'در انتظار راه‌اندازی')}")
         print(report.get("message", ""))
-        if report["status"] == "ok":
+        output_path = os.environ.get("GITHUB_OUTPUT")
+        if output_path:
+            with open(output_path, "a", encoding="utf-8") as output_file:
+                output_file.write(f"status={report['status']}\\n")
+        if report["status"] == "skipped_stale_data":
+            print("دادهٔ کندل ۵ دقیقه‌ای به‌روز نیست؛ این نوبت بدون تغییر حساب یا دفتر معاملات رد شد. هیچ سفارش واقعی ارسال نشده است.")
+        elif report["status"] == "ok":
             for symbol, item in report["symbols"].items():
                 print(
                     f"{symbol}: تصمیم جدید={item['new_decisions']} | "

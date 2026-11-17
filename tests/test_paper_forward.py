@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from lili_trader.nobitex_data import NobitexCandle
 from lili_trader.paper_forward import (
     ForwardPaperError,
+    StaleMarketDataError,
     _initial_state,
     _validate_seed_rate,
     run_forward_cycle,
@@ -92,13 +93,15 @@ class ForwardPaperTests(unittest.TestCase):
         now = 1_795_000_000
         adapter = FakeAdapter(now - 300)
         with tempfile.TemporaryDirectory() as directory:
-            with self.assertRaises(ForwardPaperError):
+            with self.assertRaises(StaleMarketDataError):
                 run_forward_cycle(
                     directory, usd_irt_rate=1_000_000,
                     usd_irt_rate_source="source",
                     usd_irt_rate_at=datetime.fromtimestamp(now, timezone.utc).isoformat(),
                     adapter=adapter, now_ts=now,
                 )
+            self.assertFalse((Path(directory) / "account.json").exists())
+            self.assertFalse((Path(directory) / "decisions.jsonl").exists())
 
     def test_next_cycle_advances_both_paper_accounts_on_new_candle(self):
         now = 1_795_000_000

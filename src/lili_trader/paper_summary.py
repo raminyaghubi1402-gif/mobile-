@@ -12,6 +12,7 @@ def render_paper_summary(
     *,
     trigger_event: str = "unknown",
     cycle_outcome: str = "unknown",
+    cycle_status: str = "unknown",
 ) -> str:
     directory = Path(state_dir)
     account_path = directory / "account.json"
@@ -21,6 +22,7 @@ def render_paper_summary(
         "",
         f"- Trigger: `{trigger_event}`",
         f"- Cycle step: `{cycle_outcome}`",
+        f"- Cycle status: `{cycle_status}`",
     ]
 
     if account_path.exists():
@@ -99,11 +101,13 @@ def main() -> None:
     state_dir = os.environ.get("PAPER_STATE_DIR", "data/paper/forward")
     trigger_event = os.environ.get("TRIGGER_EVENT", "unknown")
     cycle_outcome = os.environ.get("CYCLE_OUTCOME", "unknown")
+    cycle_status = os.environ.get("CYCLE_STATUS", "unknown")
     Path(summary_path).write_text(
         render_paper_summary(
             state_dir,
             trigger_event=trigger_event,
             cycle_outcome=cycle_outcome,
+            cycle_status=cycle_status,
         ),
         encoding="utf-8",
     )

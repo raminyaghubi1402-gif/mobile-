@@ -190,6 +190,17 @@ def run_forward_cycle(
     On first run, a fresh user-supplied USD/IRT seed rate is required. Later
     cycles retain that fixed conversion basis; it is not a live FX mark.
     """
+    # The legacy combined 1h/15m/5m strategy is deliberately disabled.
+    # Keep its implementation and historical state readable for audit/replay,
+    # but never fetch data, mutate state, or emit decisions from this entry point.
+    return {
+        "status": "disabled_legacy_engine",
+        "mode": "PAPER_ONLY_NO_EXCHANGE_ORDERS",
+        "message": "موتور قدیمی خاموش است؛ تا آماده‌شدن موتورهای مستقل هیچ تصمیم یا معامله آزمایشی تولید نمی‌شود.",
+        "symbols": {},
+        "journal_summary": {"decisions": 0, "buy": 0, "sell": 0, "wait": 0, "outcomes": 0},
+    }
+
     if type(max_lag_seconds) is not int or not 30 <= max_lag_seconds <= 240:
         raise ForwardPaperError("max_lag_seconds must be between 30 and 240")
     now = int(time.time()) if now_ts is None else now_ts

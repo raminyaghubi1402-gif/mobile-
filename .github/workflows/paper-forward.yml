@@ -15,11 +15,9 @@ on:
         description: "ISO-8601 timestamp with timezone, no older than 15 minutes"
         required: false
         type: string
-  schedule:
-    - cron: "*/5 * * * *"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: lili-forward-paper
@@ -66,16 +64,3 @@ jobs:
           TRIGGER_EVENT: ${{ github.event_name }}
           PAPER_STATE_DIR: data/paper/forward
         run: PYTHONPATH=src python -m lili_trader.paper_summary
-      - name: Persist paper journal and account state
-        if: steps.paper_cycle.outcome == 'success' && steps.paper_summary.outcome == 'success'
-        run: |
-          mkdir -p data/paper/forward
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/paper/forward/
-          if git diff --cached --quiet; then
-            echo "No paper-state changes to persist."
-            exit 0
-          fi
-          git commit -m "Persist Li-Li forward paper state"
-          git push origin HEAD:main

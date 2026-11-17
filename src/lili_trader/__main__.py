@@ -67,7 +67,7 @@ def main() -> None:
         output_path = os.environ.get("GITHUB_OUTPUT")
         if output_path:
             with open(output_path, "a", encoding="utf-8") as output_file:
-                output_file.write(f"status={report['status']}\\n")
+                output_file.write(f"status={report['status']}\n")
         if report["status"] == "skipped_stale_data":
             print("دادهٔ کندل ۵ دقیقه‌ای به‌روز نیست؛ این نوبت بدون تغییر حساب یا دفتر معاملات رد شد. هیچ سفارش واقعی ارسال نشده است.")
         elif report["status"] == "ok":

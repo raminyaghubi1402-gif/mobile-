@@ -89,7 +89,7 @@ class ForwardPaperTests(unittest.TestCase):
             self.assertEqual(result["status"], "awaiting_initialization")
             self.assertFalse((Path(directory) / "account.json").exists())
 
-    def test_stale_current_five_minute_candle_fails_closed(self):
+    def test_stale_current_five_minute_candle_is_skipped_without_state_mutation(self):
         now = 1_795_000_000
         adapter = FakeAdapter(now - 300)
         with tempfile.TemporaryDirectory() as directory:

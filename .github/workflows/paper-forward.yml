@@ -62,6 +62,7 @@ jobs:
         if: always()
         env:
           CYCLE_OUTCOME: ${{ steps.paper_cycle.outcome }}
+          CYCLE_STATUS: ${{ steps.paper_cycle.outputs.status }}
           TRIGGER_EVENT: ${{ github.event_name }}
           PAPER_STATE_DIR: data/paper/forward
         run: PYTHONPATH=src python -m lili_trader.paper_summary

@@ -40,6 +40,10 @@ class ForwardPaperError(RuntimeError):
     """Forward-paper cycle stopped safely because its inputs/state are unsafe."""
 
 
+class StaleMarketDataError(ForwardPaperError):
+    """Market data is valid but not fresh enough to evaluate this cycle."""
+
+
 def _iso_now(timestamp: int | None = None) -> str:
     return datetime.fromtimestamp(
         time.time() if timestamp is None else timestamp, timezone.utc
@@ -215,10 +219,10 @@ def run_forward_cycle(
         current_bucket = now - (now % 300)
         current_five = five[-1]
         if current_five.timestamp != current_bucket:
-            raise ForwardPaperError(f"{symbol} latest 5m candle is not the current execution candle")
+            raise StaleMarketDataError(f"{symbol} latest 5m candle is not the current execution candle")
         lag = now - current_five.timestamp
         if lag > max_lag_seconds:
-            raise ForwardPaperError(f"{symbol} current 5m candle is stale ({lag}s)")
+            raise StaleMarketDataError(f"{symbol} current 5m candle is stale ({lag}s)")
         fifteen = extend_fifteen_with_five(native_fifteen, five)
         if len(fifteen) < 30:
             raise ForwardPaperError(f"insufficient 15m history for {symbol}")

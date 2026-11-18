@@ -35,7 +35,7 @@ class StrategyDispatchResult:
 
     @property
     def no_engine_selected(self) -> bool:
-        return not self.engine_ids
+        return not any(decision.status != "DISABLED" for decision in self.decisions)
 
 
 def dispatch_regime_candidates(

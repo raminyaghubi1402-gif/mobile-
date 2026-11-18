@@ -88,7 +88,7 @@ class StrategyDispatchTests(unittest.TestCase):
         )
         self.assertEqual(result.engine_ids, ("volume_trading",))
         self.assertEqual([d.status for d in result.decisions], ["DISABLED"])
-        self.assertTrue(result.no_engine_selected is False)
+        self.assertFalse(result.no_engine_selected)
 
 
 if __name__ == "__main__":

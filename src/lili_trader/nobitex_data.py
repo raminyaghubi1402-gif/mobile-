@@ -132,7 +132,7 @@ class NobitexAdapter:
                     exc.close()
                 self.sleep(self._retry_delay(attempt, retry_after))
                 attempt += 1
-            except (URLError, TimeoutError, ConnectionError) as exc:
+            except (URLError, TimeoutError, OSError) as exc:
                 if attempt >= self.max_retries:
                     raise NobitexDataError(
                         f"Nobitex request failed: {type(exc).__name__}"

@@ -1,5 +1,7 @@
 import json
 import unittest
+from io import BytesIO
+from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlparse
 
 from lili_trader.nobitex_data import NobitexAdapter, NobitexDataError
@@ -61,7 +63,7 @@ class NobitexPaginationTests(unittest.TestCase):
             seen_to.append(query["to"][0])
             if page == 1:
                 return FakeResponse(payload(list(range(501, 1001))))
-            return FakeResponse(payload(list(range(1, 501))))
+            return FakeResponse(payload(list(range(1, 501)))
 
         candles = NobitexAdapter(opener=opener).fetch_history(
             "BTCIRT", "5", 501
@@ -106,6 +108,7 @@ class NobitexPaginationTests(unittest.TestCase):
         )
         self.assertEqual(seen_pages, [1, 2])
         self.assertEqual(len(candles), 500)
+
     def test_fetch_history_stops_when_older_page_has_no_data(self):
         seen_pages = []
 
@@ -166,6 +169,82 @@ class NobitexPaginationTests(unittest.TestCase):
     def test_fetch_history_rejects_more_than_supported_limit(self):
         with self.assertRaises(ValueError):
             NobitexAdapter().fetch_history("BTCIRT", "5", 5001)
+
+
+class NobitexRetryTests(unittest.TestCase):
+    def test_retries_timeout_once_then_returns_data(self):
+        calls = []
+        delays = []
+
+        def opener(request, timeout):
+            calls.append(request.full_url)
+            if len(calls) == 1:
+                raise TimeoutError("temporary network timeout")
+            return FakeResponse(payload([300]))
+
+        candles = NobitexAdapter(opener=opener, sleep=delays.append).fetch_recent(
+            "BTCIRT", "5", 1
+        )
+        self.assertEqual(len(candles), 1)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(delays, [0.5])
+
+    def test_retries_transient_http_status_with_bounded_retry_after(self):
+        calls = []
+        delays = []
+
+        def opener(request, timeout):
+            calls.append(request.full_url)
+            if len(calls) == 1:
+                raise HTTPError(
+                    request.full_url, 503, "temporarily unavailable",
+                    {"Retry-After": "10"}, BytesIO()
+                )
+            return FakeResponse(payload([300]))
+
+        candles = NobitexAdapter(opener=opener, sleep=delays.append).fetch_recent(
+            "BTCIRT", "5", 1
+        )
+        self.assertEqual(len(candles), 1)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(delays, [2.0], "server retry hints must be bounded")
+
+    def test_exhausted_retries_fail_closed_with_sanitized_error(self):
+        calls = []
+        delays = []
+
+        def opener(request, timeout):
+            calls.append(request.full_url)
+            raise TimeoutError("do not expose this transport detail")
+
+        adapter = NobitexAdapter(
+            opener=opener, sleep=delays.append, max_retries=2
+        )
+        with self.assertRaises(NobitexDataError) as caught:
+            adapter.fetch_recent("BTCIRT", "5", 1)
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(delays, [0.5, 1.0])
+        self.assertNotIn("transport detail", str(caught.exception))
+
+    def test_non_retryable_http_error_fails_without_waiting(self):
+        calls = []
+        delays = []
+
+        def opener(request, timeout):
+            calls.append(request.full_url)
+            raise HTTPError(request.full_url, 400, "bad request", {}, BytesIO())
+
+        adapter = NobitexAdapter(opener=opener, sleep=delays.append)
+        with self.assertRaises(NobitexDataError):
+            adapter.fetch_recent("BTCIRT", "5", 1)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(delays, [])
+
+    def test_retry_configuration_rejects_boolean_and_negative_values(self):
+        for invalid in (True, -1, 1.5, "2"):
+            with self.subTest(max_retries=invalid):
+                with self.assertRaises(ValueError):
+                    NobitexAdapter(max_retries=invalid)
 
 
 if __name__ == "__main__":

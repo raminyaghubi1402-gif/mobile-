@@ -8,9 +8,9 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass
+from typing import Callable
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
-from typing import Callable
 
 
 @dataclass(frozen=True)
@@ -34,12 +34,25 @@ class NobitexDataError(RuntimeError):
 class NobitexAdapter:
     BASE_URL = "https://apiv2.nobitex.ir/market/udf/history"
     ALLOWED_RESOLUTIONS = {"1", "5", "15", "30", "60", "180", "240", "360", "720", "D", "2D", "3D"}
+    RETRYABLE_HTTP_STATUSES = {408, 425, 429, 500, 502, 503, 504}
+    MAX_RETRY_DELAY_SECONDS = 2.0
 
-    def __init__(self, timeout_seconds: float = 12.0, opener: Callable = urlopen):
+    def __init__(
+        self,
+        timeout_seconds: float = 12.0,
+        opener: Callable = urlopen,
+        *,
+        max_retries: int = 2,
+        sleep: Callable[[float], None] = time.sleep,
+    ):
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
+        if type(max_retries) is not int or max_retries < 0:
+            raise ValueError("max_retries must be a non-negative integer")
         self.timeout_seconds = timeout_seconds
         self.opener = opener
+        self.max_retries = max_retries
+        self.sleep = sleep
 
     def fetch_history(self, symbol: str = "BTCIRT", resolution: str = "60",
                       count: int = 2000) -> list[NobitexCandle]:
@@ -66,6 +79,19 @@ class NobitexAdapter:
                 collected[candle.timestamp] = candle
         return sorted(collected.values(), key=lambda item: item.timestamp)[-count:]
 
+    def _retry_delay(self, attempt: int, retry_after: str | None = None) -> float:
+        """Return a short bounded delay; never let a server header stall a run."""
+        fallback = min(0.5 * (2 ** attempt), self.MAX_RETRY_DELAY_SECONDS)
+        if retry_after is None:
+            return fallback
+        try:
+            requested = float(retry_after)
+        except (TypeError, ValueError, OverflowError):
+            return fallback
+        if requested < 0 or requested != requested:
+            return fallback
+        return min(requested, self.MAX_RETRY_DELAY_SECONDS)
+
     def fetch_recent(self, symbol: str = "BTCIRT", resolution: str = "60",
                      count: int = 100, *, page: int = 1,
                      to_timestamp: int | None = None) -> list[NobitexCandle]:
@@ -86,13 +112,37 @@ class NobitexAdapter:
         url = (f"{self.BASE_URL}?symbol={symbol}&resolution={resolution}"
                f"&to={to_timestamp}&countback={count}&page={page}")
         request = Request(url, headers={"User-Agent": "LiLiTrader/0.2"})
-        try:
-            with self.opener(request, timeout=self.timeout_seconds) as response:
-                if getattr(response, "status", 200) != 200:
-                    raise NobitexDataError("Nobitex returned non-200 status")
-                payload = json.loads(response.read().decode("utf-8"))
-        except (HTTPError, URLError, TimeoutError, OSError, UnicodeError, json.JSONDecodeError) as exc:
-            raise NobitexDataError(f"Nobitex request failed: {type(exc).__name__}") from exc
+
+        attempt = 0
+        while True:
+            try:
+                with self.opener(request, timeout=self.timeout_seconds) as response:
+                    if getattr(response, "status", 200) != 200:
+                        raise NobitexDataError("Nobitex returned non-200 status")
+                    payload = json.loads(response.read().decode("utf-8"))
+                break
+            except HTTPError as exc:
+                if exc.code not in self.RETRYABLE_HTTP_STATUSES or attempt >= self.max_retries:
+                    raise NobitexDataError(
+                        f"Nobitex request failed: {type(exc).__name__}"
+                    ) from exc
+                headers = exc.headers
+                retry_after = headers.get("Retry-After") if headers else None
+                if exc.fp is not None:
+                    exc.close()
+                self.sleep(self._retry_delay(attempt, retry_after))
+                attempt += 1
+            except (URLError, TimeoutError, OSError) as exc:
+                if attempt >= self.max_retries:
+                    raise NobitexDataError(
+                        f"Nobitex request failed: {type(exc).__name__}"
+                    ) from exc
+                self.sleep(self._retry_delay(attempt))
+                attempt += 1
+            except (UnicodeError, json.JSONDecodeError) as exc:
+                raise NobitexDataError(
+                    f"Nobitex request failed: {type(exc).__name__}"
+                ) from exc
 
         if not isinstance(payload, dict):
             raise NobitexDataError("unexpected Nobitex response")

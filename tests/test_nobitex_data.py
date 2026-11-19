@@ -63,7 +63,7 @@ class NobitexPaginationTests(unittest.TestCase):
             seen_to.append(query["to"][0])
             if page == 1:
                 return FakeResponse(payload(list(range(501, 1001))))
-            return FakeResponse(payload(list(range(1, 501)))
+            return FakeResponse(payload(list(range(1, 501))))
 
         candles = NobitexAdapter(opener=opener).fetch_history(
             "BTCIRT", "5", 501

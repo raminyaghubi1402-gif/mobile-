@@ -782,6 +782,65 @@ class DecisionCallbackTests(unittest.TestCase):
         self.assertIsNone(stop_spy.call_args.kwargs["structure_level"])
 
 
+    def test_stop_gap_uses_adverse_open_fill_and_records_costs(self):
+        def flat_bars(count, seconds):
+            return [Bar(i * seconds, 100.0, 101.0, 99.0, 100.0)
+                    for i in range(count)]
+
+        trend = SimpleNamespace(direction="up",
+            last_two_swing_highs=(110.0, 115.0),
+            last_two_swing_lows=(90.0, 95.0))
+        five = flat_bars(122, 300)
+        five[121] = Bar(121 * 300, 94.0, 95.0, 93.0, 94.0)
+        fee, slip = 0.001, 0.002
+        with patch("lili_trader.price_action_backtest.classify_price_action_trend",
+                   return_value=trend), \
+             patch("lili_trader.price_action_backtest.evaluate_timeframe_gate",
+                   side_effect=ready_gate):
+            result = run_three_timeframe_backtest(
+                flat_bars(80, 3600), flat_bars(220, 900), five,
+                starting_cash=100_000, fee_rate=fee, slippage_rate=slip,
+                use_support_resistance_filter=False, allow_short=False,
+            )
+
+        self.assertEqual(result.trade_count, 1)
+        trade = result.trades[0]
+        self.assertEqual(trade.exit_reason, "stop_gap")
+        self.assertEqual(trade.exit_timestamp, five[121].timestamp)
+        self.assertAlmostEqual(trade.exit_price, five[121].open * (1 - slip))
+        self.assertGreater(trade.slippage_quote, 0)
+        expected_fees = trade.entry_price * trade.quantity * fee + trade.exit_price * trade.quantity * fee
+        self.assertAlmostEqual(trade.fees, expected_fees)
+
+    def test_stop_wins_when_stop_and_partial_target_are_both_touched_same_bar(self):
+        def flat_bars(count, seconds):
+            return [Bar(i * seconds, 100.0, 101.0, 99.0, 100.0)
+                    for i in range(count)]
+
+        trend = SimpleNamespace(direction="up",
+            last_two_swing_highs=(110.0, 115.0),
+            last_two_swing_lows=(90.0, 95.0))
+        five = flat_bars(122, 300)
+        # Entry occurs on bar 120; this next bar touches both the initial
+        # stop and +1R target. Conservative execution must take the stop first.
+        five[121] = Bar(121 * 300, 100.0, 105.0, 95.0, 102.0)
+        with patch("lili_trader.price_action_backtest.classify_price_action_trend",
+                   return_value=trend), \
+             patch("lili_trader.price_action_backtest.evaluate_timeframe_gate",
+                   side_effect=ready_gate):
+            result = run_three_timeframe_backtest(
+                flat_bars(80, 3600), flat_bars(220, 900), five,
+                starting_cash=100_000, fee_rate=0.0, slippage_rate=0.0,
+                use_support_resistance_filter=False, allow_short=False,
+            )
+
+        self.assertEqual(result.trade_count, 1)
+        trade = result.trades[0]
+        self.assertEqual(trade.exit_reason, "stop_loss")
+        self.assertLess(trade.exit_price, trade.entry_price)
+        self.assertAlmostEqual(trade.exit_price, trade.entry_price - trade.initial_risk_quote / trade.quantity)
+
+
     def test_open_position_exits_on_structure_invalidation_at_next_bar_open(self):
         def flat_bars(count, seconds):
             return [Bar(i * seconds, 100.0, 101.0, 99.0, 100.0)

@@ -13,7 +13,7 @@ from lili_trader.nobitex_data import NobitexAdapter
 
 
 SYMBOLS = ("BTCIRT", "ETHIRT")
-FETCH_COUNTS = {"5": 5000, "15": 2000, "60": 2000, "240": 1000, "D": 1000}
+FETCH_COUNTS = {"1": 5000, "5": 5000, "15": 2000, "60": 2000, "240": 1000, "D": 1000}
 MAX_ROWS = 20_000
 
 

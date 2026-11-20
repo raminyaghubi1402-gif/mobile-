@@ -355,6 +355,14 @@ def run_three_timeframe_backtest(
                         structure_level = confirmed_highs[-1]
             except (ValueError, TypeError, OverflowError):
                 structure_level = None
+        # A confirmed swing can become stale or sit beyond this bar's
+        # favorable extreme after a sharp gap/reversal. It is not a usable
+        # trailing anchor on this update; ignore it rather than aborting a run.
+        if structure_level is not None and (
+            (side == 1 and structure_level >= favorable)
+            or (side == -1 and structure_level <= favorable)
+        ):
+            structure_level = None
         update = update_smart_stop(
             pos['stop_state'], favorable, current_atr=current_atr,
             structure_level=structure_level,

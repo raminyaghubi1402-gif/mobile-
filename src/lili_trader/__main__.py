@@ -12,6 +12,13 @@ def _format_market_time(timestamp: int) -> str:
     return datetime.fromtimestamp(timestamp, _TEHRAN).strftime("%Y-%m-%d %H:%M")
 
 
+def _load_backtest_history(path, symbol: str, resolution: str, count: int, adapter, stored_only: bool):
+    from .history_store import load_history_csv, merge_candle_history
+    stored = load_history_csv(path, symbol=symbol, resolution=resolution)
+    fresh = [] if stored_only else adapter.fetch_history(symbol, resolution, count)
+    return merge_candle_history(stored, fresh, max_rows=20_000)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="لی‌لی تریدر — تحلیل فقط‌خواندنی")
     parser.add_argument("--nobitex", action="store_true", help="دریافت کندل عمومی از نوبیتکس")
@@ -188,9 +195,9 @@ def main() -> None:
 
         def load_and_refresh(resolution: str, count: int):
             path = history_dir / f"{args.symbol}_{resolution}.csv"
-            stored = load_history_csv(path, symbol=args.symbol, resolution=resolution)
-            fresh = [] if args.stored_history_only else adapter.fetch_history(args.symbol, resolution, count)
-            return merge_candle_history(stored, fresh, max_rows=20_000)
+            return _load_backtest_history(
+                path, args.symbol, resolution, count, adapter, args.stored_history_only
+            )
 
         # Stored daily-collected history extends beyond the API's short recent window.
         hourly = load_and_refresh("60", min(args.count, 2000))

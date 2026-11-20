@@ -33,35 +33,81 @@ jobs:
           python-version: "3.11"
       - name: Collect public Nobitex history
         run: python scripts/collect_nobitex_history.py
-      - name: Commit updated public history
+      - name: Preserve collected snapshot
+        run: |
+          mkdir -p "$RUNNER_TEMP/collected-history"
+          cp -a data/history/. "$RUNNER_TEMP/collected-history/"
+      - name: Merge snapshot safely and push
         id: commit_history
         shell: bash
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/history
-          if git diff --cached --quiet; then
-            echo "No new candles to store."
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          else
-            git commit -m "data: collect public Nobitex candle history"
-            # Other source commits may land while the public-data job is running.
-            pushed=false
-            for attempt in 1 2 3 4 5; do
-              git pull --rebase origin main
-              if git push origin HEAD:main; then
-                pushed=true
-                break
-              fi
-              echo "Push raced with another commit; retrying ($attempt/5)."
-              sleep 2
-            done
-            if [ "$pushed" != "true" ]; then
-              echo "Could not push collected history after 5 attempts."
-              exit 1
+
+          pushed=false
+          changed=false
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            git reset --hard origin/main
+
+            python - "$RUNNER_TEMP/collected-history" <<'PY'
+          import csv
+          import os
+          import sys
+          from pathlib import Path
+
+          snapshot = Path(sys.argv[1])
+          history = Path("data/history")
+          history.mkdir(parents=True, exist_ok=True)
+          fields = ["timestamp", "open", "high", "low", "close", "volume"]
+          max_rows = 25_000
+
+          for incoming_path in sorted(snapshot.glob("*.csv")):
+              current_path = history / incoming_path.name
+              rows_by_timestamp = {}
+              for path in (current_path, incoming_path):
+                  if not path.exists():
+                      continue
+                  with path.open(encoding="utf-8", newline="") as handle:
+                      reader = csv.DictReader(handle)
+                      if reader.fieldnames != fields:
+                          raise SystemExit(f"Invalid CSV columns: {path}")
+                      for row in reader:
+                          timestamp = int(row["timestamp"])
+                          # The collected snapshot takes precedence for duplicate
+                          # timestamps (e.g. the latest candle correction).
+                          rows_by_timestamp[timestamp] = row
+              rows = [rows_by_timestamp[t] for t in sorted(rows_by_timestamp)[-max_rows:]]
+              tmp = current_path.with_suffix(".csv.tmp")
+              with tmp.open("w", encoding="utf-8", newline="") as handle:
+                  writer = csv.DictWriter(handle, fieldnames=fields)
+                  writer.writeheader()
+                  writer.writerows(rows)
+              os.replace(tmp, current_path)
+          PY
+
+            git add data/history
+            if git diff --cached --quiet; then
+              echo "No new candles to store."
+              changed=false
+              pushed=true
+              break
             fi
-            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git commit -m "data: collect public Nobitex candle history"
+            if git push origin HEAD:main; then
+              pushed=true
+              changed=true
+              break
+            fi
+            echo "Push raced with another commit; retrying safely ($attempt/5)."
+          done
+
+          if [ "$pushed" != "true" ]; then
+            echo "Could not push collected history after 5 safe merge attempts."
+            exit 1
           fi
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
       - name: Trigger backtest against accumulated history
         if: steps.commit_history.outputs.changed == 'true'
         env:

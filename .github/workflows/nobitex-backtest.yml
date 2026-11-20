@@ -16,7 +16,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: nobitex-public-api-spot-audit
+  group: nobitex-stored-history-backtest
   cancel-in-progress: true
 
 jobs:

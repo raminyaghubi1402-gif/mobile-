@@ -94,6 +94,8 @@ class MarketStructureTests(unittest.TestCase):
     def test_swing_confirmation_index_moves_with_pivot_window(self):
         rows=candles_from([10,12,11,20,13,14,15,16],
                           [5,6,7,8,9,10,11,12])
+        for row in rows:
+            row.pop("timestamp")
         one=analyze_market_structure(rows,pivot_window=1)
         two=analyze_market_structure(rows,pivot_window=2)
         high_one=next(s for s in one.swings if s.kind=="high" and s.index==3)

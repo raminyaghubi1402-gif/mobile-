@@ -307,7 +307,43 @@ def run_three_timeframe_backtest(
             pos['remaining_quantity'] -= qty
             pos['completed_targets'].add(stage_index)
         favorable = bar['high'] if side == 1 else bar['low']
-        update = update_smart_stop(pos['stop_state'], favorable)
+        # Only use 15m ATR and 5m swing structure whose candles closed before
+        # this bar started. No look-ahead; newly tightened stop is active next bar.
+        closed_15m_for_management = [
+            candle for candle in fifteen
+            if candle['timestamp'] + 900 <= bar['timestamp']
+        ]
+        current_atr = pos['stop_state'].initial_atr
+        if len(closed_15m_for_management) >= atr_period:
+            try:
+                current_atr = _atr(closed_15m_for_management, atr_period)
+            except ValueError:
+                current_atr = pos['stop_state'].initial_atr
+        closed_5m_for_management = [
+            candle for candle in five
+            if candle['timestamp'] + 300 <= bar['timestamp']
+        ]
+        structure_level = None
+        if len(closed_5m_for_management) >= 2 * 2 + 3:
+            try:
+                structure = analyze_market_structure(
+                    closed_5m_for_management[-trend_lookback:], pivot_window=2
+                )
+                if side == 1:
+                    confirmed_lows = [s.price for s in structure.swings if s.kind == 'low']
+                    if confirmed_lows:
+                        structure_level = confirmed_lows[-1]
+                else:
+                    confirmed_highs = [s.price for s in structure.swings if s.kind == 'high']
+                    if confirmed_highs:
+                        structure_level = confirmed_highs[-1]
+            except (ValueError, TypeError, OverflowError):
+                structure_level = None
+        update = update_smart_stop(
+            pos['stop_state'], favorable, current_atr=current_atr,
+            structure_level=structure_level,
+            structure_buffer_atr=0.5,
+        )
         pos['stop_state'] = update.state
         new_stop = update.state.current_stop
         # OHLC candles do not reveal whether the favorable extreme happened

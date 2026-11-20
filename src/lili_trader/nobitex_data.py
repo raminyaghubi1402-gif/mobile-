@@ -56,9 +56,9 @@ class NobitexAdapter:
 
     def fetch_history(self, symbol: str = "BTCIRT", resolution: str = "60",
                       count: int = 2000) -> list[NobitexCandle]:
-        """Fetch up to 5,000 recent candles using Nobitex's 500-bar pages."""
-        if not isinstance(count, int) or not 1 <= count <= 5000:
-            raise ValueError("count must be between 1 and 5000")
+        """Fetch up to 50,000 recent candles using Nobitex's 500-bar pages."""
+        if not isinstance(count, int) or not 1 <= count <= 50000:
+            raise ValueError("count must be between 1 and 50000")
         collected: dict[int, NobitexCandle] = {}
         page_count = (count + 499) // 500
         # Keep a single snapshot boundary across all pages so candles cannot

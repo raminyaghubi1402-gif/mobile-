@@ -7,6 +7,7 @@ are included only after their own close timestamp. Entries occur at the next
 from __future__ import annotations
 
 from dataclasses import dataclass
+from bisect import bisect_right
 from math import isfinite
 from collections.abc import Sequence, Callable
 
@@ -221,6 +222,8 @@ def run_three_timeframe_backtest(
     hourly = _validated(hourly_candles, 3600, "1h")
     fifteen = _validated(fifteen_minute_candles, 900, "15m")
     five = _validated(five_minute_candles, 300, "5m")
+    fifteen_timestamps = [candle["timestamp"] for candle in fifteen]
+    five_timestamps = [candle["timestamp"] for candle in five]
 
     if decision_callback is not None:
         if not callable(decision_callback):
@@ -309,25 +312,25 @@ def run_three_timeframe_backtest(
         favorable = bar['high'] if side == 1 else bar['low']
         # Only use 15m ATR and 5m swing structure whose candles closed before
         # this bar started. No look-ahead; newly tightened stop is active next bar.
-        closed_15m_for_management = [
-            candle for candle in fifteen
-            if candle['timestamp'] + 900 <= bar['timestamp']
-        ]
+        # Binary-search timestamp indexes avoid rescanning all stored history
+        # on every bar; only the recent ATR/structure windows are materialized.
+        fifteen_closed_at_bar = bisect_right(fifteen_timestamps, bar['timestamp'] - 900)
+        five_closed_at_bar = bisect_right(five_timestamps, bar['timestamp'] - 300)
         current_atr = pos['stop_state'].initial_atr
-        if len(closed_15m_for_management) >= atr_period:
+        if fifteen_closed_at_bar >= atr_period:
             try:
-                current_atr = _atr(closed_15m_for_management, atr_period)
+                current_atr = _atr(
+                    fifteen[max(0, fifteen_closed_at_bar - atr_period - 1):fifteen_closed_at_bar],
+                    atr_period,
+                )
             except ValueError:
                 current_atr = pos['stop_state'].initial_atr
-        closed_5m_for_management = [
-            candle for candle in five
-            if candle['timestamp'] + 300 <= bar['timestamp']
-        ]
         structure_level = None
-        if len(closed_5m_for_management) >= 2 * 2 + 3:
+        if five_closed_at_bar >= 2 * 2 + 3:
             try:
                 structure = analyze_market_structure(
-                    closed_5m_for_management[-trend_lookback:], pivot_window=2
+                    five[max(0, five_closed_at_bar - trend_lookback):five_closed_at_bar],
+                    pivot_window=2
                 )
                 if side == 1:
                     confirmed_lows = [s.price for s in structure.swings if s.kind == 'low']

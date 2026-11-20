@@ -807,7 +807,7 @@ class DecisionCallbackTests(unittest.TestCase):
             return GateDecision("invalidated", False, "up", "hourly structure invalidated")
 
         with patch("lili_trader.price_action_backtest.classify_price_action_trend",
-                   return_value=trend), \\
+                   return_value=trend), \
              patch("lili_trader.price_action_backtest.evaluate_timeframe_gate",
                    side_effect=ready_then_invalidated):
             result = run_three_timeframe_backtest(

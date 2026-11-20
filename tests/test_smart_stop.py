@@ -55,6 +55,38 @@ class SmartStopTests(unittest.TestCase):
         with self.assertRaises(SmartStopError):
             update_smart_stop(state, 105, atr_trailing_multiple=0)
 
+    def test_adaptive_atr_widens_trail_when_volatility_expands(self):
+        state = create_smart_stop("long", 100, 90, 2)
+        normal = update_smart_stop(state, 120, current_atr=2)
+        expanded = update_smart_stop(state, 120, current_atr=4)
+        # ATR widening provides more breathing room, while stop remains above
+        # the initial stop and never violates monotonicity.
+        self.assertGreaterEqual(expanded.state.current_stop, state.current_stop)
+        self.assertLessEqual(expanded.state.current_stop, normal.state.current_stop)
+
+    def test_structure_trailing_candidate_for_long(self):
+        state = create_smart_stop("long", 100, 90, 2)
+        update = update_smart_stop(state, 115, structure_level=108,
+                                  structure_buffer_atr=0.5)
+        self.assertGreaterEqual(update.state.current_stop, 107)
+
+    def test_structure_trailing_candidate_for_short(self):
+        state = create_smart_stop("short", 100, 110, 2)
+        update = update_smart_stop(state, 85, structure_level=90,
+                                  structure_buffer_atr=0.5)
+        self.assertLessEqual(update.state.current_stop, 91)
+
+    def test_structure_level_wrong_side_rejected(self):
+        state = create_smart_stop("long", 100, 90, 2)
+        with self.assertRaises(SmartStopError):
+            update_smart_stop(state, 105, structure_level=106)
+
+    def test_stop_never_gives_back_locked_profit_when_atr_expands(self):
+        state = create_smart_stop("long", 100, 90, 2)
+        tight = update_smart_stop(state, 130, current_atr=1).state
+        wider_atr = update_smart_stop(tight, 128, current_atr=8)
+        self.assertGreaterEqual(wider_atr.state.current_stop, tight.current_stop)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -756,6 +756,8 @@ class DecisionCallbackTests(unittest.TestCase):
         self.assertTrue(stop_spy.called)
         kwargs = stop_spy.call_args.kwargs
         self.assertGreater(kwargs["current_atr"], 0)
+        # ATR from the complete closed 15m history must remain unchanged by caching.
+        self.assertAlmostEqual(kwargs["current_atr"], 2.0)
         self.assertEqual(kwargs["structure_level"], 98.0)
         self.assertEqual(kwargs["structure_buffer_atr"], 0.5)
 

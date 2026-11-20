@@ -761,6 +761,26 @@ class DecisionCallbackTests(unittest.TestCase):
         self.assertEqual(kwargs["structure_level"], 98.0)
         self.assertEqual(kwargs["structure_buffer_atr"], 0.5)
 
+        # A stale swing low above the current favorable high must be ignored,
+        # not allowed to abort the historical simulation.
+        invalid_structure = StructureAnalysis(
+            "up", None, (), (Swing("low", 106.0, 10),), 100.0, "stale swing")
+        stop_spy.reset_mock()
+        with patch("lili_trader.price_action_backtest.classify_price_action_trend",
+                   return_value=trend), \
+             patch("lili_trader.price_action_backtest.evaluate_timeframe_gate",
+                   side_effect=ready_gate), \
+             patch("lili_trader.price_action_backtest.analyze_market_structure",
+                   return_value=invalid_structure), \
+             patch("lili_trader.price_action_backtest.update_smart_stop",
+                   stop_spy):
+            run_three_timeframe_backtest(
+                flat_bars(80, 3600), flat_bars(220, 900), five,
+                starting_cash=100_000, slippage_rate=0.0,
+                use_support_resistance_filter=False)
+        self.assertTrue(stop_spy.called)
+        self.assertIsNone(stop_spy.call_args.kwargs["structure_level"])
+
 
 if __name__ == "__main__":
     unittest.main()

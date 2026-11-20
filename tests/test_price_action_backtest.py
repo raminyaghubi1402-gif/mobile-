@@ -796,8 +796,8 @@ class DecisionCallbackTests(unittest.TestCase):
         # The first eligible gate evaluation opens a BUY at this bar's open.
         # The following confirmed signal invalidates the thesis; execution
         # must occur at the next 5m bar open, not at the signal candle close.
-        five[72] = Bar(72 * 300, 100.0, 101.0, 99.5, 100.5)
-        five[73] = Bar(73 * 300, 102.25, 102.75, 101.75, 102.5)
+        five[120] = Bar(120 * 300, 100.0, 101.0, 99.5, 100.5)
+        five[121] = Bar(121 * 300, 102.25, 102.75, 101.75, 102.5)
         gate_calls = {"count": 0}
 
         def ready_then_invalidated(*args, **kwargs):
@@ -820,8 +820,8 @@ class DecisionCallbackTests(unittest.TestCase):
         trade = result.trades[0]
         self.assertEqual(trade.direction, "BUY")
         self.assertEqual(trade.exit_reason, "structure_invalidation")
-        self.assertEqual(trade.exit_timestamp, five[73].timestamp)
-        self.assertAlmostEqual(trade.exit_price, five[73].open)
+        self.assertEqual(trade.exit_timestamp, five[121].timestamp)
+        self.assertAlmostEqual(trade.exit_price, five[121].open)
 
 
 if __name__ == "__main__":

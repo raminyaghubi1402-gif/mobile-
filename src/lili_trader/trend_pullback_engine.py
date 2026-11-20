@@ -6,7 +6,6 @@ auditable candidate signal only; no orders or position sizing are performed.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from math import isfinite
 
 from .market_structure import analyze_market_structure
 from .price_action_trend import classify_price_action_trend
@@ -42,14 +41,17 @@ def _closed_series(snapshot: Mapping, timeframe: str) -> tuple[list[dict], int]:
             raise ValueError("candle timestamp must be a non-negative integer")
         if previous_timestamp is not None and timestamp <= previous_timestamp:
             raise ValueError("candle timestamps must be strictly increasing")
+        if timestamp % interval != 0:
+            raise ValueError("candle timestamp is not aligned to its timeframe")
         previous_timestamp = timestamp
         close_timestamp = timestamp + interval
         if close_timestamp > as_of:
             raise ValueError("candle is not closed as of snapshot timestamp")
-        if as_of - close_timestamp > interval:
-            raise ValueError(f"latest {timeframe} candle is stale")
         candle = dict(raw)
         normalized.append(candle)
+    latest_close_timestamp = normalized[-1]["timestamp"] + interval
+    if as_of - latest_close_timestamp > interval:
+        raise ValueError(f"latest {timeframe} candle is stale")
     return normalized, as_of
 
 
@@ -86,10 +88,22 @@ class TrendPullbackEngine:
                 {"h1_direction": direction, "h1_reason": trend.reason},
             )
 
-        protected_level = (
-            trend.last_two_swing_lows[-1] if direction == "up"
-            else trend.last_two_swing_highs[-1]
+        protected_swings = (
+            trend.last_two_swing_lows if direction == "up"
+            else trend.last_two_swing_highs
         )
+        if not protected_swings or len(protected_swings) != 2:
+            return StrategyDecision(
+                self.strategy_id, "NO_SETUP",
+                "سطح ساختاری محافظت‌شدهٔ ۱ساعته در دسترس نیست.",
+                {"h1_direction": direction, "protected_swing_data": "missing"},
+            )
+        protected_level = protected_swings[-1]
+        if isinstance(protected_level, bool) or not isinstance(protected_level, (int, float)):
+            return StrategyDecision(
+                self.strategy_id, "NO_SETUP", "سطح ساختاری ۱ساعته نامعتبر است.",
+                {"h1_direction": direction, "protected_swing_data": "invalid"},
+            )
         m15 = analyze_market_structure(fifteen, pivot_window=2)
         m5 = analyze_market_structure(five, pivot_window=2)
         aligned_choch = "CHOCH_UP" if direction == "up" else "CHOCH_DOWN"

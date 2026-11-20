@@ -173,7 +173,7 @@ class NobitexPaginationTests(unittest.TestCase):
             query = parse_qs(urlparse(request.full_url).query)
             page = int(query["page"][0])
             seen_pages.append(page)
-            start = 1000 - page * 500
+            start = 10_000 - page * 500
             return FakeResponse(payload(list(range(start, start + 500))))
 
         candles = NobitexAdapter(opener=opener).fetch_history("BTCIRT", "1", 5001)

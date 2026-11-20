@@ -751,7 +751,8 @@ class DecisionCallbackTests(unittest.TestCase):
                    stop_spy):
             run_three_timeframe_backtest(
                 flat_bars(80, 3600), flat_bars(220, 900), five,
-                starting_cash=100_000, slippage_rate=0.0)
+                starting_cash=100_000, slippage_rate=0.0,
+                use_support_resistance_filter=False)
         self.assertTrue(stop_spy.called)
         kwargs = stop_spy.call_args.kwargs
         self.assertGreater(kwargs["current_atr"], 0)

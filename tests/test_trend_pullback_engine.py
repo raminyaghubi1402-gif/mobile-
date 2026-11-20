@@ -2,7 +2,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from lili_trader.strategy_engines import StrategyRegistry
+from lili_trader.strategy_engines import create_research_registry
 from lili_trader.trend_pullback_engine import TrendPullbackEngine
 
 
@@ -103,8 +103,14 @@ class TrendPullbackEngineTests(unittest.TestCase):
         self.assertEqual(result.status, "WAIT")
         self.assertEqual(result.evidence["data_validation"], "failed")
 
-    def test_default_registry_contains_first_engine_but_not_other_engines(self):
-        registry = StrategyRegistry((self.engine,))
+    def test_unaligned_candle_timestamp_is_rejected(self):
+        self.snapshot["candles"]["5m"][-1]["timestamp"] -= 1
+        result = self.engine.evaluate(self.snapshot)
+        self.assertEqual(result.status, "WAIT")
+        self.assertEqual(result.evidence["data_validation"], "failed")
+
+    def test_research_registry_factory_registers_only_first_engine(self):
+        registry = create_research_registry()
         self.assertEqual(registry.registered_ids, ("trend_pullback",))
 
 

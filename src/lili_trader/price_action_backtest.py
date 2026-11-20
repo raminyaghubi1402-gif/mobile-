@@ -506,6 +506,14 @@ def run_three_timeframe_backtest(
             "warmup_only": warmup_only,
         }
         decision_reason = getattr(decision, "reason", None) or gate_status
+        # A confirmed 15m close beyond the last protected 1h swing invalidates
+        # the trade thesis. Exit at this 5m bar's open (the first executable
+        # point after the signal close), with normal slippage/fee accounting.
+        if (position is not None and not warmup_only and decision is not None
+                and decision.status == "invalidated"):
+            finish_position(bar, bar["open"], "structure_invalidation")
+            decision_reason = "ساختار یک‌ساعته با بسته‌شدن ۱۵ دقیقه نقض شد؛ خروج در بازشدن کندل بعدی."
+            decision_evidence["position_exit"] = "structure_invalidation"
         if not gate_ready and not warmup_only:
             setup_consumed = False
         new_setup = gate_ready and not setup_consumed

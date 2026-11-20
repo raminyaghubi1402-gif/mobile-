@@ -28,7 +28,7 @@ def analysis(bias, last_event):
 
 def uptrend():
     return SimpleNamespace(direction="up", last_two_swing_highs=(110, 120),
-                          last_two_swing_lows=(95, 100), reason="HH/HL")
+                          last_two_swing_lows=(90, 95), reason="HH/HL")
 
 
 class TrendPullbackEngineTests(unittest.TestCase):
@@ -81,7 +81,7 @@ class TrendPullbackEngineTests(unittest.TestCase):
 
     def test_h1_protected_level_break_invalidates_setup(self):
         m15, m5 = self.valid_structures()
-        self.snapshot["candles"]["15m"][-1]["close"] = 99.0
+        self.snapshot["candles"]["15m"][-1]["close"] = 94.0
         result = self.evaluate_with_structures(m15, m5)
         self.assertEqual(result.status, "INVALIDATED")
 

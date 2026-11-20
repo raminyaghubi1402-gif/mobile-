@@ -723,6 +723,41 @@ class DecisionCallbackTests(unittest.TestCase):
         self.assertEqual(result.trade_count, 0)
         self.assertTrue(result.setup_consumed)
 
+    def test_engine_one_passes_closed_atr_and_confirmed_swing_to_smart_stop(self):
+        from lili_trader.smart_stop import update_smart_stop as real_update
+        from lili_trader.market_structure import StructureAnalysis, Swing
+        from unittest.mock import Mock
+
+        def flat_bars(count, seconds):
+            return [Bar(i * seconds, 100.0, 101.0, 99.0, 100.0)
+                    for i in range(count)]
+
+        trend = SimpleNamespace(direction="up",
+            last_two_swing_highs=(110.0, 115.0),
+            last_two_swing_lows=(90.0, 95.0))
+        five = flat_bars(123, 300)
+        five[120] = Bar(120 * 300, 100.0, 104.5, 99.5, 104.0)
+        five[121] = Bar(121 * 300, 100.0, 105.0, 99.8, 104.5)
+        mocked_structure = StructureAnalysis(
+            "up", None, (), (Swing("low", 98.0, 10),), 100.0, "test swing")
+        stop_spy = Mock(side_effect=real_update)
+        with patch("lili_trader.price_action_backtest.classify_price_action_trend",
+                   return_value=trend), \
+             patch("lili_trader.price_action_backtest.evaluate_timeframe_gate",
+                   side_effect=ready_gate), \
+             patch("lili_trader.price_action_backtest.analyze_market_structure",
+                   return_value=mocked_structure), \
+             patch("lili_trader.price_action_backtest.update_smart_stop",
+                   stop_spy):
+            run_three_timeframe_backtest(
+                flat_bars(80, 3600), flat_bars(220, 900), five,
+                starting_cash=100_000, slippage_rate=0.0)
+        self.assertTrue(stop_spy.called)
+        kwargs = stop_spy.call_args.kwargs
+        self.assertGreater(kwargs["current_atr"], 0)
+        self.assertEqual(kwargs["structure_level"], 98.0)
+        self.assertEqual(kwargs["structure_buffer_atr"], 0.5)
+
 
 if __name__ == "__main__":
     unittest.main()

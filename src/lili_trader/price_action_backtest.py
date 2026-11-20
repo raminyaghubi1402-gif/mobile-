@@ -224,6 +224,23 @@ def run_three_timeframe_backtest(
     five = _validated(five_minute_candles, 300, "5m")
     fifteen_timestamps = [candle["timestamp"] for candle in fifteen]
     five_timestamps = [candle["timestamp"] for candle in five]
+    # Precompute Wilder-style ATR values once. This avoids O(history) recalculation
+    # during every position-management candle while preserving the full-history ATR.
+    fifteen_atr_values: list[float | None] = [None] * len(fifteen)
+    true_ranges = []
+    for index, candle in enumerate(fifteen):
+        previous_close = fifteen[index - 1]["close"] if index else candle["close"]
+        true_ranges.append(max(
+            candle["high"] - candle["low"],
+            abs(candle["high"] - previous_close),
+            abs(candle["low"] - previous_close),
+        ))
+    if len(true_ranges) >= atr_period:
+        atr_value = sum(true_ranges[:atr_period]) / atr_period
+        fifteen_atr_values[atr_period - 1] = atr_value
+        for index in range(atr_period, len(true_ranges)):
+            atr_value = ((atr_period - 1) * atr_value + true_ranges[index]) / atr_period
+            fifteen_atr_values[index] = atr_value
 
     if decision_callback is not None:
         if not callable(decision_callback):
@@ -318,13 +335,9 @@ def run_three_timeframe_backtest(
         five_closed_at_bar = bisect_right(five_timestamps, bar['timestamp'] - 300)
         current_atr = pos['stop_state'].initial_atr
         if fifteen_closed_at_bar >= atr_period:
-            try:
-                current_atr = _atr(
-                    fifteen[max(0, fifteen_closed_at_bar - atr_period - 1):fifteen_closed_at_bar],
-                    atr_period,
-                )
-            except ValueError:
-                current_atr = pos['stop_state'].initial_atr
+            latest_closed_atr = fifteen_atr_values[fifteen_closed_at_bar - 1]
+            if latest_closed_atr is not None and isfinite(latest_closed_atr) and latest_closed_atr > 0:
+                current_atr = latest_closed_atr
         structure_level = None
         if five_closed_at_bar >= 2 * 2 + 3:
             try:

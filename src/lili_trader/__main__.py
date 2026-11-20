@@ -18,6 +18,7 @@ def main() -> None:
     parser.add_argument("--market-analysis", action="store_true", help="تحلیل چندتایم‌فریمی حرفه‌ای با دادهٔ تازهٔ نوبیتکس (فقط‌خواندنی)")
     parser.add_argument("--backtest", action="store_true", help="اجرای بک‌تست قدیمی SMA روی کندل‌های عمومی نوبیتکس")
     parser.add_argument("--price-action-backtest", action="store_true", help="بک‌تست اختصاصی راهبرد ۱h/۱۵m/۵m بدون اندیکاتور")
+    parser.add_argument("--stored-history-only", action="store_true", help="در بک‌تست فقط تاریخچهٔ CSV ذخیره‌شده را استفاده کن؛ هیچ درخواست تازه‌ای به API نزن")
     parser.add_argument("--spot-only", action="store_true", help="اجبار به معاملات نقدی؛ فروش استقراضی در بک‌تست ممنوع")
     parser.add_argument("--sr-diagnostic", action="store_true", help="مقایسهٔ بک‌تست با فیلتر حمایت‌ومقاومت و بدون آن؛ فقط تشخیصی")
     parser.add_argument("--backtest-cash", type=float, default=10.0, help="سرمایهٔ فرضی بک‌تست (پیش‌فرض ۱۰)")
@@ -41,6 +42,8 @@ def main() -> None:
     parser.add_argument("--forward-usd-irt-at", default=None, help="زمان دریافت نرخ اولیه با ISO-8601 و منطقهٔ زمانی")
     parser.add_argument("--forward-max-lag-seconds", type=int, default=180, help="حداکثر عمر کندل اجرایی ۵ دقیقه‌ای")
     args = parser.parse_args()
+    if args.stored_history_only and not args.price_action_backtest:
+        parser.error("--stored-history-only فقط همراه --price-action-backtest قابل استفاده است.")
 
     if args.paper_forward:
         from .paper_forward import ForwardPaperError, StaleMarketDataError, run_forward_cycle
@@ -186,7 +189,7 @@ def main() -> None:
         def load_and_refresh(resolution: str, count: int):
             path = history_dir / f"{args.symbol}_{resolution}.csv"
             stored = load_history_csv(path, symbol=args.symbol, resolution=resolution)
-            fresh = adapter.fetch_history(args.symbol, resolution, count)
+            fresh = [] if args.stored_history_only else adapter.fetch_history(args.symbol, resolution, count)
             return merge_candle_history(stored, fresh, max_rows=20_000)
 
         # Stored daily-collected history extends beyond the API's short recent window.

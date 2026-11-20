@@ -71,17 +71,35 @@ def update_smart_stop(
     *,
     stages: tuple[StopStage, ...] = DEFAULT_STAGES,
     atr_trailing_multiple: float = 2.5,
+    current_atr: float | None = None,
+    volatility_adaptive: bool = True,
+    structure_level: float | None = None,
+    structure_buffer_atr: float = 0.5,
 ) -> SmartStopUpdate:
-    """Tighten only; never loosen, even if volatility or inputs change.
+    """Adaptive trailing and staged profit-locking; stop is monotonic.
 
-    ATR is frozen at entry in state.initial_atr. Profit stages use R, where
-    1R is the original entry-to-stop distance. The trailing candidate follows
-    the best favorable price but is clamped so it cannot move backwards.
+    A current ATR can adapt the trail to changing volatility. The ATR ratio
+    is bounded to [0.75, 1.5] so normal pullbacks have breathing room. Higher
+    volatility widens the trail; lower volatility allows gradual tightening.
+    Structure-based stop candidates may be supplied by the strategy (swing low
+    for long, swing high for short) and buffered by ATR. All candidates are
+    clamped by the previous stop: locked profit can never be surrendered.
     """
     if not isfinite(market_price) or market_price <= 0:
         raise SmartStopError("قیمت بازار نامعتبر است.")
     if not isfinite(atr_trailing_multiple) or atr_trailing_multiple <= 0:
         raise SmartStopError("ضریب ATR باید مثبت و معتبر باشد.")
+    atr_now = state.initial_atr if current_atr is None else current_atr
+    if not isfinite(atr_now) or atr_now <= 0:
+        raise SmartStopError("ATR فعلی باید مثبت و معتبر باشد.")
+    if (not isfinite(structure_buffer_atr) or structure_buffer_atr < 0
+            or (structure_level is not None and
+                (not isfinite(structure_level) or structure_level <= 0))):
+        raise SmartStopError("سطح ساختاری یا فاصلهٔ بافر نامعتبر است.")
+    adaptive_multiple = atr_trailing_multiple
+    if volatility_adaptive:
+        ratio = atr_now / state.initial_atr
+        adaptive_multiple *= min(1.5, max(0.75, ratio))
     previous = state.current_stop
     risk = abs(state.entry_price - state.initial_stop)
     if risk <= 0:
@@ -106,7 +124,11 @@ def update_smart_stop(
             if favorable_r >= stage.activate_r:
                 candidates.append(state.entry_price + stage.lock_r * risk)
                 stage_index = max(stage_index, i)
-        candidates.append(extreme - state.initial_atr * atr_trailing_multiple)
+        candidates.append(extreme - atr_now * adaptive_multiple)
+        if structure_level is not None:
+            if structure_level >= market_price:
+                raise SmartStopError("سطح ساختاری خرید باید پایین‌تر از قیمت بازار باشد.")
+            candidates.append(structure_level - atr_now * structure_buffer_atr)
         # The max guarantees a long stop can never decrease.
         new_stop = max(candidates)
         triggered = market_price <= new_stop
@@ -120,7 +142,11 @@ def update_smart_stop(
             if favorable_r >= stage.activate_r:
                 candidates.append(state.entry_price - stage.lock_r * risk)
                 stage_index = max(stage_index, i)
-        candidates.append(extreme + state.initial_atr * atr_trailing_multiple)
+        candidates.append(extreme + atr_now * adaptive_multiple)
+        if structure_level is not None:
+            if structure_level <= market_price:
+                raise SmartStopError("سطح ساختاری فروش باید بالاتر از قیمت بازار باشد.")
+            candidates.append(structure_level + atr_now * structure_buffer_atr)
         # The min guarantees a short stop can never increase.
         new_stop = min(candidates)
         triggered = market_price >= new_stop
@@ -138,5 +164,6 @@ def update_smart_stop(
     return SmartStopUpdate(
         state=updated, stop_changed=changed, stop_triggered=triggered,
         locked_profit_r=locked_r,
-        reason="حد ضرر فقط در جهت کاهش ریسک به‌روزرسانی شد.",
+        reason=("حدضرر فقط رو به سود حرکت کرد؛ فاصله با ATR فعلی و سطح ساختاری "
+                 "تطبیق داده شد و هر سود قفل‌شده حفظ شد."),
     )

@@ -104,6 +104,9 @@ def select_strategy_candidates(regime: MarketRegime) -> tuple[StrategyCandidate,
     known = {
         "trend_pullback_buy", "support_rejection_buy", "breakout_retest_buy",
         "trend_pullback_sell", "resistance_rejection_sell", "breakdown_retest_sell",
+        # Generic engine candidates are accepted only when explicitly supplied by
+        # the regime selector; the classifier does not auto-enable these engines.
+        "breakout", "volume_trading", "ict",
     }
     if regime.trend in ("unknown", "transition") or regime.volatility in ("high", "unknown"):
         return (StrategyCandidate("no_trade_wait", True,

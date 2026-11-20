@@ -85,6 +85,20 @@ class TrendPullbackEngineTests(unittest.TestCase):
         result = self.evaluate_with_structures(m15, m5)
         self.assertEqual(result.status, "INVALIDATED")
 
+    def test_downtrend_setup_returns_sell_research_signal(self):
+        trend = SimpleNamespace(direction="down", last_two_swing_highs=(120, 110),
+                                last_two_swing_lows=(100, 90), reason="LH/LL")
+        m15 = analysis("down", event("CHOCH_DOWN", 7, 36000 - 1800))
+        m5 = analysis("down", event("BOS_DOWN", 8, 36000 - 300))
+        with patch("lili_trader.trend_pullback_engine.classify_price_action_trend",
+                   return_value=trend), patch(
+            "lili_trader.trend_pullback_engine.analyze_market_structure",
+            side_effect=(m15, m5),
+        ):
+            result = self.engine.evaluate(self.snapshot)
+        self.assertEqual(result.status, "SIGNAL")
+        self.assertEqual(result.evidence["direction"], "SELL")
+
     def test_open_candle_is_rejected(self):
         self.snapshot["candles"]["5m"][-1]["is_closed"] = False
         result = self.engine.evaluate(self.snapshot)

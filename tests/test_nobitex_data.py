@@ -166,9 +166,23 @@ class NobitexPaginationTests(unittest.TestCase):
         candle = NobitexAdapter(opener=valid_opener).fetch_recent("BTCIRT", "5", 1)[0]
         self.assertEqual(candle.volume, 0)
 
-    def test_fetch_history_rejects_more_than_supported_limit(self):
+    def test_fetch_history_accepts_expanded_backfill_limit(self):
+        seen_pages = []
+
+        def opener(request, timeout):
+            query = parse_qs(urlparse(request.full_url).query)
+            page = int(query["page"][0])
+            seen_pages.append(page)
+            start = 1000 - page * 500
+            return FakeResponse(payload(list(range(start, start + 500))))
+
+        candles = NobitexAdapter(opener=opener).fetch_history("BTCIRT", "1", 5001)
+        self.assertEqual(seen_pages, list(range(1, 12)))
+        self.assertEqual(len(candles), 5001)
+
+    def test_fetch_history_rejects_above_expanded_limit(self):
         with self.assertRaises(ValueError):
-            NobitexAdapter().fetch_history("BTCIRT", "5", 5001)
+            NobitexAdapter().fetch_history("BTCIRT", "5", 50001)
 
 
 class NobitexRetryTests(unittest.TestCase):

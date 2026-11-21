@@ -115,7 +115,7 @@ def audit_dataset(symbol,label,step,rows):
         s=outcome_stats(rows,[e for e in events if e.kind in kinds],6)
         out.append(f"  {name}: n={s['n']}; reclaim-failure={fmt(s['fail_pct'])}%; median favorable/adverse ATR={fmt(s['median_fav_atr'])}/{fmt(s['median_adv_atr'])}; >=1 ATR favorable={fmt(s['fav_ge_1atr_pct'])}%")
     checks=prefix_causality(rows)
-    out.append("Prefix causality: "+(", ".join(f"{n} bars={'PASS' if ok else 'FAIL'}" for n,ok in checks) or "not enough history")
+    out.append("Prefix causality: "+(", ".join(f"{n} bars={'PASS' if ok else 'FAIL'}" for n,ok in checks) or "not enough history"))
     return out,checks
 
 def audit_mtf(symbol,name,rows,step,events,h1,m15=None):

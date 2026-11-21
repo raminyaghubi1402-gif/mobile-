@@ -106,6 +106,7 @@ class MarketStructureContextTests(unittest.TestCase):
             [10,15,12,13,16,14,15,17,18],
             [7,8,9,8,10,9,11,12,13],
             [9,14,11,12,15,13,14,16,17])
+        rows[7]["close"]=16.8  # wick above 16, but this is a close-through break
         context=analyze_market_context(rows,pivot_window=1,external_window=2)
         self.assertEqual(context.range_context.status,"breakout_up")
         self.assertFalse(any(s.kind=="SWEEP_HIGH" and s.swing_index==4 for s in context.sweeps))

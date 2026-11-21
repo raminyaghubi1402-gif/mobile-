@@ -26,13 +26,19 @@ def signature(e):
 
 def prefix_check(rows, sizes):
     full=analyze_market_structure(rows,pivot_window=2)
+    full_context=analyze_market_context(rows,pivot_window=2)
     results=[]
     for size in sizes:
         if 8<=size<len(rows):
-            p=analyze_market_structure(rows[:size],pivot_window=2)
-            # Event chronology must be identical using only data available at each prefix.
-            results.append((size,[signature(e) for e in full.events if e.candle_index<size]
-                           ==[signature(e) for e in p.events]))
+            prefix=rows[:size]
+            p=analyze_market_structure(prefix,pivot_window=2)
+            pc=analyze_market_context(prefix,pivot_window=2)
+            core_ok=([signature(e) for e in full.events if e.candle_index<size]
+                     ==[signature(e) for e in p.events])
+            sweep_sig=lambda s:(s.kind,s.level,s.swing_index,s.candle_index,s.close)
+            context_ok=([sweep_sig(s) for s in full_context.sweeps if s.candle_index<size]
+                        ==[sweep_sig(s) for s in pc.sweeps])
+            results.append((size,core_ok and context_ok))
     return results
 
 def main():
@@ -59,8 +65,10 @@ def main():
             ctx=analyze_market_context(recent,pivot_window=2)
             labels=[s.label for s in ctx.labels]
             label_counts={k:labels.count(k) for k in ("HH","HL","LH","LL","EQH","EQL")}
-            bos=sum(e.kind.startswith("BOS") for e in core.events)
-            choch=sum(e.kind.startswith("CHoCH") for e in core.events)
+            event_counts={kind:sum(e.kind==kind for e in core.events)
+                          for kind in ("BOS_UP","BOS_DOWN","CHOCH_UP","CHOCH_DOWN","BREAK_UP","BREAK_DOWN")}
+            bos=event_counts["BOS_UP"]+event_counts["BOS_DOWN"]
+            choch=event_counts["CHOCH_UP"]+event_counts["CHOCH_DOWN"]
             lines.append(f"{label}: {len(rows)} bars, {dt(ts[0])} to {dt(ts[-1])}; duplicate={duplicates}, nonmonotonic={nonmonotonic}, estimated missing bars={gaps}; bias={core.bias}; BOS={bos}, CHoCH={choch}; confirmed swings={len(core.swings)}; recent labels={label_counts}; sweeps={len(ctx.sweeps)}; range={ctx.range_context.status}")
             if duplicates or nonmonotonic:
                 failures+=1

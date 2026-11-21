@@ -15,6 +15,9 @@ FRAMES = (("5", "5m", 300), ("15", "15m", 900), ("60", "1h", 3600),
 HORIZONS = (3, 6, 12)
 UP = {"BOS_UP", "CHOCH_UP", "BREAK_UP"}
 DOWN = {"BOS_DOWN", "CHOCH_DOWN", "BREAK_DOWN"}
+GROUPS = {"BOS": {"BOS_UP", "BOS_DOWN"},
+           "CHoCH": {"CHOCH_UP", "CHOCH_DOWN"},
+           "Initial break": {"BREAK_UP", "BREAK_DOWN"}}
 
 def load_rows(path):
     with path.open(newline="", encoding="utf-8") as f:
@@ -97,6 +100,11 @@ def audit_dataset(symbol, label, step, rows):
     for horizon in HORIZONS:
         stats=outcome_stats(rows,events,horizon)
         out.append(f"Forward {horizon} bars (exploratory, complete samples only): n={stats['n']}; level-reclaim failure={fmt(stats['fail_pct'])}%; median favorable/adverse ATR={fmt(stats['median_fav_atr'])}/{fmt(stats['median_adv_atr'])}; favorable >=1 ATR={fmt(stats['fav_ge_1atr_pct'])}%")
+    out.append("Event-class comparison at 6 bars (small samples; descriptive only):")
+    for name,kinds in GROUPS.items():
+        grouped=[e for e in events if e.kind in kinds]
+        stats=outcome_stats(rows,grouped,6)
+        out.append(f"  {name}: n={stats['n']}; reclaim-failure={fmt(stats['fail_pct'])}%; median favorable/adverse ATR={fmt(stats['median_fav_atr'])}/{fmt(stats['median_adv_atr'])}; >=1 ATR favorable={fmt(stats['fav_ge_1atr_pct'])}%")
     checks=prefix_causality(rows)
     out.append("Prefix causality: "+(", ".join(f"{cut} bars={'PASS' if ok else 'FAIL'}" for cut,ok in checks) or "not enough history"))
     return out, checks

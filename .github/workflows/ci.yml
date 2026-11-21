@@ -46,11 +46,15 @@ jobs:
         run: PYTHONPATH=src python -m unittest discover -s tests -v
       - name: Run BOS/CHoCH historical diagnostic
         run: PYTHONPATH=src python scripts/bos_choch_historical_diagnostic.py
-      - name: Upload historical diagnostic
+      - name: Run pivot-window sensitivity audit
+        run: PYTHONPATH=src:scripts python scripts/pivot_window_sensitivity.py
+      - name: Upload research diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: bos-choch-historical-diagnostic
-          path: bos-choch-historical-diagnostic.txt
+          name: structure-research-diagnostics
+          path: |
+            bos-choch-historical-diagnostic.txt
+            pivot-window-sensitivity.txt
           if-no-files-found: ignore
           retention-days: 14

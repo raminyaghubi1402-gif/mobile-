@@ -119,7 +119,9 @@ def analyze_market_context(candles: Sequence, *, pivot_window: int = 2,
     # Latest BOS identifies the opposing swing that was confirmed by the break.
     protected_high = protected_low = None
     for event in core.events:
-        eligible = [s for s in all_labels if s.confirmation_index <= event.candle_index]
+        # Protection is based on the internal confirmed swing chronology; a
+        # wider-window external classification must not delay this level.
+        eligible = [s for s in internal_labels if s.confirmation_index <= event.candle_index]
         if event.kind == "BOS_UP":
             lows = [s for s in eligible if s.kind == "low"]
             if lows:

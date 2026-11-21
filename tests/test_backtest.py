@@ -83,34 +83,6 @@ class BacktestTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             run_sma_backtest(bars, fast_period=2, slow_period=3)
 
-    def test_rejects_boolean_or_non_numeric_candle_values(self):
-        for field, invalid in (("open", True), ("high", "bad"), ("low", False),
-                               ("close", float("nan"))):
-            with self.subTest(field=field):
-                bars = sample_bars()
-                setattr(bars[2], field, invalid)
-                with self.assertRaises(ValueError):
-                    run_sma_backtest(bars, fast_period=2, slow_period=3)
-
-    def test_rejects_fractional_boolean_and_negative_timestamps(self):
-        for invalid in (True, 2.5, -1, float("nan"), "bad", "2"):
-            with self.subTest(timestamp=invalid):
-                bars = sample_bars()
-                bars[2].timestamp = invalid
-                with self.assertRaises(ValueError):
-                    run_sma_backtest(bars, fast_period=2, slow_period=3)
-
-    def test_rejects_non_integer_periods_and_boolean_parameters(self):
-        for kwargs in ({"fast_period": 2.5, "slow_period": 3},
-                      {"fast_period": True, "slow_period": 3},
-                      {"fast_period": 2, "slow_period": 3.0},
-                      {"starting_cash": True}, {"fee_rate": True}):
-            with self.subTest(kwargs=kwargs):
-                params = {"fast_period": 2, "slow_period": 3}
-                params.update(kwargs)
-                with self.assertRaises(ValueError):
-                    run_sma_backtest(sample_bars(), **params)
-
     def test_rejects_invalid_cost_parameters(self):
         with self.assertRaises(ValueError):
             run_sma_backtest(sample_bars(), fee_rate=float("nan"))

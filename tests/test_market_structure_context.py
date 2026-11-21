@@ -34,12 +34,21 @@ class MarketStructureContextTests(unittest.TestCase):
             [10,15,12,13,16,14,15,17,18],
             [7,8,9,8,10,9,11,12,13],
             [9,14,11,12,15,13,14,16,17])
-        # Pivot high at 4 confirms at 5. Sweep after that must wick above,
-        # while close remains at/below level.
+        # Pivot high at 4 confirms at 5. Wick beyond it, close back below 16.
         rows[7]["high"]=17.2
-        rows[7]["close"]=16.5
+        rows[7]["close"]=15.8
         context=analyze_market_context(rows,pivot_window=1,external_window=2)
         self.assertTrue(any(s.kind=="SWEEP_HIGH" and s.swing_index==4 for s in context.sweeps))
+
+    def test_break_close_is_not_mislabeled_as_sweep(self):
+        rows=candles(
+            [10,15,12,13,16,14,15,17,18],
+            [7,8,9,8,10,9,11,12,13],
+            [9,14,11,12,15,13,14,16,17])
+        rows[7]["high"]=17.2
+        rows[7]["close"]=16.8
+        context=analyze_market_context(rows,pivot_window=1,external_window=2)
+        self.assertFalse(any(s.kind=="SWEEP_HIGH" and s.swing_index==4 for s in context.sweeps))
 
     def test_close_through_range_boundary_is_breakout_not_sweep(self):
         rows=candles(

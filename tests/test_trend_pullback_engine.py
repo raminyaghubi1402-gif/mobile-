@@ -44,9 +44,9 @@ class TrendPullbackEngineTests(unittest.TestCase):
         ):
             return self.engine.evaluate(self.snapshot)
 
-    def valid_structures(self):
-        m15_event = event("CHOCH_UP", 7, 36000 - 1800)
-        m5_event = event("BOS_UP", 8, 36000 - 300)
+    def valid_structures(self, as_of=36000):
+        m15_event = event("CHOCH_UP", 7, as_of - 1800)
+        m5_event = event("BOS_UP", 8, as_of - 300)
         return analysis("up", m15_event), analysis("up", m5_event)
 
     def test_valid_setup_returns_research_signal_only(self):
@@ -125,7 +125,7 @@ class TrendPullbackEngineTests(unittest.TestCase):
 
     def test_consistent_nobitex_hourly_phase_offset_is_accepted(self):
         snapshot = make_snapshot(as_of=37800)  # H1 candles close on :30 UTC
-        m15, m5 = valid_structures(as_of=37800)
+        m15, m5 = self.valid_structures(as_of=37800)
         with patch("lili_trader.trend_pullback_engine.classify_price_action_trend",
                    return_value=uptrend()), patch(
             "lili_trader.trend_pullback_engine.analyze_market_structure",

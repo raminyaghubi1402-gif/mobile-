@@ -22,7 +22,12 @@ class PriceZone:
 
 def _value(candle, name: str) -> float:
     value = candle.get(name) if isinstance(candle, dict) else getattr(candle, name)
-    number = float(value)
+    if isinstance(value, bool):
+        raise ValueError("candle values must be numeric, not boolean")
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        raise ValueError("candle values must be numeric") from None
     if not isfinite(number):
         raise ValueError("candle values must be finite")
     return number
@@ -67,18 +72,30 @@ def find_support_resistance(
 
     rows = []
     previous_timestamp = None
+    timestamp_count = 0
     for candle in candles:
         high, low = _value(candle, "high"), _value(candle, "low")
         open_, close = _value(candle, "open"), _value(candle, "close")
         timestamp = candle.get("timestamp") if isinstance(candle, dict) else getattr(candle, "timestamp", None)
-        if low <= 0 or high < low or high < max(open_, close) or low > min(open_, close):
+        if low <= 0 or open_ <= 0 or close <= 0 or high < low or high < max(open_, close) or low > min(open_, close):
             raise ValueError("invalid OHLC candle")
         if timestamp is not None:
-            timestamp = int(timestamp)
+            if isinstance(timestamp, bool):
+                raise ValueError("timestamp must be a non-negative integer")
+            try:
+                numeric_timestamp = float(timestamp)
+            except (TypeError, ValueError, OverflowError):
+                raise ValueError("timestamp must be an integer") from None
+            if not isfinite(numeric_timestamp) or numeric_timestamp < 0 or not numeric_timestamp.is_integer():
+                raise ValueError("timestamp must be a non-negative integer")
+            timestamp = int(numeric_timestamp)
             if previous_timestamp is not None and timestamp <= previous_timestamp:
                 raise ValueError("candles must be strictly chronological")
             previous_timestamp = timestamp
+            timestamp_count += 1
         rows.append((high, low, close))
+    if timestamp_count not in (0, len(rows)):
+        raise ValueError("timestamps must be present on every candle or none")
 
     atr = _atr(candles, atr_period)
     current_price = rows[-1][2]

@@ -51,6 +51,28 @@ class SupportResistanceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             find_support_resistance(candles_with_repeated_levels(), tolerance_atr=0)
 
+    def test_rejects_boolean_ohlc_values(self):
+        for field in ("open", "high", "low", "close"):
+            with self.subTest(field=field):
+                rows = candles_with_repeated_levels()
+                rows[5][field] = True
+                with self.assertRaises(ValueError):
+                    find_support_resistance(rows)
+
+    def test_rejects_invalid_timestamp_values_without_truncating(self):
+        for invalid in (True, 1.5, -1, float("nan"), float("inf"), "bad"):
+            with self.subTest(timestamp=invalid):
+                rows = candles_with_repeated_levels()
+                rows[5]["timestamp"] = invalid
+                with self.assertRaises(ValueError):
+                    find_support_resistance(rows)
+
+    def test_rejects_partially_missing_timestamps(self):
+        rows = candles_with_repeated_levels()
+        rows[5].pop("timestamp")
+        with self.assertRaises(ValueError):
+            find_support_resistance(rows)
+
     def test_nearest_zone_validates_arguments(self):
         zones = find_support_resistance(candles_with_repeated_levels())
         self.assertIsNotNone(nearest_zone(zones, 100, "support"))

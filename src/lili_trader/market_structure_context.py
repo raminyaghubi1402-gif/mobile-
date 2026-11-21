@@ -1,7 +1,7 @@
 """Conservative market-structure context: hierarchy, labels, range and sweeps.
 
-This layer is deliberately descriptive. It does not issue trade signals, and all
-pivots are taken from the confirmed-swing engine (never future-known pivots).
+This layer is descriptive only. It does not issue trade signals; all pivots
+come from the confirmed-swing engine and are not usable before confirmation.
 """
 from __future__ import annotations
 
@@ -89,11 +89,11 @@ def _label_swings(swings, hierarchy, window):
 
 def analyze_market_context(candles: Sequence, *, pivot_window: int = 2,
                            external_window: int | None = None) -> MarketContext:
-    """Build labeled internal/external structure, sweeps and range context.
+    """Return internal/external swing labels, protection, sweeps and range state.
 
     External pivots use a wider fractal window (default pivot_window + 1).
-    A range is only promoted from candidate when the core bias is neutral/range;
-    close-based boundary breaks are kept distinct from wick sweeps.
+    A candidate range is promoted only when the core bias is neutral/range and
+    both boundaries have repeated near-touches. Boundary breaks are close-based.
     """
     if type(pivot_window) is not int or pivot_window < 1:
         raise ValueError("pivot_window must be a positive integer")
@@ -104,19 +104,19 @@ def analyze_market_context(candles: Sequence, *, pivot_window: int = 2,
 
     core = analyze_market_structure(candles, pivot_window=pivot_window)
     ext_core = analyze_market_structure(candles, pivot_window=external_window)
-    internal = _label_swings(core.swings, "internal", pivot_window)
-    external = _label_swings(ext_core.swings, "external", external_window)
+    internal_labels = _label_swings(core.swings, "internal", pivot_window)
+    external_labels = _label_swings(ext_core.swings, "external", external_window)
     external_keys = {(s.kind, s.index) for s in ext_core.swings}
+    external_label_by_key = {(s.kind, s.index): s for s in external_labels}
     all_labels = tuple(
-        SwingLabel(s.kind, s.price, s.index, s.label,
-                  "external" if (s.kind, s.index) in external_keys else "internal",
-                  s.confirmation_index)
-        for s in internal
+        external_label_by_key.get((s.kind, s.index), s)
+        if (s.kind, s.index) in external_keys else s
+        for s in internal_labels
     )
     internal_only = tuple(s for s in all_labels if s.hierarchy == "internal")
-    external_only = tuple(external)
+    external_only = tuple(external_labels)
 
-    # The most recent BOS determines the protected opposite-side swing.
+    # Latest BOS identifies the opposing swing that was confirmed by the break.
     protected_high = protected_low = None
     for event in core.events:
         eligible = [s for s in all_labels if s.confirmation_index <= event.candle_index]
@@ -149,16 +149,23 @@ def analyze_market_context(candles: Sequence, *, pivot_window: int = 2,
                 sweeps.append(LiquiditySweep("SWEEP_LOW", swing.price, swing.index, i, ts, close))
                 break
 
-    ext_highs = [s for s in ext_core.swings if s.kind == "high"]
-    ext_lows = [s for s in ext_core.swings if s.kind == "low"]
-    upper = max((s.price for s in ext_highs), default=None)
-    lower = min((s.price for s in ext_lows), default=None)
+    # Boundaries use the latest three external pivots on each side; near-touch
+    # tolerance avoids requiring an exact price print to count as a test.
+    recent_highs = [s.price for s in ext_core.swings if s.kind == "high"][-3:]
+    recent_lows = [s.price for s in ext_core.swings if s.kind == "low"][-3:]
+    upper = max(recent_highs, default=None)
+    lower = min(recent_lows, default=None)
     latest_close = core.latest_close
-    touches_high = sum(1 for row in rows if upper is not None and float(_candle_value(row, "high")) >= upper)
-    touches_low = sum(1 for row in rows if lower is not None and float(_candle_value(row, "low")) <= lower)
+    tolerance = 0.0025
+    touches_high = sum(1 for row in rows if upper is not None and
+                       float(_candle_value(row, "high")) >= upper * (1 - tolerance) and
+                       float(_candle_value(row, "close")) <= upper * (1 + tolerance))
+    touches_low = sum(1 for row in rows if lower is not None and
+                      float(_candle_value(row, "low")) <= lower * (1 + tolerance) and
+                      float(_candle_value(row, "close")) >= lower * (1 - tolerance))
     width = upper - lower if upper is not None and lower is not None and upper > lower else None
     width_pct = (100 * width / ((upper + lower) / 2)) if width is not None and upper + lower else None
-    if upper is None or lower is None or latest_close is None:
+    if upper is None or lower is None or latest_close is None or width is None:
         status = "unknown"
     elif latest_close > upper:
         status = "breakout_up"
@@ -197,11 +204,7 @@ class TimeframeAlignment:
 
 def analyze_timeframe_alignment(timeframes: Mapping[str, Sequence], *,
                                 pivot_window: int = 2) -> TimeframeAlignment:
-    """Analyze each timeframe independently and compare against the highest one.
-
-    Conventional key order is 1d, 4h, 1h, 15m, 5m, 1m; unknown keys follow.
-    A neutral/unknown higher timeframe is not treated as a directional mandate.
-    """
+    """Compare timeframes independently; higher-TF neutrality is not a mandate."""
     order = {"1d": 0, "d": 0, "daily": 0, "4h": 1, "h4": 1,
              "1h": 2, "h1": 2, "15m": 3, "m15": 3, "5m": 4, "m5": 4,
              "1m": 5, "m1": 5}
@@ -212,7 +215,7 @@ def analyze_timeframe_alignment(timeframes: Mapping[str, Sequence], *,
     higher = analyses[0][1] if analyses else "unknown"
     if not directional:
         consensus = "neutral"
-    elif all(b == directional[0] for b in directional) and len(directional) == len(analyses):
+    elif len(directional) == len(analyses) and all(b == directional[0] for b in directional):
         consensus = directional[0]
     else:
         consensus = "mixed"

@@ -82,5 +82,33 @@ class MarketStructureContextTests(unittest.TestCase):
         self.assertIn("اجباری",result.reason_fa)
 
 
+    def test_bos_protection_tracks_latest_confirmed_opposing_swing(self):
+        bullish=candles(
+            [10,12,11,15,13,14,16,15,18,17,19,18],
+            [8,9,7,10,9,12,12,11,13,12,14,10.5],
+            [9,11,10,14,12,13,15,14,17,15,18,11.5])
+        context=analyze_market_context(bullish,pivot_window=1,external_window=2)
+        self.assertIsNotNone(context.protected_low)
+        self.assertEqual(context.protected_low.price,11)
+        self.assertEqual(context.protected_low.index,7)
+
+        bearish=candles(
+            [22,21,23,20,21,18,18,19,17,18,16,19.5],
+            [20,18,19,15,17,16,14,15,12,13,11,12],
+            [21,19,20,16,18,17,15,16,13,15,12,18.5])
+        context=analyze_market_context(bearish,pivot_window=1,external_window=2)
+        self.assertIsNotNone(context.protected_high)
+        self.assertEqual(context.protected_high.price,19)
+        self.assertEqual(context.protected_high.index,7)
+
+    def test_external_boundary_close_break_is_classified_as_breakout(self):
+        rows=candles(
+            [10,15,12,13,16,14,15,17,18],
+            [7,8,9,8,10,9,11,12,13],
+            [9,14,11,12,15,13,14,16,17])
+        context=analyze_market_context(rows,pivot_window=1,external_window=2)
+        self.assertEqual(context.range_context.status,"breakout_up")
+        self.assertFalse(any(s.kind=="SWEEP_HIGH" and s.swing_index==4 for s in context.sweeps))
+
 if __name__=="__main__":
     unittest.main()

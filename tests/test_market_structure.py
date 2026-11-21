@@ -340,5 +340,33 @@ class MarketStructureTests(unittest.TestCase):
         self.assertEqual(reversal.level,32)
 
 
+
+    def test_rejects_numeric_strings_in_ohlc(self):
+        rows = candles_from([10,11,10,12,11,13],[8,9,8,10,9,11])
+        rows[2]["close"] = "9.5"
+        with self.assertRaises(ValueError):
+            analyze_market_structure(rows, pivot_window=1)
+
+    def test_rejects_numeric_string_timestamps(self):
+        rows = candles_from([10,11,10,12,11,13],[8,9,8,10,9,11])
+        rows[2]["timestamp"] = "2"
+        with self.assertRaises(ValueError):
+            analyze_market_structure(rows, pivot_window=1)
+
+    def test_validates_short_history_before_returning_unknown(self):
+        rows = candles_from([10,11,10],[8,9,8])
+        rows[1]["open"] = float("nan")
+        with self.assertRaises(ValueError):
+            analyze_market_structure(rows, pivot_window=1)
+
+    def test_outside_bar_can_be_both_high_and_low_swing(self):
+        rows = candles_from(
+            [10,12,11,13,20,16,15],
+            [8,9,10,11,5,7,8],
+            [9,11,10.5,12,12,13,14])
+        result = analyze_market_structure(rows, pivot_window=1)
+        same_index = [s for s in result.swings if s.index == 4]
+        self.assertEqual({s.kind for s in same_index}, {"high", "low"})
+
 if __name__=="__main__":
     unittest.main()

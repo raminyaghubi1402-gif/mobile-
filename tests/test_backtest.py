@@ -93,7 +93,7 @@ class BacktestTests(unittest.TestCase):
                     run_sma_backtest(bars, fast_period=2, slow_period=3)
 
     def test_rejects_fractional_boolean_and_negative_timestamps(self):
-        for invalid in (True, 2.5, -1, float("nan"), "bad"):
+        for invalid in (True, 2.5, -1, float("nan"), "bad", "2"):
             with self.subTest(timestamp=invalid):
                 bars = sample_bars()
                 bars[2].timestamp = invalid

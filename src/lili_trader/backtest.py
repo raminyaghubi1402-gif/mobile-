@@ -44,12 +44,9 @@ def _strict_number(value: object, label: str) -> float:
 
 
 def _strict_timestamp(value: object) -> int:
-    if isinstance(value, bool):
-        raise ValueError("timestamp must be a non-negative integer")
-    try:
-        numeric = float(value)
-    except (TypeError, ValueError, OverflowError):
-        raise ValueError("timestamp must be an integer") from None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("timestamp must be a numeric integer")
+    numeric = float(value)
     if not isfinite(numeric) or numeric < 0 or not numeric.is_integer():
         raise ValueError("timestamp must be a non-negative integer")
     return int(numeric)

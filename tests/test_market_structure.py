@@ -22,6 +22,29 @@ class MarketStructureTests(unittest.TestCase):
         self.assertEqual(result.bias,"unknown")
         self.assertIsNone(result.last_event)
 
+    def test_short_input_is_still_validated_and_returns_latest_close(self):
+        rows=candles_from([10,11,10],[8,9,8],[9,10,9])
+        result=analyze_market_structure(rows,pivot_window=2)
+        self.assertEqual(result.bias,"unknown")
+        self.assertEqual(result.latest_close,9)
+        rows[1]["low"]=rows[1]["high"]+1
+        with self.assertRaises(ValueError):
+            analyze_market_structure(rows,pivot_window=2)
+
+    def test_equal_high_plateau_uses_rightmost_pivot_and_exposes_confirmation(self):
+        rows=candles_from([10,12,12,11,10,11,12],[7,8,9,8,7,8,9])
+        result=analyze_market_structure(rows,pivot_window=1)
+        high=next(s for s in result.swings if s.kind=="high" and s.price==12)
+        self.assertEqual(high.index,2)
+        self.assertEqual(high.confirmation_index,3)
+
+    def test_equal_low_plateau_uses_rightmost_pivot_and_exposes_confirmation(self):
+        rows=candles_from([13,12,11,12,13,12,11],[10,8,8,9,10,9,10])
+        result=analyze_market_structure(rows,pivot_window=1)
+        low=next(s for s in result.swings if s.kind=="low" and s.price==8)
+        self.assertEqual(low.index,2)
+        self.assertEqual(low.confirmation_index,3)
+
     def test_uptrend_close_break_is_bos(self):
         rows=candles_from([10,15,12,13,16,14,15,17,18,19,20],
                           [7,8,9,8,10,9,11,12,13,14,15],

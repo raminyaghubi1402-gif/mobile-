@@ -7,7 +7,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from collections.abc import Mapping, Sequence
 from math import isfinite
-from numbers import Real
 
 @dataclass(frozen=True)
 class Swing:
@@ -43,12 +42,15 @@ def analyze_market_structure(candles: Sequence, *, pivot_window: int = 2) -> Str
         raise ValueError("pivot_window must be a positive integer")
     if not isinstance(candles, Sequence) or isinstance(candles, (str, bytes)):
         raise TypeError("candles must be a sequence")
+    if len(candles) < 2 * pivot_window + 3:
+        return StructureAnalysis("unknown", None, (), (), None,
+                                 "کندل کافی برای تأیید سوئینگ و شکست ساختار وجود ندارد.")
     rows, prev_ts = [], None
     timestamped_count = 0
     for c in candles:
         raw_ohlc = tuple(_value(c, k) for k in ("open", "high", "low", "close"))
-        if any(isinstance(value, bool) or not isinstance(value, Real) for value in raw_ohlc):
-            raise ValueError("OHLC must be numeric values, not strings or booleans")
+        if any(isinstance(value, bool) for value in raw_ohlc):
+            raise ValueError("OHLC must be numeric, not boolean")
         try:
             o, h, low, cl = (float(value) for value in raw_ohlc)
         except (TypeError, ValueError, OverflowError):
@@ -58,8 +60,8 @@ def analyze_market_structure(candles: Sequence, *, pivot_window: int = 2) -> Str
         raw_ts = _value(c, "timestamp")
         ts = None
         if raw_ts is not None:
-            if isinstance(raw_ts, bool) or not isinstance(raw_ts, Real):
-                raise ValueError("timestamp must be numeric, not a string or boolean")
+            if isinstance(raw_ts, bool):
+                raise ValueError("timestamp must be an integer Unix/index value")
             try:
                 numeric_ts = float(raw_ts)
             except (TypeError, ValueError, OverflowError):
@@ -74,9 +76,6 @@ def analyze_market_structure(candles: Sequence, *, pivot_window: int = 2) -> Str
         rows.append((o, h, low, cl, ts))
     if timestamped_count not in (0, len(rows)):
         raise ValueError("timestamps must be present on every candle or none")
-    if len(rows) < 2 * pivot_window + 3:
-        return StructureAnalysis("unknown", None, (), (), None,
-                                 "کندل کافی برای تأیید سوئینگ و شکست ساختار وجود ندارد.")
 
     all_swings = []
     pivots_by_confirmation = {}
@@ -142,24 +141,24 @@ def analyze_market_structure(candles: Sequence, *, pivot_window: int = 2) -> Str
             protected_low = latest_low or protected_low
 
         close, ts = row[3], row[4]
-        if protected_high and close > protected_high.price and (protected_high.kind, protected_high.index) not in broken:
+        if protected_high and close > protected_high.price and protected_high.index not in broken:
             kind = "BOS_UP" if active_bias == "up" else "CHOCH_UP" if active_bias == "down" else "BREAK_UP"
             fa = {"BOS_UP":"شکست ساختار صعودی (BOS)",
                   "CHOCH_UP":"تغییر کاراکتر صعودی (CHoCH)",
                   "BREAK_UP":"شکست سقف؛ جهت قبلی هنوز قطعی نیست"}[kind]
             events.append(StructureEvent(kind, protected_high.price, i, ts, protected_high.index, close, fa))
-            broken.add((protected_high.kind, protected_high.index))
+            broken.add(protected_high.index)
             if kind != "BREAK_UP":
                 active_bias = "up"
             if confirmed_lows:
                 protected_low = confirmed_lows[-1]
-        elif protected_low and close < protected_low.price and (protected_low.kind, protected_low.index) not in broken:
+        elif protected_low and close < protected_low.price and protected_low.index not in broken:
             kind = "BOS_DOWN" if active_bias == "down" else "CHOCH_DOWN" if active_bias == "up" else "BREAK_DOWN"
             fa = {"BOS_DOWN":"شکست ساختار نزولی (BOS)",
                   "CHOCH_DOWN":"تغییر کاراکتر نزولی (CHoCH)",
                   "BREAK_DOWN":"شکست کف؛ جهت قبلی هنوز قطعی نیست"}[kind]
             events.append(StructureEvent(kind, protected_low.price, i, ts, protected_low.index, close, fa))
-            broken.add((protected_low.kind, protected_low.index))
+            broken.add(protected_low.index)
             if kind != "BREAK_DOWN":
                 active_bias = "down"
             if confirmed_highs:

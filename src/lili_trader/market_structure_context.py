@@ -153,16 +153,25 @@ def analyze_market_context(candles: Sequence, *, pivot_window: int = 2,
 
     # Boundaries use the latest three external pivots on each side; near-touch
     # tolerance avoids requiring an exact price print to count as a test.
-    recent_highs = [s.price for s in ext_core.swings if s.kind == "high"][-3:]
-    recent_lows = [s.price for s in ext_core.swings if s.kind == "low"][-3:]
-    upper = max(recent_highs, default=None)
-    lower = min(recent_lows, default=None)
+    recent_high_swings = [s for s in ext_core.swings if s.kind == "high"][-3:]
+    recent_low_swings = [s for s in ext_core.swings if s.kind == "low"][-3:]
+    upper_swing = max(recent_high_swings, key=lambda s: s.price, default=None)
+    lower_swing = min(recent_low_swings, key=lambda s: s.price, default=None)
+    upper = upper_swing.price if upper_swing else None
+    lower = lower_swing.price if lower_swing else None
     latest_close = core.latest_close
     tolerance = 0.0025
-    touches_high = sum(1 for row in rows if upper is not None and
+    # A range boundary is not considered available before both selected
+    # external pivots have been confirmed. Count touches only after that point.
+    boundary_start = max(
+        _confirmation(upper_swing, external_window) if upper_swing else 0,
+        _confirmation(lower_swing, external_window) if lower_swing else 0,
+    )
+    boundary_rows = rows[boundary_start:]
+    touches_high = sum(1 for row in boundary_rows if upper is not None and
                        float(_candle_value(row, "high")) >= upper * (1 - tolerance) and
                        float(_candle_value(row, "close")) <= upper * (1 + tolerance))
-    touches_low = sum(1 for row in rows if lower is not None and
+    touches_low = sum(1 for row in boundary_rows if lower is not None and
                       float(_candle_value(row, "low")) <= lower * (1 + tolerance) and
                       float(_candle_value(row, "close")) >= lower * (1 - tolerance))
     width = upper - lower if upper is not None and lower is not None and upper > lower else None

@@ -31,6 +31,7 @@ def _closed_series(snapshot: Mapping, timeframe: str) -> tuple[list[dict], int]:
     interval = _INTERVAL_SECONDS[timeframe]
     normalized = []
     previous_timestamp = None
+    alignment_phase = None
     for raw in rows:
         if not isinstance(raw, Mapping):
             raise ValueError("each candle must be a mapping")
@@ -41,8 +42,11 @@ def _closed_series(snapshot: Mapping, timeframe: str) -> tuple[list[dict], int]:
             raise ValueError("candle timestamp must be a non-negative integer")
         if previous_timestamp is not None and timestamp <= previous_timestamp:
             raise ValueError("candle timestamps must be strictly increasing")
-        if timestamp % interval != 0:
-            raise ValueError("candle timestamp is not aligned to its timeframe")
+        phase = timestamp % interval
+        if alignment_phase is None:
+            alignment_phase = phase
+        elif phase != alignment_phase:
+            raise ValueError("candle timestamps have inconsistent timeframe alignment")
         previous_timestamp = timestamp
         close_timestamp = timestamp + interval
         if close_timestamp > as_of:

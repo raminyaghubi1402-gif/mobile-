@@ -123,6 +123,23 @@ class TrendPullbackEngineTests(unittest.TestCase):
         self.assertEqual(result.status, "WAIT")
         self.assertEqual(result.evidence["data_validation"], "failed")
 
+    def test_consistent_nobitex_hourly_phase_offset_is_accepted(self):
+        snapshot = make_snapshot(as_of=37800)  # H1 candles close on :30 UTC
+        m15, m5 = valid_structures(as_of=37800)
+        with patch("lili_trader.trend_pullback_engine.classify_price_action_trend",
+                   return_value=uptrend()), patch(
+            "lili_trader.trend_pullback_engine.analyze_market_structure",
+            side_effect=(m15, m5),
+        ):
+            result = self.engine.evaluate(snapshot)
+        self.assertEqual(result.status, "SIGNAL")
+
+    def test_mixed_timeframe_alignment_phase_is_rejected(self):
+        self.snapshot["candles"]["1h"][1]["timestamp"] += 300
+        result = self.engine.evaluate(self.snapshot)
+        self.assertEqual(result.status, "WAIT")
+        self.assertEqual(result.evidence["data_validation"], "failed")
+
     def test_research_registry_factory_registers_only_first_engine(self):
         registry = create_research_registry()
         self.assertEqual(registry.registered_ids, ("trend_pullback",))

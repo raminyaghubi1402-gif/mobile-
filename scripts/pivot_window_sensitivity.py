@@ -2,7 +2,7 @@
 """Sensitivity audit of BOS/CHoCH pivot confirmation window; descriptive only."""
 from __future__ import annotations
 from pathlib import Path
-from scripts.bos_choch_historical_diagnostic import FRAMES, SYMBOLS, load_rows, outcome_stats, fmt
+try:\n    from bos_choch_historical_diagnostic import FRAMES, SYMBOLS, load_rows, outcome_stats, fmt\nexcept ModuleNotFoundError:\n    from scripts.bos_choch_historical_diagnostic import FRAMES, SYMBOLS, load_rows, outcome_stats, fmt
 from lili_trader.market_structure import analyze_market_structure
 ROOT=Path(__file__).resolve().parents[1]
 DATA=ROOT/"data"/"history"

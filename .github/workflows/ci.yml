@@ -44,3 +44,13 @@ jobs:
           node --check /tmp/lili-chart.js
       - name: Run unit tests
         run: PYTHONPATH=src python -m unittest discover -s tests -v
+      - name: Audit checked-in historical market structure
+        run: PYTHONPATH=src python scripts/market_structure_historical_audit.py
+      - name: Upload historical audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: market-structure-historical-audit
+          path: market-structure-historical-audit.txt
+          if-no-files-found: ignore
+          retention-days: 14

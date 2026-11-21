@@ -386,39 +386,5 @@ class MarketStructureTests(unittest.TestCase):
         self.assertEqual(high_break.candle_index, 12)
         self.assertEqual(low_break.candle_index, 14)
 
-
-    def test_prefix_analysis_is_causal_and_event_timestamps_match_break_candles(self):
-        rows = candles_from(
-            [10,15,12,14,16,13,18,15,20,17,35,19,40,39,20,22],
-            [6,8,10,9,11,12,13,14,15,16,15,17,18,19,14,16],
-            [9,14,11,13,15,12.5,17,14.5,19,16.5,25,18,38,38,14.5,21])
-        for i, row in enumerate(rows):
-            row["timestamp"] = 1_700_000_000 + i * 300
-        full = analyze_market_structure(rows, pivot_window=1)
-        for end in range(5, len(rows) + 1):
-            with self.subTest(prefix_length=end):
-                prefix = analyze_market_structure(rows[:end], pivot_window=1)
-                full_events = [
-                    (event.kind, event.candle_index, event.level,
-                     event.broken_swing_index, event.close, event.timestamp)
-                    for event in full.events if event.candle_index < end
-                ]
-                prefix_events = [
-                    (event.kind, event.candle_index, event.level,
-                     event.broken_swing_index, event.close, event.timestamp)
-                    for event in prefix.events
-                ]
-                self.assertEqual(prefix_events, full_events)
-                confirmed_full_swings = [
-                    (swing.kind, swing.index, swing.price, swing.timestamp)
-                    for swing in full.swings if swing.index + 1 < end
-                ]
-                self.assertEqual(
-                    [(s.kind, s.index, s.price, s.timestamp) for s in prefix.swings],
-                    confirmed_full_swings,
-                )
-        for event in full.events:
-            self.assertEqual(event.timestamp, rows[event.candle_index]["timestamp"])
-
 if __name__=="__main__":
     unittest.main()

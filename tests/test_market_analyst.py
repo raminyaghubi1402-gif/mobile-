@@ -279,5 +279,18 @@ class ProfessionalMarketAnalystTests(unittest.TestCase):
                 self.assertEqual(old_swings, retained_swings)
 
 
+    def test_market_context_and_timeframe_alignment_are_integrated_into_report(self):
+        up = candles_for("up")
+        result = analyze_market(
+            "BTCIRT", {"1h": up, "15m": up, "5m": up}, pivot_window=1
+        )
+        frames = {frame.timeframe: frame for frame in result.frames}
+        self.assertIsNotNone(frames["1h"].context)
+        self.assertIsNotNone(frames["15m"].context)
+        self.assertIsNotNone(frames["5m"].context)
+        self.assertIsNotNone(result.structure_alignment)
+        self.assertIn("ساختار تکمیلی", result.report_fa)
+        self.assertIn("هم‌راستایی ساختار تایم‌فریم‌ها", result.report_fa)
+
 if __name__ == "__main__":
     unittest.main()

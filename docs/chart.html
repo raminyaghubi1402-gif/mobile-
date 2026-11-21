@@ -210,6 +210,21 @@ function getClosedCandles(bars,resolution=$('resolution').value){
   return Number.isFinite(seconds)&&seconds>0&&c.time+seconds<=now;
  });
 }
+function assessCandleFreshness(bars,resolution,nowSeconds,allowedClosedIntervals=1){
+ const interval=resolution==='M'?30*86400:resolution==='W'?604800:resolution==='D'?86400:Number(resolution)*60;
+ if(!Array.isArray(bars)||!bars.length)return {fresh:false,reason:'دادهٔ بسته‌شده وجود ندارد',ageSeconds:null,maxAgeSeconds:null};
+ if(!Number.isFinite(interval)||interval<=0||!Number.isFinite(nowSeconds)||!Number.isInteger(allowedClosedIntervals)||allowedClosedIntervals<0)return {fresh:false,reason:'پارامتر تازگی داده نامعتبر است',ageSeconds:null,maxAgeSeconds:null};
+ let previous=-Infinity;
+ for(const candle of bars){
+  if(!candle||!Number.isFinite(candle.time)||candle.time<=previous)return {fresh:false,reason:'زمان کندل‌ها نامعتبر یا نامرتب است',ageSeconds:null,maxAgeSeconds:null};
+  previous=candle.time;
+ }
+ const last=bars[bars.length-1],closedAt=last.time+interval,ageSeconds=nowSeconds-closedAt,maxAgeSeconds=interval*allowedClosedIntervals;
+ if(ageSeconds<0)return {fresh:false,reason:'آخرین کندل هنوز بسته نشده است',ageSeconds,maxAgeSeconds};
+ if(bars.length>1&&last.time-bars[bars.length-2].time>interval*2)return {fresh:false,reason:'بین آخرین کندل‌ها شکاف زمانی غیرعادی وجود دارد',ageSeconds,maxAgeSeconds};
+ if(ageSeconds>maxAgeSeconds)return {fresh:false,reason:'داده قدیمی است',ageSeconds,maxAgeSeconds};
+ return {fresh:true,reason:'داده تازه است',ageSeconds,maxAgeSeconds};
+}
 // تحلیل سه‌تایم‌فریمی: ۱h جهت، ۱۵m ستاپ، ۵m ماشه؛ بدون سفارش واقعی.
 function autoAnalysis(){
  if(!mtfReady){$('status').textContent='تحلیل متوقف است: داده چندتایم‌فریمی کامل نیست.';return;}
@@ -368,9 +383,12 @@ async function refreshMtfAnalysis(symbol){
   const core=await Promise.all([
    fetchCandles(symbol,'60',500),fetchCandles(symbol,'15',500),fetchCandles(symbol,'5',500)
   ]);
+  const freshnessNow=Math.floor(Date.now()/1000);
   for(const [index,key] of ['60','15','5'].entries()){
    const closed=getClosedCandles(core[index],key);
    if(closed.length<30)throw new Error('داده بسته‌شدهٔ کافی برای '+key+' دقیقه وجود ندارد ('+closed.length+' کندل)');
+   const freshness=assessCandleFreshness(closed,key,freshnessNow,1);
+   if(!freshness.fresh)throw new Error('دادهٔ تایم‌فریم '+key+' تازه نیست: '+freshness.reason+'؛ عمر آخرین کندل '+(freshness.ageSeconds===null?'نامشخص':Math.max(0,freshness.ageSeconds/60).toFixed(1)+' دقیقه'));
    nextCandles[key]=closed;nextZones[key]=findZones(closed);
    nextTrends[key]=detectPriceActionTrend(closed,2);
   }
@@ -379,23 +397,29 @@ async function refreshMtfAnalysis(symbol){
   const dailyResult=contextJobs[0],fourHourResult=contextJobs[1],contextWarnings=[];
   if(dailyResult.status==='fulfilled'){
    const daily=getClosedCandles(dailyResult.value,'D');
-   const derived=[
-    ['D',daily],
-    ['W',aggregateDaily(daily,'W')],
-    ['M',aggregateDaily(daily,'M')]
-   ];
-   for(const [key,bars] of derived){
-    const closed=getClosedCandles(bars,key);
-    const minimum=key==='M'?6:key==='W'?12:20;
-    if(closed.length>=minimum){
-     nextCandles[key]=closed;nextZones[key]=findZones(closed);
-     nextTrends[key]=detectPriceActionTrend(closed,(key==='M'||key==='W')?1:2);
-    }else contextWarnings.push('دادهٔ '+key+' برای زمینه کافی نیست');
+   const dailyFresh=assessCandleFreshness(daily,'D',Math.floor(Date.now()/1000),1);
+   if(!dailyFresh.fresh)contextWarnings.push('دادهٔ روزانه قدیمی/نامعتبر است؛ زمینه حذف شد');
+   else{
+    const derived=[
+     ['D',daily],
+     ['W',aggregateDaily(daily,'W')],
+     ['M',aggregateDaily(daily,'M')]
+    ];
+    for(const [key,bars] of derived){
+     const closed=getClosedCandles(bars,key);
+     const minimum=key==='M'?6:key==='W'?12:20;
+     if(closed.length>=minimum){
+      nextCandles[key]=closed;nextZones[key]=findZones(closed);
+      nextTrends[key]=detectPriceActionTrend(closed,(key==='M'||key==='W')?1:2);
+     }else contextWarnings.push('دادهٔ '+key+' برای زمینه کافی نیست');
+    }
    }
   }else contextWarnings.push('دادهٔ روزانه/هفتگی/ماهانه دریافت نشد');
   if(fourHourResult.status==='fulfilled'){
    const closed=getClosedCandles(fourHourResult.value,'240');
-   if(closed.length>=20){nextCandles['240']=closed;nextZones['240']=findZones(closed);nextTrends['240']=detectPriceActionTrend(closed,2);}
+   const fourHourFresh=assessCandleFreshness(closed,'240',Math.floor(Date.now()/1000),1);
+   if(!fourHourFresh.fresh)contextWarnings.push('دادهٔ ۴ ساعته قدیمی/نامعتبر است؛ زمینه حذف شد');
+   else if(closed.length>=20){nextCandles['240']=closed;nextZones['240']=findZones(closed);nextTrends['240']=detectPriceActionTrend(closed,2);}
    else contextWarnings.push('دادهٔ ۴ ساعته کافی نیست');
   }else contextWarnings.push('دادهٔ ۴ ساعته دریافت نشد');
   mtfZones=nextZones;mtfCandles=nextCandles;mtfTrends=nextTrends;

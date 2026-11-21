@@ -42,5 +42,7 @@ jobs:
           Path("/tmp/lili-chart.js").write_text("\n".join(scripts), encoding="utf-8")
           PY
           node --check /tmp/lili-chart.js
+      - name: Test chart data freshness and market scope
+        run: node tests/chart_data_guard.test.js
       - name: Run unit tests
         run: PYTHONPATH=src python -m unittest discover -s tests -v

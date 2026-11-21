@@ -14,6 +14,9 @@ class Swing:
     price: float
     index: int
     timestamp: int | None = None
+    # The pivot is historical; these fields identify when it became knowable.
+    confirmation_index: int | None = None
+    confirmation_timestamp: int | None = None
 
 @dataclass(frozen=True)
 class StructureEvent:
@@ -82,13 +85,21 @@ def analyze_market_structure(candles: Sequence, *, pivot_window: int = 2) -> Str
     for p in range(pivot_window, len(rows) - pivot_window):
         neighbors = rows[p-pivot_window:p] + rows[p+1:p+pivot_window+1]
         if all(rows[p][1] > x[1] for x in neighbors):
-            s = Swing("high", rows[p][1], p, rows[p][4])
+            confirmation_index = p + pivot_window
+            s = Swing(
+                "high", rows[p][1], p, rows[p][4],
+                confirmation_index, rows[confirmation_index][4],
+            )
             all_swings.append(s)
-            pivots_by_confirmation.setdefault(p + pivot_window, []).append(s)
+            pivots_by_confirmation.setdefault(confirmation_index, []).append(s)
         if all(rows[p][2] < x[2] for x in neighbors):
-            s = Swing("low", rows[p][2], p, rows[p][4])
+            confirmation_index = p + pivot_window
+            s = Swing(
+                "low", rows[p][2], p, rows[p][4],
+                confirmation_index, rows[confirmation_index][4],
+            )
             all_swings.append(s)
-            pivots_by_confirmation.setdefault(p + pivot_window, []).append(s)
+            pivots_by_confirmation.setdefault(confirmation_index, []).append(s)
     all_swings.sort(key=lambda s: (s.index, s.kind))
 
     confirmed_highs, confirmed_lows = [], []

@@ -95,4 +95,5 @@ GitHub Actions برای ساخت، آزمون و اجرای زمان‌بندی�
 
 ## اسناد تکمیلی\n- [دفتر تصمیم‌ها و کالبدشکافی معاملات](DECISION_REVIEW_FA.md)
 - [چرخهٔ حرفه‌ای معامله‌گر و ممیزی شکاف‌ها](PRO_TRADER_LIFECYCLE_FA.md)
+- [وضعیت واقعی Paper Forward](PAPER_FORWARD_STATUS_FA.md)
 - [محدودهٔ بازار و طراحی سبک تبلت](NOBITEX_SCOPE_FA.md)

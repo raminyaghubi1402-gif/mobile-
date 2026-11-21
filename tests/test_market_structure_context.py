@@ -111,5 +111,24 @@ class MarketStructureContextTests(unittest.TestCase):
         self.assertEqual(context.range_context.status,"breakout_up")
         self.assertFalse(any(s.kind=="SWEEP_HIGH" and s.swing_index==4 for s in context.sweeps))
 
+    def test_range_touch_counts_start_after_both_external_pivots_confirm(self):
+        rows=candles(
+            [10,14,11,13,10,15,12,14,11,16,13,17,14,18,15,17,13],
+            [7,9,8,6,7,10,9,7,8,11,10,8,9,12,11,9,8],
+            [9,13,10,12,9,14,11,13,10,15,12,16,13,17,14,15,12])
+        context=analyze_market_context(rows,pivot_window=1,external_window=2)
+        from lili_trader.market_structure import analyze_market_structure
+        external=analyze_market_structure(rows,pivot_window=2)
+        hs=[s for s in external.swings if s.kind=="high"][-3:]
+        ls=[s for s in external.swings if s.kind=="low"][-3:]
+        upper_swing=max(hs,key=lambda s:s.price)
+        lower_swing=min(ls,key=lambda s:s.price)
+        start=max(upper_swing.confirmation_index,lower_swing.confirmation_index)
+        upper=upper_swing.price; lower=lower_swing.price; tol=0.0025
+        expected_high=sum(1 for r in rows[start:] if r["high"]>=upper*(1-tol) and r["close"]<=upper*(1+tol))
+        expected_low=sum(1 for r in rows[start:] if r["low"]<=lower*(1+tol) and r["close"]>=lower*(1-tol))
+        self.assertEqual(context.range_context.touches_high,expected_high)
+        self.assertEqual(context.range_context.touches_low,expected_low)
+
 if __name__=="__main__":
     unittest.main()

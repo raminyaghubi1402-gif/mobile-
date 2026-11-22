@@ -35,6 +35,8 @@ def audit_csv(path: str | Path, resolution: str) -> dict:
         "last_timestamp": None,
         "issues": [],
         "missing_candle_count": 0,
+        "gap_count": 0,
+        "clean": False,
     }
     if expected_seconds is None:
         report["issues"].append({"type": "unsupported_resolution", "value": resolution})

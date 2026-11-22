@@ -10,6 +10,8 @@ on:
       - ".github/workflows/nobitex-backtest.yml"
       - "src/lili_trader/**"
       - "tests/test_nobitex_data.py"
+      - "tests/test_history_gap_audit.py"
+      - "scripts/audit_history_gaps.py"
       - "data/history/**"
 
 permissions:
@@ -34,6 +36,14 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Audit required candle continuity before backtest
+        shell: bash
+        run: |
+          set -o pipefail
+          python scripts/audit_history_gaps.py \
+            --symbol ${{ matrix.symbol }} \
+            --resolution 5 --resolution 15 --resolution 60 \
+            --output history-gap-audit.json 2>&1 | tee -a nobitex-backtest-report.txt
       - name: Run read-only Nobitex historical backtest
         shell: bash
         run: |
@@ -49,5 +59,6 @@ jobs:
           path: |
             nobitex-backtest-report.txt
             data/paper/backtest/${{ matrix.symbol }}.jsonl
+            history-gap-audit.json
           if-no-files-found: ignore
           retention-days: 7

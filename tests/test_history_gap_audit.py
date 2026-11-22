@@ -1,9 +1,13 @@
 import csv
+import io
+import json
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from unittest.mock import patch
 from pathlib import Path
 
-from scripts.audit_history_gaps import audit_csv
+from scripts.audit_history_gaps import audit_csv, main
 
 
 FIELDS = ["timestamp", "open", "high", "low", "close", "volume"]
@@ -75,6 +79,28 @@ class HistoryGapAuditTests(unittest.TestCase):
             report = audit_csv(path, "5")
             self.assertEqual(report["issues"][0]["type"], "invalid_timestamp")
             self.assertIn("supported UTC range", report["issues"][0]["reason"])
+
+    def test_cli_writes_report_and_blocks_backtest_on_gap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            history = Path(tmp) / "history"
+            history.mkdir()
+            write_rows(history / "BTCIRT_5.csv", [300, 600, 1200])
+            write_rows(history / "BTCIRT_15.csv", [900, 1800, 2700])
+            write_rows(history / "BTCIRT_60.csv", [3600, 7200, 10800])
+            output = Path(tmp) / "audit.json"
+            args = [
+                "audit_history_gaps.py", "--symbol", "BTCIRT",
+                "--resolution", "5", "--resolution", "15", "--resolution", "60",
+                "--history-dir", str(history), "--output", str(output),
+            ]
+            with patch("sys.argv", args), redirect_stdout(io.StringIO()):
+                exit_code = main()
+            self.assertEqual(exit_code, 1)
+            report = json.loads(output.read_text(encoding="utf-8"))
+            self.assertFalse(report["clean"])
+            self.assertEqual(report["files"][0]["missing_candle_count"], 1)
+            self.assertTrue(report["files"][1]["clean"])
+            self.assertTrue(report["files"][2]["clean"])
 
     def test_invalid_timestamp_is_reported(self):
         with tempfile.TemporaryDirectory() as tmp:

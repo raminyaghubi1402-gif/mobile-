@@ -68,6 +68,14 @@ class HistoryGapAuditTests(unittest.TestCase):
             invalid = audit_csv(wrong, "5")
             self.assertEqual(invalid["issues"][0]["type"], "invalid_header")
 
+    def test_timestamp_outside_supported_utc_range_is_reported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "BTCIRT_5.csv"
+            write_rows(path, [10**18])
+            report = audit_csv(path, "5")
+            self.assertEqual(report["issues"][0]["type"], "invalid_timestamp")
+            self.assertIn("supported UTC range", report["issues"][0]["reason"])
+
     def test_invalid_timestamp_is_reported(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "BTCIRT_5.csv"

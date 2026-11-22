@@ -64,6 +64,10 @@ def audit_csv(path: str | Path, resolution: str) -> dict:
                     timestamp = int(raw)
                     if timestamp <= 0:
                         raise ValueError("timestamp must be positive")
+                    try:
+                        datetime.fromtimestamp(timestamp, timezone.utc)
+                    except (OverflowError, OSError, ValueError):
+                        raise ValueError("timestamp outside supported UTC range") from None
                 except (TypeError, ValueError, OverflowError) as exc:
                     report["issues"].append({
                         "type": "invalid_timestamp",
@@ -133,8 +137,9 @@ def main() -> int:
 
     for report in reports:
         start, end = report.get("first_timestamp_utc"), report.get("last_timestamp_utc")
+        label = "1d" if report["resolution"] == "D" else report["resolution"] + "m"
         print(
-            f"{args.symbol} {report['resolution']}m: rows={report['row_count']} "
+            f"{args.symbol} {label}: rows={report['row_count']} "
             f"range={start or 'n/a'}..{end or 'n/a'} "
             f"gaps={report.get('gap_count', 0)} "
             f"missing_candles={report['missing_candle_count']} "

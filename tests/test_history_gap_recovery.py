@@ -101,6 +101,21 @@ class HistoryGapRecoveryTests(unittest.TestCase):
         self.assertEqual(result["skipped_intervals"], 1)
         self.assertEqual(adapter.calls, [])
 
+    def test_missing_file_and_clean_history_do_not_make_network_requests(self):
+        adapter = FakeAdapter()
+        missing = recover_missing_5m_candles(self.path.with_name("missing.csv"), "BTCIRT", adapter)
+        self.assertEqual(missing["status"], "missing_history")
+        self.assertEqual(adapter.calls, [])
+
+        write_history(self.path, [
+            [300, 100, 101, 99, 100, 1],
+            [600, 100, 101, 99, 100, 1],
+            [900, 100, 101, 99, 100, 1],
+        ])
+        clean = recover_missing_5m_candles(self.path, "BTCIRT", adapter)
+        self.assertEqual(clean["status"], "clean")
+        self.assertEqual(adapter.calls, [])
+
     def test_api_errors_are_reported_by_type_without_exposing_details(self):
         adapter = FakeAdapter(error=RuntimeError("secret-like response detail"))
         result = recover_missing_5m_candles(self.path, "BTCIRT", adapter)

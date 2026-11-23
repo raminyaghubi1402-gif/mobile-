@@ -19,7 +19,7 @@ _MAX_ROWS = 25_000
 
 
 def _read_timestamps(path: Path) -> tuple[list[int] | None, str | None]:
-    if not path.is_file:
+    if not path.is_file():
         return None, "missing_history"
     try:
         with path.open("r", encoding="utf-8", newline="") as handle:

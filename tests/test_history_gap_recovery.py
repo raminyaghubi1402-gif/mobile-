@@ -33,8 +33,8 @@ class FakeAdapter:
         self.error = error
         self.calls = []
 
-    def fetch_recent(self, symbol, resolution, count, *, page, to_timestamp):
-        self.calls.append((symbol, resolution, count, page, to_timestamp))
+    def fetch_recent(self, symbol, resolution, count, *, page, to_timestamp, from_timestamp=None):
+        self.calls.append((symbol, resolution, count, page, from_timestamp, to_timestamp))
         if self.error:
             raise self.error
         return list(self.returned)
@@ -60,7 +60,7 @@ class HistoryGapRecoveryTests(unittest.TestCase):
         self.assertEqual(result["status"], "clean")
         self.assertEqual(result["recovered_timestamps"], [900])
         self.assertEqual(read_timestamps(self.path), [300, 600, 900, 1200])
-        self.assertEqual(adapter.calls, [("BTCIRT", "5", 500, 1, 1200)])
+        self.assertEqual(adapter.calls, [("BTCIRT", "5", 500, 1, 900, 1199)])
         with self.path.open("r", encoding="utf-8", newline="") as handle:
             rows = list(csv.DictReader(handle))
         self.assertEqual(float(rows[-1]["close"]), 200.0)

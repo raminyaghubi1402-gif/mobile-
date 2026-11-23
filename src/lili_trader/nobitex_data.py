@@ -34,6 +34,7 @@ class NobitexDataError(RuntimeError):
 class NobitexAdapter:
     BASE_URL = "https://apiv2.nobitex.ir/market/udf/history"
     ALLOWED_RESOLUTIONS = {"1", "5", "15", "30", "60", "180", "240", "360", "720", "D", "2D", "3D"}
+    RESOLUTION_SECONDS = {"1": 60, "5": 300, "15": 900, "30": 1800, "60": 3600, "180": 10800, "240": 14400, "360": 21600, "720": 43200, "D": 86400, "2D": 172800, "3D": 259200}
     RETRYABLE_HTTP_STATUSES = {408, 425, 429, 500, 502, 503, 504}
     MAX_RETRY_DELAY_SECONDS = 2.0
 
@@ -94,7 +95,8 @@ class NobitexAdapter:
 
     def fetch_recent(self, symbol: str = "BTCIRT", resolution: str = "60",
                      count: int = 100, *, page: int = 1,
-                     to_timestamp: int | None = None) -> list[NobitexCandle]:
+                     to_timestamp: int | None = None,
+                     from_timestamp: int | None = None) -> list[NobitexCandle]:
         symbol = symbol.strip().upper()
         if not symbol or not symbol.isalnum():
             raise ValueError("symbol must contain only letters and numbers")
@@ -109,8 +111,21 @@ class NobitexAdapter:
             to_timestamp = int(time.time())
         if not isinstance(to_timestamp, int) or to_timestamp <= 0:
             raise ValueError("to_timestamp must be a positive Unix timestamp")
-        url = (f"{self.BASE_URL}?symbol={symbol}&resolution={resolution}"
-               f"&to={to_timestamp}&countback={count}&page={page}")
+        if from_timestamp is None:
+            url = (f"{self.BASE_URL}?symbol={symbol}&resolution={resolution}"
+                   f"&to={to_timestamp}&countback={count}&page={page}")
+        else:
+            if type(from_timestamp) is not int or from_timestamp <= 0:
+                raise ValueError("from_timestamp must be a positive integer")
+            if from_timestamp > to_timestamp:
+                raise ValueError("from_timestamp must not exceed to_timestamp")
+            interval = self.RESOLUTION_SECONDS[resolution]
+            requested_bars = (to_timestamp - from_timestamp) // interval + 1
+            if requested_bars > 500:
+                raise ValueError("time range must contain at most 500 candles")
+            # Explicit from/to avoids relying on countback paging for targeted gaps.
+            url = (f"{self.BASE_URL}?symbol={symbol}&resolution={resolution}"
+                   f"&from={from_timestamp}&to={to_timestamp}&page={page}")
         request = Request(url, headers={"User-Agent": "LiLiTrader/0.2"})
 
         attempt = 0

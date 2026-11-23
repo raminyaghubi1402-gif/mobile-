@@ -185,6 +185,35 @@ class NobitexPaginationTests(unittest.TestCase):
             NobitexAdapter().fetch_history("BTCIRT", "5", 50001)
 
 
+    def test_fetch_recent_sends_exact_range_without_countback(self):
+        seen = []
+
+        def opener(request, timeout):
+            query = parse_qs(urlparse(request.full_url).query)
+            seen.append(query)
+            return FakeResponse(payload([900]))
+
+        candles = NobitexAdapter(opener=opener).fetch_recent(
+            "BTCIRT", "5", 500, from_timestamp=900, to_timestamp=1199, page=1
+        )
+        self.assertEqual([c.timestamp for c in candles], [900])
+        self.assertEqual(seen[0]["from"], ["900"])
+        self.assertEqual(seen[0]["to"], ["1199"])
+        self.assertEqual(seen[0]["page"], ["1"])
+        self.assertNotIn("countback", seen[0])
+
+    def test_fetch_recent_rejects_invalid_or_oversized_ranges(self):
+        adapter = NobitexAdapter(opener=lambda request, timeout: FakeResponse(payload([])))
+        for kwargs in (
+            {"from_timestamp": True, "to_timestamp": 900},
+            {"from_timestamp": 1200, "to_timestamp": 900},
+            {"from_timestamp": 900, "to_timestamp": 900 + 500 * 300},
+        ):
+            with self.subTest(kwargs=kwargs):
+                with self.assertRaises(ValueError):
+                    adapter.fetch_recent("BTCIRT", "5", 500, **kwargs)
+
+
 class NobitexRetryTests(unittest.TestCase):
     def test_retries_timeout_once_then_returns_data(self):
         calls = []

@@ -136,7 +136,8 @@ def recover_missing_5m_candles(
             # at an exact missing timestamp can be returned if it exists.
             fetched = adapter.fetch_recent(
                 symbol, "5", _MAX_API_CANDLE_COUNT,
-                page=1, to_timestamp=missing[-1] + _INTERVAL_SECONDS,
+                page=1, from_timestamp=missing[0],
+                to_timestamp=missing[-1] + _INTERVAL_SECONDS - 1,
             )
         except Exception as exc:
             errors.append(type(exc).__name__)

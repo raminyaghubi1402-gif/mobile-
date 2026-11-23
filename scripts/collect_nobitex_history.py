@@ -8,6 +8,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from lili_trader.history_gap_recovery import recover_missing_5m_candles
 from lili_trader.history_store import merge_history_csv
 from lili_trader.nobitex_data import NobitexAdapter
 
@@ -40,6 +41,37 @@ def main() -> int:
             except Exception as exc:
                 failures.append(f"{symbol} {resolution}: {type(exc).__name__}: {exc}")
                 print(f"ERROR {failures[-1]}", file=sys.stderr)
+
+        # If the 5m store has an exact interval gap, make one bounded request
+        # around the newest gap. Insert only source-confirmed candles; no flat
+        # synthetic candles or extrapolated values are ever created.
+        try:
+            recovery = recover_missing_5m_candles(
+                history_dir / f"{symbol}_5.csv", symbol, adapter,
+            )
+            print(
+                f"{symbol} 5m gap recovery: "
+                f"gaps={recovery['gap_intervals_before']} "
+                f"missing={recovery['missing_candles_before']} "
+                f"requests={recovery['attempted_queries']} "
+                f"recovered={len(recovery['recovered_timestamps'])} "
+                f"remaining={recovery['missing_candles_after']} "
+                f"status={recovery['status']}"
+            )
+            if recovery["errors"]:
+                print(
+                    f"{symbol} 5m recovery errors: "
+                    f"{','.join(recovery['errors'])}",
+                    file=sys.stderr,
+                )
+        except Exception as exc:
+            # Recovery is opportunistic. A failure must not corrupt the store
+            # or prevent the normal collection for the other symbol.
+            print(
+                f"WARNING {symbol} 5m gap recovery failed: {type(exc).__name__}",
+                file=sys.stderr,
+            )
+
     if failures:
         print(f"Collection finished with {len(failures)} failure(s) after {completed_requests} successful request group(s).", file=sys.stderr)
         if completed_requests == 0:

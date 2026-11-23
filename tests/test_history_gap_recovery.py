@@ -60,7 +60,7 @@ class HistoryGapRecoveryTests(unittest.TestCase):
         self.assertEqual(result["status"], "clean")
         self.assertEqual(result["recovered_timestamps"], [900])
         self.assertEqual(read_timestamps(self.path), [300, 600, 900, 1200])
-        self.assertEqual(adapter.calls, [("BTCIRT", "5", 500, 1, 1500)])
+        self.assertEqual(adapter.calls, [("BTCIRT", "5", 500, 1, 1200)])
         with self.path.open("r", encoding="utf-8", newline="") as handle:
             rows = list(csv.DictReader(handle))
         self.assertEqual(float(rows[-1]["close"]), 200.0)

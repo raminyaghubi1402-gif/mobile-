@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: "*/15 * * * *"
   workflow_dispatch:
+    inputs:
+      initialize_paper_state:
+        description: "Explicitly create a new empty paper ledger when no cache exists"
+        required: false
+        type: boolean
+        default: false
   pull_request:
     paths:
       - ".github/workflows/nobitex-paper-monitor.yml"
@@ -31,6 +37,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Restore paper state (scheduled/default branch only)
+        id: restore-state
         if: github.event_name != 'pull_request'
         uses: actions/cache/restore@v4
         with:
@@ -38,13 +45,46 @@ jobs:
           key: lili-paper-state-main-${{ github.run_id }}
           restore-keys: |
             lili-paper-state-main-
+      - name: Require restored state or explicit first-run initialization
+        if: github.event_name != 'pull_request' && steps.restore-state.outputs['cache-matched-key'] == ''
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INITIALIZE_PAPER_STATE: ${{ inputs.initialize_paper_state }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" != "workflow_dispatch" ] || [ "$INITIALIZE_PAPER_STATE" != "true" ]; then
+            echo "::error::No prior paper-state cache was restored. Refusing to create a new ledger automatically."
+            exit 2
+          fi
+          if [ -e data/paper/live/state.json ] || [ -e data/paper/live/decisions.jsonl ]; then
+            echo "::error::Paper-state files already exist; refusing to overwrite them during initialization."
+            exit 2
+          fi
+          mkdir -p data/paper/live
+          printf '%s\n' '{"schema_version":1,"pending":{},"positions":{}}' > data/paper/live/state.json
+          : > data/paper/live/decisions.jsonl
+          echo "Explicitly initialized an empty paper ledger."
+      - name: Validate restored paper state and hash chain
+        if: github.event_name != 'pull_request'
+        run: |
+          set -euo pipefail
+          test -s data/paper/live/state.json
+          test -f data/paper/live/decisions.jsonl
+          PYTHONPATH=src python - <<'PY'
+          from pathlib import Path
+          from lili_trader.live_paper_monitor import PaperState
+          from lili_trader.decision_journal import DecisionJournal
+          PaperState(Path("data/paper/live/state.json"))
+          events = DecisionJournal(Path("data/paper/live/decisions.jsonl")).events()
+          print(f"Validated paper state and {len(events)} hash-chained journal events.")
+          PY
       - name: Run public Nobitex paper observation
         id: monitor
         run: |
           set -o pipefail
           python scripts/run_nobitex_paper_monitor.py 2>&1 | tee nobitex-live-paper-report.json
       - name: Save paper state (scheduled/default branch only)
-        if: always() && github.event_name != 'pull_request'
+        if: success() && github.event_name != 'pull_request' && (steps.restore-state.outputs['cache-matched-key'] != '' || inputs.initialize_paper_state == true)
         uses: actions/cache/save@v4
         with:
           path: data/paper/live

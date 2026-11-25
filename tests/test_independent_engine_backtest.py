@@ -57,10 +57,14 @@ class IndependentEngineBacktestTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             run_independent_engine_backtest(self.hourly, self.fifteen, wrong_symbol)
 
-    def test_rejects_invalid_risk_parameters(self):
+    def test_rejects_invalid_risk_and_minimum_order_parameters(self):
         with self.assertRaises(ValueError):
             run_independent_engine_backtest(
                 self.hourly, self.fifteen, self.five, risk_fraction=0.1
+            )
+        with self.assertRaises(ValueError):
+            run_independent_engine_backtest(
+                self.hourly, self.fifteen, self.five, minimum_order_quote=0
             )
 
 

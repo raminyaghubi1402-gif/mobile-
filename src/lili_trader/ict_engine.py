@@ -72,7 +72,7 @@ class ICTEngine:
             if type(now) is not int or now <= 0:
                 raise ValueError("snapshot observation time is missing")
             latest = rows[-1]
-            if latest[5] > now or now - (latest[4] + 300) > self.maximum_candle_age_seconds:
+            if now - (latest[4] + 300) > self.maximum_candle_age_seconds:
                 raise ValueError("latest retest candle is future-dated or stale")
 
             ref = rows[:20]

@@ -180,16 +180,32 @@ class PaperState:
 
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
-        self.data: dict[str, Any] = {"schema_version": 1, "pending": {}, "positions": {}}
+        self.data: dict[str, Any] = {"schema_version": 2, "pending": {}, "positions": {}}
         if self.path.exists():
             try:
                 loaded = json.loads(self.path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError) as exc:
                 raise LivePaperMonitorError("paper state is unreadable; refusing to reset it") from exc
-            if (not isinstance(loaded, dict) or loaded.get("schema_version") != 1
+            if (not isinstance(loaded, dict) or loaded.get("schema_version") not in {1, 2}
                     or not isinstance(loaded.get("pending"), dict)
                     or not isinstance(loaded.get("positions"), dict)):
                 raise LivePaperMonitorError("paper state schema is invalid; refusing to reset it")
+            if loaded["schema_version"] == 1:
+                # Preserve existing symbol-level positions and pending entries
+                # under an explicit legacy engine slot; never discard live paper state.
+                for collection in ("pending", "positions"):
+                    migrated = {}
+                    for key, record in loaded[collection].items():
+                        if not isinstance(record, dict):
+                            raise LivePaperMonitorError("legacy paper state record is invalid")
+                        symbol = record.get("symbol", key.split("::", 1)[0])
+                        strategy = record.get("strategy", "legacy")
+                        if symbol not in SYMBOLS or not isinstance(strategy, str) or not strategy:
+                            raise LivePaperMonitorError("legacy paper state identity is invalid")
+                        slot = key if "::" in key else f"{symbol}::{strategy}"
+                        migrated[slot] = {**record, "symbol": symbol, "strategy": strategy}
+                    loaded[collection] = migrated
+                loaded["schema_version"] = 2
             self.data = loaded
 
     def save(self) -> None:
@@ -207,6 +223,21 @@ class PaperState:
                 os.unlink(temporary)
 
 
+def _engine_state_key(symbol: str, strategy_id: str) -> str:
+    if symbol not in SYMBOLS or not isinstance(strategy_id, str) or not strategy_id:
+        raise LivePaperMonitorError("paper engine slot identity is invalid")
+    return f"{symbol}::{strategy_id}"
+
+
+def _record_symbol(key: str, record: dict[str, Any]) -> str:
+    symbol = record.get("symbol")
+    if symbol is None:
+        symbol = key.split("::", 1)[0]
+    if symbol not in SYMBOLS:
+        raise LivePaperMonitorError("paper state contains an unknown symbol")
+    return symbol
+
+
 def _decision_id(
     symbol: str, candle_timestamp: int, strategy_id: str = "trend_pullback"
 ) -> str:
@@ -222,8 +253,10 @@ def _manage_position(
     journal: DecisionJournal,
     *,
     now: int,
+    state_key: str | None = None,
 ) -> str:
-    position = state.data["positions"].get(symbol)
+    position_key = state_key or symbol
+    position = state.data["positions"].get(position_key)
     if not position:
         return "no_open_position"
     expected = int(position["last_processed_timestamp"]) + 300
@@ -300,7 +333,7 @@ def _manage_position(
                     occurred_at=_iso(now),
                     **expected_outcome,
                 )
-            del state.data["positions"][symbol]
+            del state.data["positions"][position_key]
             return f"closed_{exit_reason}_net_{net:.2f}_IRT"
 
         # Raise the stop only after a right-side-confirmed higher low exists.
@@ -325,14 +358,15 @@ def _manage_position(
         position["last_processed_timestamp"] = candle.timestamp
         expected += 300
 
-    state.data["positions"][symbol] = position
+    state.data["positions"][position_key] = position
     if stop_updates:
         return f"position_open_trailing_stop_raised_{stop_updates}_times_to_{float(position['stop_loss']):.2f}"
     return "position_open"
 
 
 def _reserved_quote(
-    state: PaperState, *, exclude_pending_symbol: str, equity_quote: float
+    state: PaperState, *, exclude_pending_symbol: str | None = None,
+    equity_quote: float, exclude_pending_key: str | None = None,
 ) -> float:
     """Estimate cash committed to all other open and pending spot positions.
 
@@ -344,9 +378,10 @@ def _reserved_quote(
     if not isfinite(equity_quote) or equity_quote <= 0:
         raise LivePaperMonitorError("paper equity quote must be finite and positive")
     reserved = 0.0
-    for symbol, position in state.data["positions"].items():
-        if symbol not in SYMBOLS or not isinstance(position, dict):
+    for key, position in state.data["positions"].items():
+        if not isinstance(position, dict):
             raise LivePaperMonitorError("paper position state is invalid")
+        _record_symbol(key, position)
         try:
             entry_fill = float(position["entry_fill_price"])
             quantity = float(position["quantity"])
@@ -360,10 +395,13 @@ def _reserved_quote(
             raise LivePaperMonitorError("paper position allocation is non-finite or non-positive")
         reserved += entry_fill * quantity + entry_fee
 
-    for symbol, pending in state.data["pending"].items():
-        if symbol == exclude_pending_symbol:
+    for key, pending in state.data["pending"].items():
+        pending_symbol = _record_symbol(key, pending) if isinstance(pending, dict) else None
+        if key == exclude_pending_key or (
+            exclude_pending_key is None and exclude_pending_symbol == pending_symbol
+        ):
             continue
-        if symbol not in SYMBOLS or not isinstance(pending, dict):
+        if pending_symbol not in SYMBOLS:
             raise LivePaperMonitorError("pending paper allocation is invalid")
         try:
             reference = float(pending["entry_reference"])
@@ -403,11 +441,13 @@ def _activate_pending(
     state: PaperState,
     *,
     equity_quote: float,
+    state_key: str | None = None,
 ) -> str:
     if not isfinite(equity_quote) or equity_quote <= 0:
         raise LivePaperMonitorError("paper equity quote must be finite and positive")
-    pending = state.data["pending"].get(symbol)
-    if not pending or symbol in state.data["positions"]:
+    pending_key = state_key or symbol
+    pending = state.data["pending"].get(pending_key)
+    if not pending or pending_key in state.data["positions"]:
         return "no_pending_entry"
     expected = int(pending["signal_timestamp"]) + 300
     next_candle = next((c for c in candles if c.timestamp >= expected), None)
@@ -435,7 +475,7 @@ def _activate_pending(
         raise LivePaperMonitorError("pending entry risk budget is invalid")
     available_cash = max(
         0.0, equity_quote - _reserved_quote(
-            state, exclude_pending_symbol=symbol, equity_quote=equity_quote
+            state, equity_quote=equity_quote, exclude_pending_key=pending_key
         )
     )
     quantity_by_risk = risk_budget / unit_risk
@@ -451,7 +491,10 @@ def _activate_pending(
             "pending_entry_cancelled_below_minimum_order_"
             f"{NOBITEX_MINIMUM_SPOT_ORDER_IRT}"
         )
-    state.data["positions"][symbol] = {
+    state.data["positions"][pending_key] = {
+        "symbol": symbol,
+        "strategy": pending.get("strategy", "legacy"),
+        "risk_quote": risk_budget,
         "trade_id": f"paper-{pending['decision_id']}",
         "decision_id": pending["decision_id"],
         "entry_timestamp": next_candle.timestamp,
@@ -464,7 +507,7 @@ def _activate_pending(
         "entry_fee_quote": entry_fill * quantity * FEE_RATE,
         "execution": "paper_only",
     }
-    del state.data["pending"][symbol]
+    del state.data["pending"][pending_key]
     return f"paper_entry_at_next_open_{raw_entry:.2f}_qty_{quantity:.8f}"
 
 

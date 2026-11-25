@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from math import isfinite
 from typing import Any
 
-from .strategy_engines import StrategyDecision, _positive_price, _target_for_minimum_reward_risk
+from .strategy_engines import DEFAULT_ENTRY_SLIPPAGE_RATE, StrategyDecision, _positive_price, _target_for_minimum_reward_risk
 
 
 class SupportResistanceRejectionEngine:
@@ -88,7 +88,12 @@ class SupportResistanceRejectionEngine:
             risk = entry - stop
             if risk <= 0:
                 raise ValueError("no valid structural stop below entry")
-            target = _target_for_minimum_reward_risk(entry, stop, self.minimum_reward_risk)
+            target = _target_for_minimum_reward_risk(
+                entry, stop, self.minimum_reward_risk,
+                expected_entry_slippage_rate=market_snapshot.get(
+                    "expected_entry_slippage_rate", DEFAULT_ENTRY_SLIPPAGE_RATE
+                ),
+            )
             if not all(isfinite(value) for value in (entry, stop, target)):
                 raise ValueError("non-finite support-rejection levels")
         except ValueError as exc:

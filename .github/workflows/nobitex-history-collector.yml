@@ -110,7 +110,7 @@ jobs:
               ))
               tmp = current_path.with_suffix(".jsonl.tmp")
               tmp.write_text(
-                  "".join(json.dumps(row, sort_keys=True) + "\\n" for row in ordered),
+                  "".join(json.dumps(row, sort_keys=True) + "\n" for row in ordered),
                   encoding="utf-8",
               )
               os.replace(tmp, current_path)

@@ -4,6 +4,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from lili_trader.live_paper_monitor import (
+    FEE_RATE,
+    PAPER_EQUITY_QUOTE,
+    SLIPPAGE_RATE,
     LivePaperMonitorError,
     PaperState,
     latest_contiguous_closed_segment,
@@ -12,6 +15,11 @@ from lili_trader.live_paper_monitor import (
 )
 from lili_trader.nobitex_data import NobitexCandle
 from lili_trader.decision_journal import DecisionJournal
+from lili_trader.nobitex_limits import (
+    NOBITEX_BASE_SPOT_FEE_RATE_IRT,
+    NOBITEX_MINIMUM_SPOT_ORDER_IRT,
+)
+from lili_trader.risk_management import fee_adjusted_breakeven_stop
 
 
 def candle(ts, resolution="5", close=100.0):
@@ -96,6 +104,61 @@ class PaperEntryTests(unittest.TestCase):
         self.assertIn("cancelled", result)
         self.assertNotIn("BTCIRT", self.state.data["positions"])
 
+    def test_entry_below_nobitex_minimum_order_is_cancelled(self):
+        self.state.data["pending"]["BTCIRT"]["risk_quote"] = 1.0
+        result = _activate_pending("BTCIRT", [candle(600)], self.state)
+        self.assertIn("below_minimum_order", result)
+        self.assertNotIn("BTCIRT", self.state.data["positions"])
+
+    def test_live_fee_uses_nobitex_base_spot_rate(self):
+        self.assertAlmostEqual(FEE_RATE, NOBITEX_BASE_SPOT_FEE_RATE_IRT)
+        self.assertEqual(NOBITEX_MINIMUM_SPOT_ORDER_IRT, 3_000_000)
+
+    def test_two_symbols_share_one_paper_cash_budget(self):
+        self.state.data["pending"]["BTCIRT"] = {
+            "decision_id": "decision-btc-shared-cash",
+            "signal_timestamp": 300,
+            "entry_reference": 100.0,
+            "stop_loss": 99.5,
+            "take_profit": 102.0,
+            "risk_quote": 135_500.0,
+        }
+        self.state.data["pending"]["ETHIRT"] = {
+            "decision_id": "decision-eth-shared-cash",
+            "signal_timestamp": 300,
+            "entry_reference": 200.0,
+            "stop_loss": 199.0,
+            "take_profit": 204.0,
+            "risk_quote": 135_500.0,
+        }
+        btc_next = NobitexCandle(
+            symbol="BTCIRT", resolution="5", timestamp=600,
+            open=100.0, high=101.0, low=99.8, close=100.5,
+            volume=10.0, fetched_at=900,
+        )
+        eth_next = NobitexCandle(
+            symbol="ETHIRT", resolution="5", timestamp=600,
+            open=200.0, high=202.0, low=199.5, close=201.0,
+            volume=10.0, fetched_at=900,
+        )
+
+        btc_result = _activate_pending("BTCIRT", [btc_next], self.state)
+        eth_result = _activate_pending("ETHIRT", [eth_next], self.state)
+
+        self.assertTrue(btc_result.startswith("paper_entry_at_next_open"))
+        self.assertTrue(eth_result.startswith("paper_entry_at_next_open"))
+        self.assertEqual(set(self.state.data["positions"]), {"BTCIRT", "ETHIRT"})
+        reserved = sum(
+            position["entry_fill_price"] * position["quantity"]
+            + position["entry_fee_quote"]
+            for position in self.state.data["positions"].values()
+        )
+        self.assertLessEqual(reserved, PAPER_EQUITY_QUOTE + 1e-6)
+        self.assertAlmostEqual(
+            self.state.data["positions"]["BTCIRT"]["entry_fee_quote"],
+            self.state.data["positions"]["BTCIRT"]["entry_fill_price"]
+            * self.state.data["positions"]["BTCIRT"]["quantity"] * FEE_RATE,
+        )
 
     def test_open_position_raises_stop_only_after_confirmed_higher_low(self):
         rows = [
@@ -160,7 +223,12 @@ class PaperEntryTests(unittest.TestCase):
         position = state.data["positions"]["BTCIRT"]
         self.assertIn("trailing_stop_raised", result)
         self.assertGreater(position["stop_loss"], 98.0)
-        self.assertGreater(position["stop_loss"], 105.105 * 1.001 / (0.999 * 0.999))
+        self.assertGreater(
+            position["stop_loss"],
+            fee_adjusted_breakeven_stop(
+                105.105, fee_rate=FEE_RATE, slippage_rate=SLIPPAGE_RATE
+            ),
+        )
         self.assertEqual(position["last_processed_timestamp"], rows[-1].timestamp)
         self.assertEqual(position["execution"], "paper_only")
 

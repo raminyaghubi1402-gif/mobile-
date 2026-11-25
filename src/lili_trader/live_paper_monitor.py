@@ -435,6 +435,44 @@ def _reserved_quote(
     return min(reserved, equity_quote)
 
 
+def _committed_risk_quote(state: PaperState) -> float:
+    """Return risk already assigned to all engine-owned pending/open positions."""
+    committed = 0.0
+    for position in state.data["positions"].values():
+        if not isinstance(position, dict):
+            raise LivePaperMonitorError("paper position risk state is invalid")
+        try:
+            risk = position.get("risk_quote")
+            if risk is None:
+                entry = float(position["entry_fill_price"])
+                stop = float(position["stop_loss"]) * (1 - SLIPPAGE_RATE)
+                quantity = float(position["quantity"])
+                risk = quantity * (
+                    entry - stop + (entry + stop) * FEE_RATE
+                )
+            risk = float(risk)
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            raise LivePaperMonitorError("open position risk allocation is invalid") from exc
+        if not isfinite(risk) or risk < 0:
+            raise LivePaperMonitorError("open position risk allocation is invalid")
+        committed += risk
+
+    for pending in state.data["pending"].values():
+        if not isinstance(pending, dict):
+            raise LivePaperMonitorError("pending risk state is invalid")
+        try:
+            risk = float(pending["risk_quote"])
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            raise LivePaperMonitorError("pending risk allocation is invalid") from exc
+        if not isfinite(risk) or risk <= 0:
+            raise LivePaperMonitorError("pending risk allocation is invalid")
+        committed += risk
+
+    if not isfinite(committed) or committed < 0:
+        raise LivePaperMonitorError("total committed paper risk is invalid")
+    return committed
+
+
 def _activate_pending(
     symbol: str,
     candles: list[NobitexCandle],
@@ -454,7 +492,7 @@ def _activate_pending(
     if next_candle is None:
         return "pending_next_5m_candle"
     if next_candle.timestamp != expected:
-        del state.data["pending"][symbol]
+        del state.data["pending"][pending_key]
         return "pending_entry_expired_missing_next_candle"
 
     raw_entry = float(next_candle.open)
@@ -468,7 +506,7 @@ def _activate_pending(
     actual_rr = actual_reward / actual_risk if actual_risk > 0 else 0.0
     if (unit_risk <= 0 or raw_entry <= stop or raw_entry >= target
             or actual_rr + 1e-9 < 1.5):
-        del state.data["pending"][symbol]
+        del state.data["pending"][pending_key]
         return "pending_entry_cancelled_gap_or_invalid_risk"
     risk_budget = float(pending["risk_quote"])
     if not isfinite(risk_budget) or risk_budget <= 0:
@@ -482,11 +520,11 @@ def _activate_pending(
     quantity_by_cash = available_cash / (entry_fill * (1 + FEE_RATE))
     quantity = min(quantity_by_risk, quantity_by_cash)
     if quantity <= 0:
-        del state.data["pending"][symbol]
+        del state.data["pending"][pending_key]
         return "pending_entry_cancelled_zero_quantity"
     entry_notional = entry_fill * quantity
     if entry_notional + 1e-9 < NOBITEX_MINIMUM_SPOT_ORDER_IRT:
-        del state.data["pending"][symbol]
+        del state.data["pending"][pending_key]
         return (
             "pending_entry_cancelled_below_minimum_order_"
             f"{NOBITEX_MINIMUM_SPOT_ORDER_IRT}"
@@ -561,16 +599,25 @@ def run_live_paper_monitor(
                     minimum_bars=40, maximum_age_seconds=900,
                 ),
             }
-            position_status = _manage_position(
-                symbol, validated["5m"], state, journal, now=observed_at
-            )
-            pending_status = (
-                _activate_pending(
-                    symbol, validated["5m"], state, equity_quote=paper_equity_quote
-                )
-                if paper_equity_quote is not None
-                else "pending_entry_paused_usdt_irt_rate_unavailable"
-            )
+            position_status: dict[str, str] = {}
+            for position_key, position_record in list(state.data["positions"].items()):
+                if isinstance(position_record, dict) and _record_symbol(position_key, position_record) == symbol:
+                    position_status[position_key] = _manage_position(
+                        symbol, validated["5m"], state, journal, now=observed_at,
+                        state_key=position_key,
+                    )
+
+            pending_status: dict[str, str] = {}
+            for pending_key, pending_record in list(state.data["pending"].items()):
+                if isinstance(pending_record, dict) and _record_symbol(pending_key, pending_record) == symbol:
+                    pending_status[pending_key] = (
+                        _activate_pending(
+                            symbol, validated["5m"], state, equity_quote=paper_equity_quote,
+                            state_key=pending_key,
+                        )
+                        if paper_equity_quote is not None
+                        else "pending_entry_paused_usdt_irt_rate_unavailable"
+                    )
             engine_snapshots = build_independent_engine_snapshots(
                 validated["1h"], validated["15m"], validated["5m"], now=observed_at
             )
@@ -599,51 +646,57 @@ def run_live_paper_monitor(
                 and engine_id in eligible_ids
             )
 
-            occupied = symbol in state.data["positions"] or symbol in state.data["pending"]
-            occupied_reason = "برای این نماد معاملهٔ آزمایشی باز یا سیگنال در انتظار ورود وجود دارد."
             engine_decisions = [
                 registry.evaluate_selected(engine_snapshots[engine_id], (engine_id,))[0]
                 for engine_id in selected
             ]
-            signals = [decision for decision in engine_decisions if decision.status == "SIGNAL"]
-            conflict = len(signals) > 1
-            executable = (
-                signals[0]
-                if len(signals) == 1 and not occupied and paper_equity_quote is not None
-                else None
-            )
-
-            if paper_equity_quote is None:
-                decision_status = "WAIT"
-                reason = "نرخ معتبر و تازهٔ USDT/IRT در دسترس نیست؛ ورود جدید و فعال‌سازی سیگنال معلق متوقف شد."
-            elif occupied:
-                decision_status = "WAIT"
-                reason = occupied_reason
-            elif conflict:
-                decision_status = "WAIT"
-                reason = (
-                    "چند موتور مستقل هم‌زمان سیگنال دادند؛ برای جلوگیری از ثبت چند ورود "
-                    "روی یک نماد، این کندل بدون ورود آزمایشی ثبت شد."
-                )
-            elif executable is not None:
-                decision_status = "BUY"
-                reason = executable.reason
-            elif selected:
-                decision_status = "WAIT"
-                reason = "هیچ‌یک از موتورهای مستقل در این کندل سیگنال ورود معتبر ندادند."
-            else:
-                decision_status = "WAIT"
-                reason = snapshot["context"]["regime_reason"]
-
             latest_timestamp = int(validated["5m"][-1].timestamp)
             known_decisions = {
                 event.decision_id for event in journal.events()
                 if event.event_type == "DECISION"
             }
-            risk_budget = (
+            occupied_slots = {
+                key for key, record in (
+                    list(state.data["positions"].items()) + list(state.data["pending"].items())
+                )
+                if isinstance(record, dict) and _record_symbol(key, record) == symbol
+            }
+            new_signals = [
+                decision for decision in engine_decisions
+                if decision.status == "SIGNAL"
+                and _engine_state_key(symbol, decision.strategy_id) not in occupied_slots
+            ]
+            total_risk_cap = (
                 paper_equity_quote * RISK_FRACTION
                 if paper_equity_quote is not None else 0.0
             )
+            committed_risk = _committed_risk_quote(state)
+            remaining_risk = max(0.0, total_risk_cap - committed_risk)
+            per_signal_risk = (
+                remaining_risk / len(new_signals)
+                if new_signals and paper_equity_quote is not None else 0.0
+            )
+            allocations = {
+                decision.strategy_id: per_signal_risk
+                for decision in new_signals
+                if per_signal_risk > 0
+            }
+
+            if paper_equity_quote is None:
+                decision_status = "WAIT"
+                reason = "نرخ معتبر و تازهٔ USDT/IRT در دسترس نیست؛ ورود جدید و فعال‌سازی سیگنال معلق متوقف شد."
+            elif allocations:
+                decision_status = "BUY"
+                reason = "هر موتور واجد شرایط، بودجهٔ مستقل خود را از سقف ریسک مشترک دریافت می‌کند."
+            elif new_signals:
+                decision_status = "WAIT"
+                reason = "سقف ریسک کل حساب آزمایشی قبلاً تخصیص یافته است؛ سیگنال‌ها ثبت شدند اما ورود جدید انجام نشد."
+            elif selected:
+                decision_status = "WAIT"
+                reason = "هیچ موتورِ آزاد و واجد شرایط، سیگنال ورود معتبر نداد."
+            else:
+                decision_status = "WAIT"
+                reason = snapshot["context"]["regime_reason"]
 
             if not selected:
                 log_decisions = [{
@@ -660,12 +713,13 @@ def run_live_paper_monitor(
             else:
                 log_decisions = []
                 for decision in engine_decisions:
-                    is_buy = decision is executable
+                    slot_key = _engine_state_key(symbol, decision.strategy_id)
+                    is_buy = decision.strategy_id in allocations
                     if paper_equity_quote is None:
                         event_reason = reason
-                    elif occupied:
-                        event_reason = occupied_reason
-                    elif conflict:
+                    elif decision.status == "SIGNAL" and slot_key in occupied_slots:
+                        event_reason = "برای همین موتور روی این نماد موقعیت یا ورود معلق خودش از قبل وجود دارد."
+                    elif decision.status == "SIGNAL" and not is_buy:
                         event_reason = reason
                     else:
                         event_reason = decision.reason
@@ -673,6 +727,10 @@ def run_live_paper_monitor(
                     engine_evidence.update({
                         "engine_status": decision.status,
                         "engine_reason": decision.reason,
+                        "engine_slot": slot_key,
+                        "engine_risk_allocation_quote": allocations.get(decision.strategy_id, 0.0),
+                        "portfolio_risk_cap_quote": total_risk_cap,
+                        "portfolio_risk_committed_before_new_signals_quote": committed_risk,
                         "context": engine_snapshots[decision.strategy_id].get(
                             "context", snapshot["context"]
                         ),
@@ -684,10 +742,13 @@ def run_live_paper_monitor(
                             ENGINE_VERSION if decision.strategy_id == "trend_pullback"
                             else f"{decision.strategy_id}_v1"
                         ),
-                        "status": "WAIT" if paper_equity_quote is None else decision.status,
+                        "status": "WAIT" if paper_equity_quote is None or (
+                            decision.status == "SIGNAL" and not is_buy
+                        ) else decision.status,
                         "reason": event_reason,
                         "evidence": engine_evidence,
                         "is_buy": is_buy,
+                        "risk_quote": allocations.get(decision.strategy_id, 0.0),
                     })
 
             for item in log_decisions:
@@ -721,19 +782,21 @@ def run_live_paper_monitor(
                     entry_price=float(item["evidence"]["entry_reference"]) if is_buy else None,
                     stop_loss=float(item["evidence"]["stop_loss"]) if is_buy else None,
                     take_profit=float(item["evidence"]["take_profit"]) if is_buy else None,
-                    risk_quote=risk_budget if is_buy else None,
+                    risk_quote=float(item["risk_quote"]) if is_buy else None,
                     timeframe="1h/15m/5m",
                     trade_id=f"paper-{decision_id}" if is_buy else None,
                 )
                 if is_buy:
-                    state.data["pending"][symbol] = {
+                    slot_key = _engine_state_key(symbol, strategy_id)
+                    state.data["pending"][slot_key] = {
+                        "symbol": symbol,
+                        "strategy": strategy_id,
                         "decision_id": decision_id,
                         "signal_timestamp": latest_timestamp,
                         "entry_reference": float(item["evidence"]["entry_reference"]),
                         "stop_loss": float(item["evidence"]["stop_loss"]),
                         "take_profit": float(item["evidence"]["take_profit"]),
-                        "risk_quote": risk_budget,
-                        "strategy": strategy_id,
+                        "risk_quote": float(item["risk_quote"]),
                     }
 
             engine_report = [

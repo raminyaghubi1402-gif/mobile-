@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 from lili_trader.live_paper_monitor import (
@@ -134,6 +135,25 @@ class PaperEntryTests(unittest.TestCase):
             "execution": "paper_only",
         }
         journal = DecisionJournal("unused-journal.jsonl")
+        event_time = datetime.fromtimestamp(
+            rows[0].timestamp + 300, tz=timezone.utc
+        ).isoformat()
+        journal.append_decision(
+            decision_id="decision-trailing-test",
+            occurred_at=event_time,
+            market_data_at=event_time,
+            symbol="BTCIRT",
+            action="BUY",
+            strategy="trend_pullback",
+            strategy_version="test",
+            reason="valid paper test setup",
+            evidence={"test": True},
+            entry_price=105.0,
+            stop_loss=98.0,
+            take_profit=1_000.0,
+            risk_quote=100.0,
+            trade_id="paper-trailing-test",
+        )
         result = _manage_position(
             "BTCIRT", rows, state, journal, now=rows[-1].timestamp + 300
         )
@@ -143,6 +163,21 @@ class PaperEntryTests(unittest.TestCase):
         self.assertGreater(position["stop_loss"], 105.105 * 1.001 / (0.999 * 0.999))
         self.assertEqual(position["last_processed_timestamp"], rows[-1].timestamp)
         self.assertEqual(position["execution"], "paper_only")
+
+        trailing_stop = position["stop_loss"]
+        next_timestamp = rows[-1].timestamp + 300
+        stop_candle = NobitexCandle(
+            symbol="BTCIRT", resolution="5", timestamp=next_timestamp,
+            open=108.0, high=110.0, low=trailing_stop - 0.1, close=108.5,
+            volume=10.0, fetched_at=next_timestamp + 300,
+        )
+        close_result = _manage_position(
+            "BTCIRT", rows + [stop_candle], state, journal,
+            now=next_timestamp + 300,
+        )
+        self.assertIn("closed_stop_loss", close_result)
+        self.assertNotIn("BTCIRT", state.data["positions"])
+        self.assertEqual(journal.summary()["outcomes"], 1)
 
     def test_unclosed_confirmation_candle_cannot_raise_stop(self):
         rows = [

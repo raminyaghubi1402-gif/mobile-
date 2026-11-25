@@ -99,7 +99,7 @@ class MarketRegimeTests(unittest.TestCase):
         )
         up = apply_primary_trend(base, "range", "up")
         self.assertEqual(up.trend, "up")
-        self.assertIn("۱۵m", up.reason)
+        self.assertIn("15m", up.reason)
         self.assertEqual(
             set(candidate.name for candidate in select_strategy_candidates(up)),
             set(STRATEGY_CATALOG) - {"range_trading"},

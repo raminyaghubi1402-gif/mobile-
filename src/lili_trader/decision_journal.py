@@ -77,14 +77,34 @@ class DecisionJournal:
 
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
+        self._events_cache: tuple[DecisionEvent, ...] | None = None
+        self._cache_signature: tuple[int, int, int] | None = None
+        self._event_ids: set[str] = set()
+        self._decision_ids: set[str] = set()
+        self._outcome_ids: set[str] = set()
+        self._reviewed_ids: set[str] = set()
 
     @staticmethod
     def _digest(body: dict[str, Any]) -> str:
         return hashlib.sha256(_canonical(body).encode("utf-8")).hexdigest()
 
     def events(self) -> tuple[DecisionEvent, ...]:
-        if not self.path.exists():
+        try:
+            stat = self.path.stat()
+        except FileNotFoundError:
+            self._events_cache = ()
+            self._cache_signature = None
+            self._event_ids.clear()
+            self._decision_ids.clear()
+            self._outcome_ids.clear()
+            self._reviewed_ids.clear()
             return ()
+        except OSError as exc:
+            raise DecisionJournalError("decision journal cannot be inspected") from exc
+        signature = (stat.st_mtime_ns, stat.st_size, stat.st_ino)
+        if self._events_cache is not None and signature == self._cache_signature:
+            return self._events_cache
+
         result: list[DecisionEvent] = []
         previous_hash = "GENESIS"
         decision_ids: set[str] = set()
@@ -136,7 +156,28 @@ class DecisionJournal:
                     previous_hash = event.event_hash
         except OSError as exc:
             raise DecisionJournalError("decision journal cannot be read") from exc
-        return tuple(result)
+        try:
+            final_stat = self.path.stat()
+        except OSError as exc:
+            raise DecisionJournalError("decision journal cannot be inspected") from exc
+        final_signature = (final_stat.st_mtime_ns, final_stat.st_size, final_stat.st_ino)
+        if final_signature != signature:
+            # A concurrent writer changed the file while it was being verified.
+            return self.events()
+
+        self._events_cache = tuple(result)
+        self._cache_signature = final_signature
+        self._event_ids = {event.event_id for event in result}
+        self._decision_ids = {
+            event.decision_id for event in result if event.event_type == "DECISION"
+        }
+        self._outcome_ids = {
+            event.decision_id for event in result if event.event_type == "OUTCOME"
+        }
+        self._reviewed_ids = {
+            event.decision_id for event in result if event.event_type == "REVIEW"
+        }
+        return self._events_cache
 
     @staticmethod
     def _validate_event(event: DecisionEvent) -> None:
@@ -195,14 +236,15 @@ class DecisionJournal:
         _timestamp(occurred_at)
         existing = self.events()
         event_id = f"{event_type.lower()}-{decision_id}"
-        if any(item.event_id == event_id for item in existing):
+        if event_id in self._event_ids:
             raise DecisionJournalError("event_id has already been used")
-        if event_type == "DECISION" and any(item.decision_id == decision_id for item in existing):
+        if event_type == "DECISION" and decision_id in self._decision_ids:
             raise DecisionJournalError("decision_id has already been used")
         if event_type in {"OUTCOME", "REVIEW"}:
-            if not any(item.event_type == "DECISION" and item.decision_id == decision_id for item in existing):
+            if decision_id not in self._decision_ids:
                 raise DecisionJournalError(f"cannot append {event_type.lower()} for an unknown decision")
-            if any(item.event_type == event_type and item.decision_id == decision_id for item in existing):
+            existing_type_ids = self._outcome_ids if event_type == "OUTCOME" else self._reviewed_ids
+            if decision_id in existing_type_ids:
                 raise DecisionJournalError(f"decision already has a {event_type.lower()}")
         sequence = len(existing) + 1
         previous_hash = existing[-1].event_hash if existing else "GENESIS"
@@ -228,6 +270,19 @@ class DecisionJournal:
                 stream.flush()
         except OSError as exc:
             raise DecisionJournalError("event could not be appended") from exc
+        self._events_cache = existing + (event,)
+        self._event_ids.add(event.event_id)
+        if event.event_type == "DECISION":
+            self._decision_ids.add(event.decision_id)
+        elif event.event_type == "OUTCOME":
+            self._outcome_ids.add(event.decision_id)
+        else:
+            self._reviewed_ids.add(event.decision_id)
+        try:
+            stat = self.path.stat()
+            self._cache_signature = (stat.st_mtime_ns, stat.st_size, stat.st_ino)
+        except OSError:
+            self._cache_signature = None
         return event
 
     def append_decision(

@@ -172,5 +172,36 @@ class EngineSnapshotBuilderTests(unittest.TestCase):
             snapshots["trend_pullback"]["context"]["primary_trend_timeframe"], "15m"
         )
 
+
+    def test_trend_pullback_failure_preserves_range_hourly_fallback_for_other_engines(self):
+        trend_15m = SimpleNamespace(
+            direction="up",
+            last_two_swing_highs=(110, 120),
+            last_two_swing_lows=(100, 110),
+        )
+        trend_1h = SimpleNamespace(
+            direction="range",
+            last_two_swing_highs=(110, 112),
+            last_two_swing_lows=(100, 98),
+        )
+        with patch(
+            "lili_trader.engine_snapshot_builder.classify_price_action_trend",
+            side_effect=[trend_15m, trend_1h],
+        ), patch(
+            "lili_trader.live_paper_monitor.build_trend_pullback_snapshot",
+            side_effect=ValueError("trend-pullback evidence unavailable"),
+        ):
+            snapshots = build_independent_engine_snapshots(
+                self.hourly, self.fifteen, self.five, now=self.now
+            )
+        self.assertEqual(snapshots["breakout"]["trend_1h"], "range")
+        self.assertEqual(snapshots["breakout"]["trend_15m"], "up")
+        self.assertEqual(snapshots["breakout"]["primary_trend"], "up")
+        self.assertEqual(snapshots["breakout"]["primary_trend_timeframe"], "15m")
+        self.assertEqual(snapshots["breakout"]["regime"], "bullish")
+        self.assertEqual(
+            snapshots["trend_pullback"]["context"]["trend_1h"], "range"
+        )
+
 if __name__ == "__main__":
     unittest.main()

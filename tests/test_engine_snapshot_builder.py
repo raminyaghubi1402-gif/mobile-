@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from lili_trader.engine_snapshot_builder import build_independent_engine_snapshots
@@ -136,6 +137,40 @@ class EngineSnapshotBuilderTests(unittest.TestCase):
                 self.hourly, self.fifteen, stale, now=self.now + 900
             )
 
+
+
+    def test_range_hourly_falls_back_to_fifteen_minute_for_all_engine_snapshots(self):
+        trend_15m = SimpleNamespace(
+            direction="up",
+            last_two_swing_highs=(110, 120),
+            last_two_swing_lows=(100, 110),
+        )
+        trend_1h = SimpleNamespace(
+            direction="range",
+            last_two_swing_highs=(110, 112),
+            last_two_swing_lows=(100, 98),
+        )
+        trend_snapshot = {
+            "context": {"trend_1h": "range", "trend_15m": "up"},
+            "structure_5m": {"bias": "up"},
+            "regime": "range",
+        }
+        with patch(
+            "lili_trader.engine_snapshot_builder.classify_price_action_trend",
+            side_effect=[trend_15m, trend_1h],
+        ), patch(
+            "lili_trader.live_paper_monitor.build_trend_pullback_snapshot",
+            return_value=trend_snapshot,
+        ):
+            snapshots = build_independent_engine_snapshots(
+                self.hourly, self.fifteen, self.five, now=self.now
+            )
+        self.assertEqual(snapshots["breakout"]["regime"], "bullish")
+        self.assertEqual(snapshots["trend_pullback"]["regime"], "bullish")
+        self.assertEqual(snapshots["trend_pullback"]["context"]["primary_trend"], "up")
+        self.assertEqual(
+            snapshots["trend_pullback"]["context"]["primary_trend_timeframe"], "15m"
+        )
 
 if __name__ == "__main__":
     unittest.main()

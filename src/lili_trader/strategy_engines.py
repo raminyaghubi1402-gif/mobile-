@@ -258,8 +258,10 @@ def build_default_strategy_registry() -> StrategyRegistry:
     """Return the implemented engines; unimplemented catalog entries stay disabled."""
     from .breakout_engine import BreakoutEngine
     from .breakout_retest_engine import BreakoutRetestEngine
+    from .support_resistance_rejection_engine import SupportResistanceRejectionEngine
     return StrategyRegistry((
         TrendPullbackEngine(),
         BreakoutEngine(),
         BreakoutRetestEngine(),
+        SupportResistanceRejectionEngine(),
     ))

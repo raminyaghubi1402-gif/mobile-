@@ -111,3 +111,121 @@ class StrategyRegistry:
                 raise ValueError("engine returned a decision for another strategy")
             decisions.append(decision)
         return tuple(decisions)
+
+
+
+def _positive_price(value: Any, field_name: str) -> float:
+    from math import isfinite
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} must be a finite positive price")
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError):
+        raise ValueError(f"{field_name} must be a finite positive price") from None
+    if not isfinite(result) or result <= 0:
+        raise ValueError(f"{field_name} must be a finite positive price")
+    return result
+
+
+@dataclass(frozen=True)
+class TrendPullbackEngine:
+    """Conservative spot-long pullback engine using only closed-candle evidence.
+
+    Snapshot contract:
+      regime: "bullish" only
+      spot_only: True
+      pullback_active: True (15m pullback is explicitly identified upstream)
+      support_zone: {kind: "support", lower: float, upper: float}
+      latest_5m: {timestamp: int, open/high/low/close: float}
+      structure_5m: {bias: "up", last_event: {kind, candle_index},
+                     latest_candle_index: int}
+    The caller must build this snapshot from closed, timestamp-validated candles.
+    This engine deliberately fails closed when any evidence is absent.
+    """
+
+    strategy_id: str = "trend_pullback"
+    enabled: bool = True
+    minimum_reward_risk: float = 1.5
+
+    def evaluate(self, market_snapshot: Mapping[str, Any]) -> StrategyDecision:
+        if not isinstance(market_snapshot, Mapping):
+            raise ValueError("market_snapshot must be a mapping")
+        if type(self.enabled) is not bool or not self.enabled:
+            return StrategyDecision(self.strategy_id, "DISABLED", "موتور غیرفعال است.")
+        if market_snapshot.get("spot_only") is not True:
+            return StrategyDecision(self.strategy_id, "WAIT",
+                                    "این موتور فقط برای حالت نقدیِ بدون اهرم فعال است.")
+        if market_snapshot.get("regime") != "bullish":
+            return StrategyDecision(self.strategy_id, "WAIT",
+                                    "رژیم صعودی معتبر نیست؛ خرید انجام نمی‌شود.")
+        if market_snapshot.get("pullback_active") is not True:
+            return StrategyDecision(self.strategy_id, "WAIT",
+                                    "اصلاح ۱۵ دقیقه‌ای به‌صورت مستقل تأیید نشده است.")
+        zone = market_snapshot.get("support_zone")
+        candle = market_snapshot.get("latest_5m")
+        structure = market_snapshot.get("structure_5m")
+        if not all(isinstance(item, Mapping) for item in (zone, candle, structure)):
+            return StrategyDecision(self.strategy_id, "WAIT",
+                                    "ناحیه حمایت، کندل بسته‌شده یا ساختار ۵ دقیقه ناقص است.")
+        if zone.get("kind") != "support":
+            return StrategyDecision(self.strategy_id, "WAIT",
+                                    "ناحیه معتبر حمایت در دسترس نیست.")
+        try:
+            lower = _positive_price(zone.get("lower"), "support lower")
+            upper = _positive_price(zone.get("upper"), "support upper")
+            open_ = _positive_price(candle.get("open"), "open")
+            high = _positive_price(candle.get("high"), "high")
+            low = _positive_price(candle.get("low"), "low")
+            close = _positive_price(candle.get("close"), "close")
+            timestamp = candle.get("timestamp")
+            latest_index = structure.get("latest_candle_index")
+            event = structure.get("last_event")
+            if lower > upper or low > min(open_, close) or high < max(open_, close) or low > high:
+                raise ValueError("inconsistent zone/candle")
+            if type(timestamp) is not int or timestamp <= 0:
+                raise ValueError("closed candle timestamp is invalid")
+            if type(latest_index) is not int or latest_index < 0:
+                raise ValueError("latest closed-candle index is invalid")
+            if not isinstance(event, Mapping):
+                raise ValueError("latest structure event is missing")
+            event_index = event.get("candle_index")
+            if type(event_index) is not int or event_index != latest_index:
+                raise ValueError("structure event is not on the latest closed candle")
+            if event.get("kind") not in ("CHOCH_UP", "BOS_UP"):
+                return StrategyDecision(self.strategy_id, "WAIT",
+                                        "شکست صعودی معتبر با بسته‌شدن کندل ۵ دقیقه تأیید نشده است.")
+            if structure.get("bias") != "up":
+                return StrategyDecision(self.strategy_id, "WAIT",
+                                        "جهت ساختار ۵ دقیقه هنوز صعودی نشده است.")
+            if not (low <= upper and close >= lower):
+                return StrategyDecision(self.strategy_id, "WAIT",
+                                        "قیمت ناحیه حمایت را لمس و حفظ نکرده است.")
+            if close <= open_:
+                return StrategyDecision(self.strategy_id, "WAIT",
+                                        "کندل تأییدی صعودی نیست.")
+            stop = lower
+            risk = close - stop
+            if risk <= 0:
+                return StrategyDecision(self.strategy_id, "WAIT",
+                                        "حد ضرر معتبر زیر قیمت ورود تشکیل نشده است.")
+            target = close + risk * self.minimum_reward_risk
+            if not all(__import__("math").isfinite(x) for x in (stop, target)):
+                raise ValueError("non-finite risk levels")
+        except ValueError as exc:
+            return StrategyDecision(self.strategy_id, "WAIT",
+                                    f"داده یا شواهد نامعتبر است؛ ورود مسدود شد: {exc}")
+        return StrategyDecision(
+            self.strategy_id,
+            "SIGNAL",
+            "روند صعودی، اصلاح فعال، حفظ حمایت، کندل صعودی و CHoCH/BOS روی آخرین کندل بسته‌شده هم‌زمان تأیید شدند؛ فقط سیگنال Paper.",
+            {
+                "entry_reference": close,
+                "stop_loss": stop,
+                "take_profit": target,
+                "minimum_reward_risk": self.minimum_reward_risk,
+                "structure_event": event.get("kind"),
+                "structure_event_candle_index": event_index,
+                "market_data_timestamp": timestamp,
+                "execution": "paper_only",
+            },
+        )

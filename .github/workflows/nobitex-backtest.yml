@@ -53,6 +53,12 @@ jobs:
           echo "" | tee -a nobitex-backtest-report.txt
           echo "=== Independent engines with global 1h bullish gate ===" | tee -a nobitex-backtest-report.txt
           PYTHONPATH=src python -m lili_trader --independent-engine-backtest --require-1h-bullish --stored-history-only --spot-only --symbol ${{ matrix.symbol }} --count 10000 --backtest-cash 13550000 --backtest-currency IRT 2>&1 | tee -a nobitex-backtest-report.txt
+          echo "" | tee -a nobitex-backtest-report.txt
+          echo "=== Independent engines with net reward/risk >= 1.5 after fees and slippage ===" | tee -a nobitex-backtest-report.txt
+          PYTHONPATH=src python -m lili_trader --independent-engine-backtest --minimum-net-reward-risk 1.5 --stored-history-only --spot-only --symbol ${{ matrix.symbol }} --count 10000 --backtest-cash 13550000 --backtest-currency IRT 2>&1 | tee -a nobitex-backtest-report.txt
+          echo "" | tee -a nobitex-backtest-report.txt
+          echo "=== Independent engines with both global 1h bullish and net reward/risk gates ===" | tee -a nobitex-backtest-report.txt
+          PYTHONPATH=src python -m lili_trader --independent-engine-backtest --require-1h-bullish --minimum-net-reward-risk 1.5 --stored-history-only --spot-only --symbol ${{ matrix.symbol }} --count 10000 --backtest-cash 13550000 --backtest-currency IRT 2>&1 | tee -a nobitex-backtest-report.txt
       - name: Save report
         if: always()
         uses: actions/upload-artifact@v4

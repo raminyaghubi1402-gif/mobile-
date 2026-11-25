@@ -114,6 +114,27 @@ class PaperEntryTests(unittest.TestCase):
         self.assertAlmostEqual(FEE_RATE, NOBITEX_BASE_SPOT_FEE_RATE_IRT)
         self.assertEqual(NOBITEX_MINIMUM_SPOT_ORDER_IRT, 3_000_000)
 
+    def test_unknown_other_pending_allocation_blocks_new_entry(self):
+        self.state.data["pending"]["BTCIRT"] = {
+            "decision_id": "decision-btc-current",
+            "signal_timestamp": 300,
+            "entry_reference": 100.0,
+            "stop_loss": 98.0,
+            "take_profit": 106.0,
+            "risk_quote": 135_500.0,
+        }
+        self.state.data["pending"]["ETHIRT"] = {
+            "decision_id": "decision-eth-legacy",
+            "signal_timestamp": 300,
+            "stop_loss": 198.0,
+            "take_profit": 206.0,
+            "risk_quote": 135_500.0,
+        }
+        with self.assertRaises(LivePaperMonitorError):
+            _activate_pending("BTCIRT", [candle(600)], self.state)
+        self.assertIn("BTCIRT", self.state.data["pending"])
+        self.assertNotIn("BTCIRT", self.state.data["positions"])
+
     def test_two_symbols_share_one_paper_cash_budget(self):
         self.state.data["pending"]["BTCIRT"] = {
             "decision_id": "decision-btc-shared-cash",

@@ -262,7 +262,8 @@ def main() -> None:
                 ("بی‌نهایت/بدون زیان" if row.profit_factor == float("inf") else f"{row.profit_factor:.2f}")
             )
             print(
-                f"{row.strategy_id}: معاملات={row.trade_count} | سیگنال‌ها={row.signal_count} | "
+                f"{row.strategy_id}: معاملات={row.trade_count} | سیگنال‌ها={row.signal_count} | تلاش ورود={row.entry_attempts} | "
+                f"لغو RR={row.cancelled_rr} | لغو حداقل سفارش={row.cancelled_minimum_order} | "
                 f"خالص={row.net_profit:,.2f} IRT ({row.return_pct:.3f}٪) | "
                 f"برد={row.win_rate_pct:.1f}٪ | افت سرمایه={row.max_drawdown_pct:.3f}٪ | PF={pf}"
             )

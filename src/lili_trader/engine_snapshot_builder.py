@@ -16,7 +16,7 @@ def _candle_snapshot(candle: NobitexCandle, *, now: int) -> dict[str, int | floa
     fetched_at = candle.fetched_at
     if (type(timestamp) is not int or timestamp <= 0
             or type(fetched_at) is not int or fetched_at <= 0
-            or timestamp + 300 > fetched_at or fetched_at > now):
+            or timestamp + 300 > fetched_at):
         raise ValueError("5m candle close/fetch timestamps are invalid")
     values = (candle.open, candle.high, candle.low, candle.close)
     if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in values):

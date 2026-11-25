@@ -259,7 +259,12 @@ class TrendPullbackEngine:
             if risk <= 0:
                 return StrategyDecision(self.strategy_id, "WAIT",
                                         "حد ضرر معتبر زیر قیمت ورود تشکیل نشده است.")
-            target = _target_for_minimum_reward_risk(close, stop, self.minimum_reward_risk)
+            target = _target_for_minimum_reward_risk(
+                close, stop, self.minimum_reward_risk,
+                expected_entry_slippage_rate=market_snapshot.get(
+                    "expected_entry_slippage_rate", DEFAULT_ENTRY_SLIPPAGE_RATE
+                ),
+            )
             if not all(isfinite(x) for x in (stop, target)):
                 raise ValueError("non-finite risk levels")
         except ValueError as exc:

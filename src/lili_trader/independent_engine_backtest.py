@@ -70,6 +70,7 @@ class IndependentEngineBacktestResult:
     last_timestamp: int
     engines: tuple[EngineStats, ...]
     warnings: tuple[str, ...]
+    higher_timeframe_gate_rejections: int
 
 
 def _validate_series(candles: Sequence[NobitexCandle], resolution: str,
@@ -126,6 +127,7 @@ def run_independent_engine_backtest(
     slippage_rate: float = 0.001,
     minimum_order_quote: float | None = 3_000_000.0,
     maximum_5m_bars: int | None = None,
+    require_1h_bullish: bool = False,
 ) -> IndependentEngineBacktestResult:
     """Evaluate each engine on closed history with a separate spot-long ledger.
 
@@ -226,6 +228,7 @@ def run_independent_engine_backtest(
         ledger["position"] = None
 
     first_index = max(23, 0)
+    higher_timeframe_gate_rejections = 0
     for index in range(first_index, len(five)):
         signal_candle = five[index]
         signal_close_time = signal_candle.timestamp + 300
@@ -259,13 +262,28 @@ def run_independent_engine_backtest(
             selected = {
                 item.name for item in candidates if item.eligible
             }
+            trend_1h_context = "unknown"
+            for engine_snapshot in snapshots.values():
+                snapshot_context = engine_snapshot.get("context", {})
+                if not isinstance(snapshot_context, dict):
+                    snapshot_context = {}
+                observed_trend_1h = engine_snapshot.get(
+                    "trend_1h", snapshot_context.get("trend_1h", "unknown")
+                )
+                if isinstance(observed_trend_1h, str) and observed_trend_1h != "unknown":
+                    trend_1h_context = observed_trend_1h
+                    break
             if regime.trend == "up" and regime.volatility in {"low", "normal"}:
-                decisions = {
-                    engine_id: registry.evaluate_selected(
-                        snapshots[engine_id], (engine_id,)
-                    )[0]
-                    for engine_id in engine_ids if engine_id in selected
-                }
+                if require_1h_bullish and trend_1h_context != "up":
+                    higher_timeframe_gate_rejections += 1
+                    decisions = {}
+                else:
+                    decisions = {
+                        engine_id: registry.evaluate_selected(
+                            snapshots[engine_id], (engine_id,)
+                        )[0]
+                        for engine_id in engine_ids if engine_id in selected
+                    }
             else:
                 decisions = {}
         except (ValueError, TypeError, IndexError):
@@ -469,5 +487,8 @@ def run_independent_engine_backtest(
             "اگر حدضرر و هدف در یک کندل لمس شوند، حدضرر زودتر فرض می‌شود.",
             "این بک‌تست فقط یک قطعهٔ پیوسته را می‌پذیرد و شکاف‌ها را رد می‌کند.",
             "نتایج تاریخی تضمین‌کنندهٔ سودآوری آینده نیستند.",
+            ("دروازهٔ سراسری روند ۱h فعال است؛ فقط سیگنال‌های ثبت‌شده در روند ۱h صعودی پذیرفته می‌شوند."
+             if require_1h_bullish else "دروازهٔ سراسری روند ۱h غیرفعال است؛ این اجرای مبناست."),
         ),
+        higher_timeframe_gate_rejections=higher_timeframe_gate_rejections,
     )

@@ -435,31 +435,6 @@ def main() -> None:
         return
 
     if args.price_action_backtest:
-        if args.backtest_currency == "USD" and args.symbol.upper().endswith("IRT"):
-            import math
-            if (args.usd_irt_rate is None or args.usd_irt_rate <= 0
-                    or not math.isfinite(args.usd_irt_rate)):
-                parser.error("برای نمادهای IRT، سرمایهٔ USD به نرخ مثبت و معتبر --usd-irt-rate نیاز دارد؛ نرخ را حدس نمی‌زنیم.")
-            if not isinstance(args.usd_irt_rate_source, str) or not args.usd_irt_rate_source.strip():
-                parser.error("برای حساب USD، --usd-irt-rate-source الزامی است.")
-            if not isinstance(args.usd_irt_rate_at, str) or not args.usd_irt_rate_at.strip():
-                parser.error("برای حساب USD، --usd-irt-rate-at با زمان ISO-8601 الزامی است.")
-            try:
-                rate_time = datetime.fromisoformat(args.usd_irt_rate_at.replace("Z", "+00:00"))
-            except ValueError:
-                parser.error("زمان نرخ باید ISO-8601 معتبر و دارای منطقهٔ زمانی باشد.")
-            if rate_time.tzinfo is None or rate_time.utcoffset() is None:
-                parser.error("زمان نرخ باید منطقهٔ زمانی داشته باشد.")
-            rate_age = (datetime.now(timezone.utc) - rate_time.astimezone(timezone.utc)).total_seconds()
-            if rate_age < -60 or rate_age > 900:
-                parser.error("نرخ تبدیل قدیمی یا دارای زمان آینده است؛ نرخ حداکثر ۱۵ دقیقه‌ای لازم است.")
-            backtest_cash_local = args.backtest_cash * args.usd_irt_rate
-        elif args.backtest_currency == "IRT":
-            backtest_cash_local = args.backtest_cash
-        elif args.backtest_currency == "USD":
-            parser.error("واحد USD فقط برای نمادهای IRT با نرخ تبدیل صریح پشتیبانی می‌شود؛ واحد بازار را مشخص کنید.")
-
-    if args.price_action_backtest:
         from pathlib import Path
         from .history_store import load_history_csv, merge_candle_history
         from .nobitex_data import NobitexAdapter

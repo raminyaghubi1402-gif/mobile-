@@ -44,6 +44,10 @@ class EngineStats:
     trade_count: int
     evaluated_bars: int
     signal_count: int
+    entry_attempts: int
+    cancelled_rr: int
+    cancelled_minimum_order: int
+    cancelled_invalid_price: int
     trades: tuple[EngineTrade, ...]
 
 
@@ -162,7 +166,9 @@ def run_independent_engine_backtest(
         engine_id: {
             "cash": float(starting_cash), "position": None, "pending": None,
             "trades": [], "curve": [float(starting_cash)],
-            "evaluated": 0, "signals": 0, "peak": float(starting_cash),
+            "evaluated": 0, "signals": 0, "entry_attempts": 0,
+            "cancelled_rr": 0, "cancelled_minimum_order": 0,
+            "cancelled_invalid_price": 0, "peak": float(starting_cash),
             "max_dd": 0.0,
         } for engine_id in engine_ids
     }
@@ -243,6 +249,7 @@ def run_independent_engine_backtest(
                 if execution_candle.timestamp != pending["signal_timestamp"] + 300:
                     ledger["pending"] = None
                 else:
+                    ledger["entry_attempts"] += 1
                     raw_entry = float(execution_candle.open)
                     entry_fill = raw_entry * (1 + slippage_rate)
                     stop = pending["stop"]
@@ -252,15 +259,22 @@ def run_independent_engine_backtest(
                     actual_risk = entry_fill - stop
                     actual_reward = target - entry_fill
                     actual_rr = actual_reward / actual_risk if actual_risk > 0 else 0.0
-                    if raw_entry > stop and raw_entry < target and unit_risk > 0 and actual_rr >= 1.5:
+                    if raw_entry <= stop or raw_entry >= target or unit_risk <= 0:
+                        ledger["cancelled_invalid_price"] += 1
+                    elif actual_rr < 1.5:
+                        ledger["cancelled_rr"] += 1
+                    else:
                         risk_budget = ledger["cash"] * risk_fraction
                         quantity = min(
                             risk_budget / unit_risk,
                             ledger["cash"] / (entry_fill * (1 + fee_rate)),
                         )
-                        if (quantity > 0 and isfinite(quantity)
-                                and (minimum_order_quote is None
-                                     or entry_fill * quantity >= minimum_order_quote)):
+                        if quantity <= 0 or not isfinite(quantity):
+                            ledger["cancelled_invalid_price"] += 1
+                        elif (minimum_order_quote is not None
+                              and entry_fill * quantity < minimum_order_quote):
+                            ledger["cancelled_minimum_order"] += 1
+                        else:
                             entry_fee = entry_fill * quantity * fee_rate
                             ledger["cash"] -= entry_fill * quantity + entry_fee
                             ledger["position"] = {
@@ -272,7 +286,6 @@ def run_independent_engine_backtest(
                                 "target": target,
                             }
                     ledger["pending"] = None
-
             position = ledger["position"]
             if position is not None:
                 stop_hit = execution_candle.low <= position["stop"]
@@ -347,6 +360,10 @@ def run_independent_engine_backtest(
             trade_count=len(trades),
             evaluated_bars=ledger["evaluated"],
             signal_count=ledger["signals"],
+            entry_attempts=ledger["entry_attempts"],
+            cancelled_rr=ledger["cancelled_rr"],
+            cancelled_minimum_order=ledger["cancelled_minimum_order"],
+            cancelled_invalid_price=ledger["cancelled_invalid_price"],
             trades=trades,
         ))
 

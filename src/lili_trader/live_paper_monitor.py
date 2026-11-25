@@ -281,7 +281,11 @@ def _activate_pending(
     target = float(pending["take_profit"])
     stop_fill = stop * (1 - SLIPPAGE_RATE)
     unit_risk = (entry_fill - stop_fill) + (entry_fill + stop_fill) * FEE_RATE
-    if unit_risk <= 0 or entry_fill <= stop or raw_entry >= target:
+    actual_reward = target - entry_fill
+    actual_risk = entry_fill - stop
+    actual_rr = actual_reward / actual_risk if actual_risk > 0 else 0.0
+    if (unit_risk <= 0 or raw_entry <= stop or raw_entry >= target
+            or actual_rr < 1.5):
         del state.data["pending"][symbol]
         return "pending_entry_cancelled_gap_or_invalid_risk"
     risk_budget = float(pending["risk_quote"])

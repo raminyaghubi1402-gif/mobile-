@@ -96,8 +96,18 @@ class IndependentEngineBacktestTests(unittest.TestCase):
         self.assertEqual(breakout.trade_count, 1)
         self.assertEqual(breakout.entry_attempts, 1)
         self.assertEqual(breakout.cancelled_rr, 0)
-        self.assertEqual(breakout.trades[0].entry_timestamp, five[360].timestamp)
-        self.assertAlmostEqual(breakout.trades[0].entry_price, 100.1)
+        trade = breakout.trades[0]
+        self.assertEqual(trade.entry_timestamp, five[360].timestamp)
+        self.assertEqual(trade.signal_timestamp, five[359].timestamp)
+        self.assertAlmostEqual(trade.entry_price, 100.1)
+        self.assertEqual(trade.signal_reason, "test-only deterministic setup")
+        self.assertEqual(trade.signal_evidence["stop_loss"], 98.0)
+        self.assertAlmostEqual(trade.entry_gap_pct, 0.0)
+        self.assertGreater(trade.max_favorable_r, 0.0)
+        self.assertGreater(trade.max_adverse_r, 0.0)
+        self.assertGreater(trade.bars_held, 0)
+        self.assertEqual(trade.trend_1h, "unknown")
+        self.assertEqual(trade.trend_15m, "up")
 
     def test_confirmed_trailing_stop_applies_only_to_the_next_candle(self):
         start = 1_800_000_000

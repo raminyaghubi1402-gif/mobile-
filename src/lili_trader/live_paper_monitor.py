@@ -435,12 +435,14 @@ def _reserved_quote(
     return min(reserved, equity_quote)
 
 
-def _committed_risk_quote(state: PaperState) -> float:
-    """Return risk already assigned to all engine-owned pending/open positions."""
+def _committed_risk_quote(state: PaperState, *, symbol: str | None = None) -> float:
+    """Return risk assigned to all slots, optionally scoped to one symbol."""
     committed = 0.0
-    for position in state.data["positions"].values():
+    for key, position in state.data["positions"].items():
         if not isinstance(position, dict):
             raise LivePaperMonitorError("paper position risk state is invalid")
+        if symbol is not None and _record_symbol(key, position) != symbol:
+            continue
         try:
             risk = position.get("risk_quote")
             if risk is None:
@@ -457,9 +459,11 @@ def _committed_risk_quote(state: PaperState) -> float:
             raise LivePaperMonitorError("open position risk allocation is invalid")
         committed += risk
 
-    for pending in state.data["pending"].values():
+    for key, pending in state.data["pending"].items():
         if not isinstance(pending, dict):
             raise LivePaperMonitorError("pending risk state is invalid")
+        if symbol is not None and _record_symbol(key, pending) != symbol:
+            continue
         try:
             risk = float(pending["risk_quote"])
         except (KeyError, TypeError, ValueError, OverflowError) as exc:
@@ -666,11 +670,15 @@ def run_live_paper_monitor(
                 if decision.status == "SIGNAL"
                 and _engine_state_key(symbol, decision.strategy_id) not in occupied_slots
             ]
-            total_risk_cap = (
+            portfolio_risk_cap = (
                 paper_equity_quote * RISK_FRACTION
                 if paper_equity_quote is not None else 0.0
             )
-            committed_risk = _committed_risk_quote(state)
+            # Reserve a fixed half of the portfolio risk ceiling for each
+            # supported symbol. Processing order therefore cannot let BTC
+            # consume ETH's risk budget (or vice versa).
+            total_risk_cap = portfolio_risk_cap / len(SYMBOLS)
+            committed_risk = _committed_risk_quote(state, symbol=symbol)
             remaining_risk = max(0.0, total_risk_cap - committed_risk)
             per_signal_risk = (
                 remaining_risk / len(new_signals)
@@ -729,8 +737,9 @@ def run_live_paper_monitor(
                         "engine_reason": decision.reason,
                         "engine_slot": slot_key,
                         "engine_risk_allocation_quote": allocations.get(decision.strategy_id, 0.0),
-                        "portfolio_risk_cap_quote": total_risk_cap,
-                        "portfolio_risk_committed_before_new_signals_quote": committed_risk,
+                        "portfolio_risk_cap_quote": portfolio_risk_cap,
+                        "symbol_risk_cap_quote": total_risk_cap,
+                        "symbol_risk_committed_before_new_signals_quote": committed_risk,
                         "context": engine_snapshots[decision.strategy_id].get(
                             "context", snapshot["context"]
                         ),
@@ -824,8 +833,21 @@ def run_live_paper_monitor(
                 "reason": reason,
                 "position": position_status,
                 "pending": pending_status,
-                "open_position": symbol in state.data["positions"],
-                "pending_entry": symbol in state.data["pending"],
+                "open_position": any(
+                    isinstance(record, dict) and _record_symbol(key, record) == symbol
+                    for key, record in state.data["positions"].items()
+                ),
+                "pending_entry": any(
+                    isinstance(record, dict) and _record_symbol(key, record) == symbol
+                    for key, record in state.data["pending"].items()
+                ),
+                "engine_slots": {
+                    key: {"position": key in state.data["positions"],
+                          "pending": key in state.data["pending"]}
+                    for key in set(state.data["positions"]) | set(state.data["pending"])
+                    if isinstance(state.data["positions"].get(key, state.data["pending"].get(key)), dict)
+                    and _record_symbol(key, state.data["positions"].get(key, state.data["pending"].get(key))) == symbol
+                },
             }
         except (Exception) as exc:
             # A failed symbol observation is not converted into a fabricated WAIT candle.

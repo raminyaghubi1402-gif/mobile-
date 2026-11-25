@@ -107,8 +107,9 @@ def run_independent_engine_backtest(
     *,
     starting_cash: float = 13_550_000.0,
     risk_fraction: float = 0.005,
-    fee_rate: float = 0.001,
+    fee_rate: float = 0.0025,
     slippage_rate: float = 0.001,
+    minimum_order_quote: float | None = 3_000_000.0,
     maximum_5m_bars: int | None = None,
 ) -> IndependentEngineBacktestResult:
     """Evaluate each engine on closed history with a separate spot-long ledger.
@@ -127,6 +128,12 @@ def run_independent_engine_backtest(
         raise ValueError("invalid cash or risk fraction")
     if not 0 <= fee_rate < 0.05 or not 0 <= slippage_rate < 0.05:
         raise ValueError("invalid fee or slippage rate")
+    if minimum_order_quote is not None and (
+        isinstance(minimum_order_quote, bool)
+        or not isinstance(minimum_order_quote, (int, float))
+        or not isfinite(minimum_order_quote) or minimum_order_quote <= 0
+    ):
+        raise ValueError("minimum_order_quote must be finite and positive")
     if maximum_5m_bars is not None and (
         type(maximum_5m_bars) is not int or maximum_5m_bars < 24
     ):
@@ -251,7 +258,9 @@ def run_independent_engine_backtest(
                             risk_budget / unit_risk,
                             ledger["cash"] / (entry_fill * (1 + fee_rate)),
                         )
-                        if quantity > 0 and isfinite(quantity):
+                        if (quantity > 0 and isfinite(quantity)
+                                and (minimum_order_quote is None
+                                     or entry_fill * quantity >= minimum_order_quote)):
                             entry_fee = entry_fill * quantity * fee_rate
                             ledger["cash"] -= entry_fill * quantity + entry_fee
                             ledger["position"] = {
@@ -350,7 +359,9 @@ def run_independent_engine_backtest(
         warnings=(
             "هر موتور حساب آزمایشی مستقل دارد؛ نتایج را با هم جمع نکنید.",
             "ورود فقط در بازشدن کندل ۵دقیقهٔ بعد از سیگنال انجام می‌شود.",
-            "کارمزد و لغزش لحاظ شده‌اند؛ عمق دفتر سفارش، اثر بازار و مالیات لحاظ نشده‌اند.",
+            f"کارمزد پایهٔ {fee_rate * 100:.2f}% و لغزش {slippage_rate * 100:.2f}% اعمال شده‌اند.",
+            f"حداقل ارزش سفارش: {minimum_order_quote:,.0f} IRT." if minimum_order_quote is not None else "حداقل ارزش سفارش اعمال نشده است.",
+            "عمق دفتر سفارش، اثر بازار و مالیات لحاظ نشده‌اند.",
             "اگر حدضرر و هدف در یک کندل لمس شوند، حدضرر زودتر فرض می‌شود.",
             "این بک‌تست فقط یک قطعهٔ پیوسته را می‌پذیرد و شکاف‌ها را رد می‌کند.",
             "نتایج تاریخی تضمین‌کنندهٔ سودآوری آینده نیستند.",

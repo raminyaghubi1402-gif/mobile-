@@ -196,7 +196,7 @@ def run_independent_engine_backtest(
         ledger["position"] = None
 
     first_index = max(23, 0)
-    for index in range(first_index, len(five) - 1):
+    for index in range(first_index, len(five)):
         signal_candle = five[index]
         signal_close_time = signal_candle.timestamp + 300
         h_count = bisect_right(hourly_close_times, signal_close_time)
@@ -241,7 +241,8 @@ def run_independent_engine_backtest(
         except (ValueError, TypeError, IndexError):
             decisions = {}
 
-        execution_candle = five[index + 1]
+        # A pending signal from the previous bar executes at this bar's open.
+        execution_candle = signal_candle
         for engine_id, ledger in ledgers.items():
             occupied_at_start = ledger["position"] is not None or ledger["pending"] is not None
             position = ledger["position"]
@@ -299,8 +300,8 @@ def run_independent_engine_backtest(
                     close_position(engine_id, ledger, execution_candle,
                                    position["target"], "take_profit")
 
-            if (not occupied_at_start and ledger["position"] is None
-                    and ledger["pending"] is None):
+            if (index < len(five) - 1 and not occupied_at_start
+                    and ledger["position"] is None and ledger["pending"] is None):
                 decision = decisions.get(engine_id)
                 ledger["evaluated"] += 1
                 if decision is not None and decision.status == "SIGNAL":

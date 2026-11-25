@@ -1,8 +1,7 @@
 """Independent strategy engine contracts and an explicit registry.
 
-This module intentionally contains no trading rules. Strategy implementations
-must be added one at a time after their entry, invalidation, exit and evidence
-rules are specified and tested. No legacy multi-timeframe gate is imported.
+Strategies are implemented separately. The default research registry exposes
+only the first engine; it is not connected to Paper execution.
 """
 from __future__ import annotations
 
@@ -98,8 +97,6 @@ class StrategyRegistry:
                     reason="این موتور هنوز پیاده‌سازی و تأیید نشده است.",
                 ))
                 continue
-            # Each engine receives its own deep copy so accidental mutation by
-            # one implementation cannot influence another engine's evaluation.
             try:
                 engine_snapshot = deepcopy(dict(market_snapshot))
             except Exception as exc:
@@ -111,3 +108,10 @@ class StrategyRegistry:
                 raise ValueError("engine returned a decision for another strategy")
             decisions.append(decision)
         return tuple(decisions)
+
+
+def create_research_registry() -> StrategyRegistry:
+    """Return a registry with only the first implemented research engine."""
+    from .trend_pullback_engine import TrendPullbackEngine
+
+    return StrategyRegistry((TrendPullbackEngine(),))

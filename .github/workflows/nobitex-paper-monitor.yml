@@ -61,7 +61,7 @@ jobs:
             exit 2
           fi
           mkdir -p data/paper/live
-          printf '%s\\n' '{"schema_version":1,"pending":{},"positions":{}}' > data/paper/live/state.json
+          printf '%s\n' '{"schema_version":1,"pending":{},"positions":{}}' > data/paper/live/state.json
           : > data/paper/live/decisions.jsonl
           echo "Explicitly initialized an empty paper ledger."
       - name: Validate restored paper state and hash chain

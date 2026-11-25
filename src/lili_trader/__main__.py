@@ -267,6 +267,13 @@ def main() -> None:
                 f"خالص={row.net_profit:,.2f} IRT ({row.return_pct:.3f}٪) | "
                 f"برد={row.win_rate_pct:.1f}٪ | افت سرمایه={row.max_drawdown_pct:.3f}٪ | PF={pf}"
             )
+            for trade_index, trade in enumerate(row.trades, 1):
+                print(
+                    f"  معاملهٔ {trade_index}: ورود {_format_market_time(trade.entry_timestamp)} "
+                    f"@ {trade.entry_price:,.2f} | خروج {_format_market_time(trade.exit_timestamp)} "
+                    f"@ {trade.exit_price:,.2f} | خالص={trade.net_pnl:,.2f} IRT "
+                    f"| هزینه={trade.fees:,.2f} | علت={trade.exit_reason}"
+                )
         for warning in result.warnings:
             print(f"هشدار: {warning}")
         return

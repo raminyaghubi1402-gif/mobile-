@@ -802,6 +802,11 @@ def run_live_paper_monitor(
                     else:
                         event_reason = decision.reason
                     engine_evidence = dict(decision.evidence)
+                    own_snapshot = engine_snapshots.get(decision.strategy_id)
+                    own_context = (
+                        own_snapshot.get("context", snapshot["context"])
+                        if isinstance(own_snapshot, dict) else snapshot["context"]
+                    )
                     engine_evidence.update({
                         "engine_status": decision.status,
                         "engine_reason": decision.reason,
@@ -810,9 +815,7 @@ def run_live_paper_monitor(
                         "portfolio_risk_cap_quote": portfolio_risk_cap,
                         "symbol_risk_cap_quote": total_risk_cap,
                         "symbol_risk_committed_before_new_signals_quote": committed_risk,
-                        "context": engine_snapshots[decision.strategy_id].get(
-                            "context", snapshot["context"]
-                        ),
+                        "context": own_context,
                         "selected_engines": list(selected),
                     })
                     log_decisions.append({
@@ -833,41 +836,48 @@ def run_live_paper_monitor(
                         "levels": signal_levels.get(decision.strategy_id),
                     })
 
+            journal_errors: dict[str, str] = {}
             for item in log_decisions:
                 strategy_id = item["strategy_id"]
                 decision_id = _decision_id(symbol, latest_timestamp, strategy_id)
                 if decision_id in known_decisions:
                     continue
                 is_buy = bool(item.get("is_buy", False))
-                journal.append_decision(
-                    decision_id=decision_id,
-                    occurred_at=_iso(observed_at),
-                    market_data_at=_iso(latest_timestamp + 300),
-                    symbol=symbol,
-                    action="BUY" if is_buy else "WAIT",
-                    strategy=strategy_id,
-                    strategy_version=item["strategy_version"],
-                    reason=item["reason"],
-                    evidence={
-                        **item["evidence"],
-                        "source": "Nobitex public OHLCV",
-                        "resolutions": ["60", "15", "5"],
-                        "spot_only": True,
-                        "execution_mode": "paper_only",
-                        "fees_rate": FEE_RATE,
-                        "slippage_rate": SLIPPAGE_RATE,
-                        "paper_equity_usdt": PAPER_EQUITY_USDT,
-                        "usdt_irt_best_bid": usdt_irt_rate,
-                        "paper_equity_quote_irt": paper_equity_quote,
-                        "capital_rate_source": "Nobitex public USDTIRT orderbook best bid",
-                    },
-                    entry_price=item["levels"]["entry_reference"] if is_buy else None,
-                    stop_loss=item["levels"]["stop_loss"] if is_buy else None,
-                    take_profit=item["levels"]["take_profit"] if is_buy else None,
-                    risk_quote=float(item["risk_quote"]) if is_buy else None,
-                    timeframe="1h/15m/5m",
-                    trade_id=f"paper-{decision_id}" if is_buy else None,
-                )
+                try:
+                    journal.append_decision(
+                        decision_id=decision_id,
+                        occurred_at=_iso(observed_at),
+                        market_data_at=_iso(latest_timestamp + 300),
+                        symbol=symbol,
+                        action="BUY" if is_buy else "WAIT",
+                        strategy=strategy_id,
+                        strategy_version=item["strategy_version"],
+                        reason=item["reason"],
+                        evidence={
+                            **item["evidence"],
+                            "source": "Nobitex public OHLCV",
+                            "resolutions": ["60", "15", "5"],
+                            "spot_only": True,
+                            "execution_mode": "paper_only",
+                            "fees_rate": FEE_RATE,
+                            "slippage_rate": SLIPPAGE_RATE,
+                            "paper_equity_usdt": PAPER_EQUITY_USDT,
+                            "usdt_irt_best_bid": usdt_irt_rate,
+                            "paper_equity_quote_irt": paper_equity_quote,
+                            "capital_rate_source": "Nobitex public USDTIRT orderbook best bid",
+                        },
+                        entry_price=item["levels"]["entry_reference"] if is_buy else None,
+                        stop_loss=item["levels"]["stop_loss"] if is_buy else None,
+                        take_profit=item["levels"]["take_profit"] if is_buy else None,
+                        risk_quote=float(item["risk_quote"]) if is_buy else None,
+                        timeframe="1h/15m/5m",
+                        trade_id=f"paper-{decision_id}" if is_buy else None,
+                    )
+                except Exception as exc:
+                    # A malformed engine record must not prevent another
+                    # engine's valid decision from being journaled.
+                    journal_errors[strategy_id] = f"{type(exc).__name__}: {exc}"
+                    continue
                 if is_buy:
                     slot_key = _engine_state_key(symbol, strategy_id)
                     state.data["pending"][slot_key] = {
@@ -903,6 +913,7 @@ def run_live_paper_monitor(
                 "decision": decision_status,
                 "selected_engines": list(selected),
                 "engine_decisions": engine_report,
+                "engine_journal_errors": journal_errors,
                 "reason": reason,
                 "position": position_status,
                 "pending": pending_status,

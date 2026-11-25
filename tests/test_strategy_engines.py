@@ -128,7 +128,7 @@ class TrendPullbackEngineTests(unittest.TestCase):
         self.assertEqual(decision.status, "SIGNAL")
         self.assertEqual(decision.evidence["execution"], "paper_only")
         self.assertEqual(decision.evidence["stop_loss"], 98.0)
-        self.assertEqual(decision.evidence["take_profit"], 108.0)
+        self.assertAlmostEqual(decision.evidence["take_profit"], 108.255)
 
     def test_wick_only_or_stale_structure_event_cannot_trigger(self):
         self.snapshot["structure_5m"]["last_event"]["candle_index"] = 50

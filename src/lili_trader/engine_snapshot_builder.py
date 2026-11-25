@@ -82,7 +82,7 @@ def build_independent_engine_snapshots(
         if volume_contiguous:
             try:
                 volume_views = [_candle_snapshot(candle, now=now) for candle in volume_rows]
-            except (ValueError, TypeError, IndexError):
+            except Exception:
                 volume_views = []
 
     ict_views: list[dict[str, int | float]] = []
@@ -95,7 +95,7 @@ def build_independent_engine_snapshots(
         if ict_contiguous:
             try:
                 ict_views = [_candle_snapshot(candle, now=now) for candle in ict_rows]
-            except (ValueError, TypeError, IndexError):
+            except Exception:
                 ict_views = []
     if any(now - (view["timestamp"] + 300) > 900 for view in candle_views):
         raise ValueError("one of the required 5m candles is stale")
@@ -110,7 +110,7 @@ def build_independent_engine_snapshots(
         )
         support = nearest_zone(zones, latest_price, "support")
         resistance = nearest_zone(zones, latest_price, "resistance")
-    except (ValueError, TypeError, IndexError, ArithmeticError):
+    except Exception:
         support = None
         resistance = None
     support_payload = (
@@ -139,7 +139,7 @@ def build_independent_engine_snapshots(
         trend_snapshot = build_trend_pullback_snapshot(
             list(hourly), list(fifteen), list(five), now=now
         )
-    except (ValueError, TypeError, IndexError):
+    except Exception:
         trend_snapshot = {
             "spot_only": True,
             "regime": market_regime.trend,

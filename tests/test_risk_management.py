@@ -30,8 +30,8 @@ class StructuralTrailingStopTests(unittest.TestCase):
     @staticmethod
     def candle(ts, open_, high, low, close):
         return {
-            "timestamp": ts, "open": open_, "high": high,
-            "low": low, "close": close,
+            "timestamp": ts, "fetched_at": ts + 300,
+            "open": open_, "high": high, "low": low, "close": close,
         }
 
     def setUp(self):

@@ -142,6 +142,10 @@ def build_independent_engine_snapshots(
     common = {
         "spot_only": True,
         "regime": engine_regime,
+        "trend_1h": trend_1h.direction if trend_1h is not None else "unknown",
+        "trend_15m": trend_15m.direction,
+        "volatility_15m": market_regime.volatility,
+        "range_position_15m": market_regime.range_position,
         "expected_entry_slippage_rate": DEFAULT_ENTRY_SLIPPAGE_RATE,
     }
 

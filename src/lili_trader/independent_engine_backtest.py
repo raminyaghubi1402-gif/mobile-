@@ -30,6 +30,16 @@ class EngineTrade:
     net_pnl: float
     fees: float
     exit_reason: str
+    signal_timestamp: int
+    signal_reason: str
+    signal_evidence: dict[str, Any]
+    entry_gap_pct: float
+    max_favorable_r: float
+    max_adverse_r: float
+    bars_held: int
+    trend_1h: str
+    trend_15m: str
+    volatility_15m: str
 
 
 @dataclass(frozen=True)
@@ -196,6 +206,22 @@ def run_independent_engine_backtest(
             net_pnl=net,
             fees=position["entry_fee"] + exit_fee,
             exit_reason=exit_reason,
+            signal_timestamp=position["signal_timestamp"],
+            signal_reason=position["signal_reason"],
+            signal_evidence=dict(position["signal_evidence"]),
+            entry_gap_pct=position["entry_gap_pct"],
+            max_favorable_r=max(
+                0.0, (position["max_high"] - position["entry_fill"])
+                / position["initial_price_risk"]
+            ),
+            max_adverse_r=max(
+                0.0, (position["entry_fill"] - position["min_low"])
+                / position["initial_price_risk"]
+            ),
+            bars_held=position["bars_held"],
+            trend_1h=position["trend_1h"],
+            trend_15m=position["trend_15m"],
+            volatility_15m=position["volatility_15m"],
         ))
         ledger["position"] = None
 
@@ -284,6 +310,9 @@ def run_independent_engine_backtest(
                         else:
                             entry_fee = entry_fill * quantity * fee_rate
                             ledger["cash"] -= entry_fill * quantity + entry_fee
+                            signal_reference = float(pending["signal_evidence"].get(
+                                "entry_reference", pending["signal_close"]
+                            ))
                             ledger["position"] = {
                                 "entry_timestamp": execution_candle.timestamp,
                                 "entry_index": index,
@@ -293,10 +322,28 @@ def run_independent_engine_backtest(
                                 "stop": stop,
                                 "initial_stop": stop,
                                 "target": target,
+                                "signal_timestamp": pending["signal_timestamp"],
+                                "signal_reason": pending["signal_reason"],
+                                "signal_evidence": pending["signal_evidence"],
+                                "signal_close": signal_reference,
+                                "entry_gap_pct": (
+                                    (raw_entry - signal_reference) / signal_reference * 100
+                                    if signal_reference > 0 else 0.0
+                                ),
+                                "initial_price_risk": entry_fill - stop,
+                                "max_high": float(execution_candle.high),
+                                "min_low": float(execution_candle.low),
+                                "bars_held": 0,
+                                "trend_1h": pending["trend_1h"],
+                                "trend_15m": pending["trend_15m"],
+                                "volatility_15m": pending["volatility_15m"],
                             }
                     ledger["pending"] = None
             position = ledger["position"]
             if position is not None:
+                position["max_high"] = max(position["max_high"], float(execution_candle.high))
+                position["min_low"] = min(position["min_low"], float(execution_candle.low))
+                position["bars_held"] += 1
                 stop_hit = execution_candle.low <= position["stop"]
                 target_hit = execution_candle.high >= position["target"]
                 if stop_hit:
@@ -333,8 +380,18 @@ def run_independent_engine_backtest(
                 ledger["evaluated"] += 1
                 if decision is not None and decision.status == "SIGNAL":
                     ledger["signals"] += 1
+                    snapshot = snapshots[engine_id]
+                    context = snapshot.get("context", {})
+                    if not isinstance(context, dict):
+                        context = {}
                     ledger["pending"] = {
                         "signal_timestamp": signal_candle.timestamp,
+                        "signal_close": float(signal_candle.close),
+                        "signal_reason": decision.reason,
+                        "signal_evidence": dict(decision.evidence),
+                        "trend_1h": str(snapshot.get("trend_1h", context.get("trend_1h", "unknown"))),
+                        "trend_15m": str(snapshot.get("trend_15m", context.get("trend_15m", regime.trend))),
+                        "volatility_15m": str(snapshot.get("volatility_15m", context.get("volatility_15m", regime.volatility))),
                         "stop": float(decision.evidence["stop_loss"]),
                         "target": float(decision.evidence["take_profit"]),
                     }

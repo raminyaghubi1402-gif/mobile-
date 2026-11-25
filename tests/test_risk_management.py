@@ -104,6 +104,13 @@ class StructuralTrailingStopTests(unittest.TestCase):
         del unverified[-1]["fetched_at"]
         self.assertIsNone(self.call(candles=unverified))
 
+    def test_lower_low_cannot_be_used_as_a_higher_low_trailing_anchor(self):
+        lower_low = list(self.candles)
+        lower_low[13] = dict(lower_low[13], low=101.0)
+        self.assertIsNone(self.call(
+            candles=lower_low, entry_fill_price=100.0, current_stop=99.0
+        ))
+
     def test_no_trailing_when_not_above_fee_adjusted_breakeven(self):
         self.assertIsNone(self.call(entry_fill_price=150.0))
 

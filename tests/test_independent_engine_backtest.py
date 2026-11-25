@@ -20,16 +20,17 @@ def series(symbol, resolution, count, start, step, price_start=100.0):
 class IndependentEngineBacktestTests(unittest.TestCase):
     def setUp(self):
         start = 1_800_000_000
-        self.hourly = series("BTCIRT", "60", 40, start, 3600)
-        self.fifteen = series("BTCIRT", "15", 80, start, 900)
-        self.five = series("BTCIRT", "5", 240, start, 300)
+        self.hourly = series("BTCIRT", "60", 60, start, 3600)
+        self.fifteen = series("BTCIRT", "15", 240, start, 900)
+        self.five = series("BTCIRT", "5", 720, start, 300)
 
     def test_runs_all_engines_in_isolated_ledgers(self):
         result = run_independent_engine_backtest(
-            self.hourly, self.fifteen, self.five, maximum_5m_bars=120
+            self.hourly, self.fifteen, self.five
         )
         self.assertEqual(result.symbol, "BTCIRT")
-        self.assertEqual(result.bars, 120)
+        self.assertEqual(result.bars, 720)
+        self.assertTrue(all(row.evaluated_bars > 0 for row in result.engines))
         self.assertEqual(
             {row.strategy_id for row in result.engines},
             {"trend_pullback", "breakout", "breakout_retest",

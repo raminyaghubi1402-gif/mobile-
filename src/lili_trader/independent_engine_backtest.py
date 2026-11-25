@@ -139,6 +139,11 @@ def run_independent_engine_backtest(
     if len(symbols) != 1:
         raise ValueError("timeframes must belong to the same symbol")
     symbol = next(iter(symbols))
+    overlap_start = max(hourly[0].timestamp, fifteen[0].timestamp, five[0].timestamp)
+    overlap_end = min(hourly[-1].timestamp + 3600,
+                      fifteen[-1].timestamp + 900, five[-1].timestamp + 300)
+    if overlap_end <= overlap_start:
+        raise ValueError("the three timeframes have no overlapping historical interval")
     if maximum_5m_bars is not None:
         five = five[-maximum_5m_bars:]
 
@@ -286,7 +291,7 @@ def run_independent_engine_backtest(
             if position is None:
                 mark = ledger["cash"]
             else:
-                estimated_exit = signal_candle.close * (1 - slippage_rate)
+                estimated_exit = execution_candle.close * (1 - slippage_rate)
                 estimated_fee = estimated_exit * position["quantity"] * fee_rate
                 mark = ledger["cash"] + position["quantity"] * estimated_exit - estimated_fee
             ledger["curve"].append(mark)
@@ -296,12 +301,22 @@ def run_independent_engine_backtest(
                     ledger["max_dd"], (ledger["peak"] - mark) / ledger["peak"] * 100
                 )
 
+    if not any(ledger["evaluated"] for ledger in ledgers.values()):
+        raise ValueError("no overlapping closed-candle window with enough 1h/15m/5m history")
+
     last_candle = five[-1]
     results = []
     for engine_id, ledger in ledgers.items():
         if ledger["position"] is not None:
             close_position(engine_id, ledger, last_candle,
                            float(last_candle.close), "end_of_data")
+            ledger["curve"].append(ledger["cash"])
+            ledger["peak"] = max(ledger["peak"], ledger["cash"])
+            if ledger["peak"] > 0:
+                ledger["max_dd"] = max(
+                    ledger["max_dd"],
+                    (ledger["peak"] - ledger["cash"]) / ledger["peak"] * 100,
+                )
         trades = tuple(ledger["trades"])
         net = ledger["cash"] - starting_cash
         wins = [trade.net_pnl for trade in trades if trade.net_pnl > 0]

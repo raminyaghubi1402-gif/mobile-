@@ -524,6 +524,24 @@ class EngineOwnedPaperPositionTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as directory:
             journal = DecisionJournal(Path(directory) / "journal.jsonl")
+            occurred_at = datetime.fromtimestamp(entry_ts, tz=timezone.utc).isoformat()
+            journal.append_decision(
+                decision_id="decision-trend_pullback",
+                occurred_at=occurred_at,
+                market_data_at=datetime.fromtimestamp(entry_ts + 300, tz=timezone.utc).isoformat(),
+                symbol="BTCIRT",
+                action="BUY",
+                strategy="trend_pullback",
+                strategy_version="test",
+                reason="isolated position lifecycle test",
+                evidence={"test": True},
+                entry_price=100.0,
+                stop_loss=99.0,
+                take_profit=150.0,
+                risk_quote=1.0,
+                timeframe="5m",
+                trade_id="trade-trend_pullback",
+            )
             result = _manage_position(
                 "BTCIRT", [stop_bar], state, journal, now=entry_ts + 600,
                 state_key="BTCIRT::trend_pullback",

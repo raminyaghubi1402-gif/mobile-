@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from math import isfinite
 from typing import Any
 
-from .strategy_engines import StrategyDecision, _positive_price, _target_for_minimum_reward_risk
+from .strategy_engines import DEFAULT_ENTRY_SLIPPAGE_RATE, StrategyDecision, _positive_price, _target_for_minimum_reward_risk
 
 
 class BreakoutEngine:
@@ -87,7 +87,12 @@ class BreakoutEngine:
             risk = close - stop
             if risk <= 0:
                 raise ValueError("no valid stop below breakout price")
-            target = _target_for_minimum_reward_risk(close, stop, self.minimum_reward_risk)
+            target = _target_for_minimum_reward_risk(
+                close, stop, self.minimum_reward_risk,
+                expected_entry_slippage_rate=market_snapshot.get(
+                    "expected_entry_slippage_rate", DEFAULT_ENTRY_SLIPPAGE_RATE
+                ),
+            )
             if not all(isfinite(x) for x in (stop, target)):
                 raise ValueError("non-finite breakout levels")
         except ValueError as exc:

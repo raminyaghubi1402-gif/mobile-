@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from lili_trader.engine_snapshot_builder import build_independent_engine_snapshots
 from lili_trader.nobitex_data import NobitexCandle
@@ -53,6 +54,27 @@ class EngineSnapshotBuilderTests(unittest.TestCase):
         self.assertEqual(len(snapshots["volume_trading"]["volume_history_5m"]), 20)
         self.assertEqual(len(snapshots["ict"]["reference_5m"]), 20)
         self.assertEqual(snapshots["ict"]["retest_5m"]["timestamp"], self.five[-1].timestamp)
+
+    def test_missing_trend_pullback_evidence_does_not_block_other_engines(self):
+        with patch(
+            "lili_trader.live_paper_monitor.build_trend_pullback_snapshot",
+            side_effect=ValueError("trend-only structure unavailable"),
+        ):
+            snapshots = build_independent_engine_snapshots(
+                self.hourly, self.fifteen, self.five, now=self.now
+            )
+        self.assertFalse(snapshots["trend_pullback"]["pullback_active"])
+        self.assertIn("breakout", snapshots)
+        self.assertIn("volume_trading", snapshots)
+        self.assertIn("ict", snapshots)
+
+    def test_short_ict_history_disables_only_ict_snapshot(self):
+        snapshots = build_independent_engine_snapshots(
+            self.hourly, self.fifteen, self.five[-21:], now=self.now
+        )
+        self.assertEqual(snapshots["ict"]["reference_5m"], [])
+        self.assertIsNone(snapshots["ict"]["retest_5m"])
+        self.assertEqual(len(snapshots["volume_trading"]["volume_history_5m"]), 20)
 
     def test_missing_zones_are_not_replaced_with_guessed_levels(self):
         flat_fifteen = [

@@ -19,6 +19,24 @@ def _load_backtest_history(path, symbol: str, resolution: str, count: int, adapt
     return merge_candle_history(stored, fresh, max_rows=20_000)
 
 
+def _longest_contiguous_segment(candles, timeframe_seconds: int):
+    """Return the longest strictly contiguous candle segment without bridging gaps."""
+    if not candles:
+        return []
+    segments = []
+    start = 0
+    for index in range(1, len(candles)):
+        previous = candles[index - 1]
+        current = candles[index]
+        previous_ts = previous.get("timestamp") if isinstance(previous, dict) else previous.timestamp
+        current_ts = current.get("timestamp") if isinstance(current, dict) else current.timestamp
+        if current_ts - previous_ts != timeframe_seconds:
+            segments.append(candles[start:index])
+            start = index
+    segments.append(candles[start:])
+    return max(segments, key=len)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="لی‌لی تریدر — تحلیل فقط‌خواندنی")
     parser.add_argument("--nobitex", action="store_true", help="دریافت کندل عمومی از نوبیتکس")
@@ -202,8 +220,20 @@ def main() -> None:
         # Stored daily-collected history extends beyond the API's short recent window.
         hourly = load_and_refresh("60", min(args.count, 2000))
         native_fifteen = load_and_refresh("15", min(args.count, 2000))
-        five = load_and_refresh("5", args.count)
-        fifteen = extend_fifteen_with_five(native_fifteen, five)
+        all_five = load_and_refresh("5", args.count)
+        continuous_five = _longest_contiguous_segment(all_five, 300)
+        if len(continuous_five) < 10:
+            parser.error("تاریخچهٔ ۵ دقیقه‌ای هیچ بازهٔ پیوستهٔ معتبر با حداقل ۱۰ کندل ندارد؛ بک‌تست اجرا نشد.")
+        if len(continuous_five) > args.count:
+            continuous_five = continuous_five[-args.count:]
+        five = continuous_five
+        fifteen = extend_fifteen_with_five(native_fifteen, all_five)
+        if all_five:
+            print(
+                "بازهٔ پیوستهٔ انتخاب‌شده برای بک‌تست: "
+                f"{len(five)} کندل ۵ دقیقه‌ای، از {five[0].timestamp} تا {five[-1].timestamp}. "
+                f"از {len(all_five)} کندل ذخیره‌شده؛ شکاف‌ها به هم متصل نشده‌اند."
+            )
         decision_callback = None
         decision_run_id = None
         if args.decision_journal is not None:

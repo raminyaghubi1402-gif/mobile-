@@ -213,7 +213,7 @@ def recover_missing_5m_candles(
                 }
                 temporary = manifest_path.with_suffix(manifest_path.suffix + ".tmp")
                 temporary.write_text(
-                    existing + json.dumps(record, sort_keys=True) + "\\n",
+                    existing + json.dumps(record, sort_keys=True) + "\n",
                     encoding="utf-8",
                 )
                 temporary.replace(manifest_path)

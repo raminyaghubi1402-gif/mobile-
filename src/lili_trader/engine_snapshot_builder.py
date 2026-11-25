@@ -19,6 +19,9 @@ def _candle_snapshot(candle: NobitexCandle, *, now: int) -> dict[str, int | floa
             or timestamp + 300 > fetched_at):
         raise ValueError("5m candle close/fetch timestamps are invalid")
     values = (candle.open, candle.high, candle.low, candle.close)
+    volume = candle.volume
+    if isinstance(volume, bool) or not isinstance(volume, (int, float)) or not isfinite(float(volume)) or volume < 0:
+        raise ValueError("5m volume must be finite and non-negative")
     if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in values):
         raise ValueError("5m OHLC values must be numeric")
     open_, high, low, close = (float(value) for value in values)
@@ -32,6 +35,7 @@ def _candle_snapshot(candle: NobitexCandle, *, now: int) -> dict[str, int | floa
         "high": high,
         "low": low,
         "close": close,
+        "volume": float(volume),
     }
 
 
@@ -61,6 +65,15 @@ def build_independent_engine_snapshots(
         raise ValueError("the last three 5m candles are not contiguous")
 
     candle_views = [_candle_snapshot(candle, now=now) for candle in recent]
+    if len(five) < 21:
+        raise ValueError("at least 21 contiguous 5m candles are required for the volume engine")
+    volume_rows = list(five[-21:])
+    if any(
+        volume_rows[index].timestamp != volume_rows[index - 1].timestamp + 300
+        for index in range(1, len(volume_rows))
+    ):
+        raise ValueError("the 20-bar volume reference is not contiguous")
+    volume_views = [_candle_snapshot(candle, now=now) for candle in volume_rows]
     if any(now - (view["timestamp"] + 300) > 900 for view in candle_views):
         raise ValueError("one of the required 5m candles is stale")
 
@@ -110,5 +123,10 @@ def build_independent_engine_snapshots(
             "support_zone": support_payload,
             "previous_5m": previous,
             "latest_5m": latest,
+        },
+        "volume_trading": {
+            **common,
+            "volume_history_5m": volume_views[:-1],
+            "latest_5m": volume_views[-1],
         },
     }

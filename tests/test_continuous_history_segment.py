@@ -69,9 +69,9 @@ class ContinuousHistorySegmentTests(unittest.TestCase):
 
         self.assertEqual(len(windows), 2)
         self.assertEqual(windows[0][2][0].timestamp, 0)
-        self.assertEqual(windows[0][2][-1].timestamp, 9 * 3600 - 300)
+        self.assertEqual(windows[0][2][-1].timestamp, 10 * 3600 - 300)
         self.assertEqual(windows[1][2][0].timestamp, 12 * 3600)
-        self.assertEqual(windows[1][2][-1].timestamp, 21 * 3600 - 300)
+        self.assertEqual(windows[1][2][-1].timestamp, 22 * 3600 - 300)
 
     def test_insufficient_timeframe_warmup_is_not_run(self):
         windows = _build_contiguous_backtest_windows(

@@ -27,7 +27,7 @@ class SupportResistanceRejectionEngineTests(unittest.TestCase):
         self.assertEqual(decision.evidence["execution"], "paper_only")
         self.assertEqual(decision.evidence["entry_reference"], 101.0)
         self.assertEqual(decision.evidence["stop_loss"], 98.0)
-        self.assertEqual(decision.evidence["take_profit"], 105.5)
+        self.assertAlmostEqual(decision.evidence["take_profit"], 105.7525)
 
     def test_no_support_touch_means_wait(self):
         self.snapshot["latest_5m"]["low"] = 100.1

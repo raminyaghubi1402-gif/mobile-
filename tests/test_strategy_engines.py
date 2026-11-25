@@ -113,6 +113,7 @@ class TrendPullbackEngineTests(unittest.TestCase):
             "support_zone": {"kind": "support", "lower": 98.0, "upper": 100.0},
             "latest_5m": {
                 "timestamp": 1_800_000_000,
+                "fetched_at": 1_800_000_301,
                 "open": 100.0, "high": 103.0, "low": 99.0, "close": 102.0,
             },
             "structure_5m": {
@@ -152,6 +153,12 @@ class TrendPullbackEngineTests(unittest.TestCase):
 
     def test_missing_zone_or_structure_fails_closed(self):
         self.snapshot["support_zone"] = None
+        self.assertEqual(self.engine.evaluate(self.snapshot).status, "WAIT")
+
+    def test_unclosed_and_stale_candles_are_rejected(self):
+        self.snapshot["latest_5m"]["fetched_at"] = 1_800_000_299
+        self.assertEqual(self.engine.evaluate(self.snapshot).status, "WAIT")
+        self.snapshot["latest_5m"]["fetched_at"] = 1_800_002_000
         self.assertEqual(self.engine.evaluate(self.snapshot).status, "WAIT")
 
 

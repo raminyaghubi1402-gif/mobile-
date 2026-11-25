@@ -14,9 +14,11 @@ on:
     paths:
       - ".github/workflows/nobitex-paper-monitor.yml"
       - "src/lili_trader/live_paper_monitor.py"
+      - "src/lili_trader/nobitex_data.py"
       - "src/lili_trader/strategy_engines.py"
       - "scripts/run_nobitex_paper_monitor.py"
       - "tests/test_live_paper_monitor.py"
+      - "tests/test_nobitex_data.py"
 
 permissions:
   contents: read

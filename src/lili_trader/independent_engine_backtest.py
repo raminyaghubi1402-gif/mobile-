@@ -381,14 +381,17 @@ def run_independent_engine_backtest(
                 if decision is not None and decision.status == "SIGNAL":
                     ledger["signals"] += 1
                     snapshot = snapshots[engine_id]
+                    context = snapshot.get("context", {})
+                    if not isinstance(context, dict):
+                        context = {}
                     ledger["pending"] = {
                         "signal_timestamp": signal_candle.timestamp,
                         "signal_close": float(signal_candle.close),
                         "signal_reason": decision.reason,
                         "signal_evidence": dict(decision.evidence),
-                        "trend_1h": str(snapshot.get("trend_1h", "unknown")),
-                        "trend_15m": str(snapshot.get("trend_15m", regime.trend)),
-                        "volatility_15m": str(snapshot.get("volatility_15m", regime.volatility)),
+                        "trend_1h": str(snapshot.get("trend_1h", context.get("trend_1h", "unknown"))),
+                        "trend_15m": str(snapshot.get("trend_15m", context.get("trend_15m", regime.trend))),
+                        "volatility_15m": str(snapshot.get("volatility_15m", context.get("volatility_15m", regime.volatility))),
                         "stop": float(decision.evidence["stop_loss"]),
                         "target": float(decision.evidence["take_profit"]),
                     }

@@ -80,7 +80,10 @@ class IndependentEngineBacktestTests(unittest.TestCase):
             patch("lili_trader.independent_engine_backtest.build_default_strategy_registry",
                   return_value=OneSignalRegistry()),
             patch("lili_trader.independent_engine_backtest.build_independent_engine_snapshots",
-                  return_value={"breakout": {}}),
+                  return_value={"breakout": {"context": {
+                      "trend_1h": "up", "trend_15m": "up",
+                      "volatility_15m": "normal",
+                  }}}),
             patch("lili_trader.independent_engine_backtest.classify_price_action_trend",
                   return_value=object()),
             patch("lili_trader.independent_engine_backtest.classify_market_regime",
@@ -106,8 +109,9 @@ class IndependentEngineBacktestTests(unittest.TestCase):
         self.assertGreater(trade.max_favorable_r, 0.0)
         self.assertGreater(trade.max_adverse_r, 0.0)
         self.assertGreater(trade.bars_held, 0)
-        self.assertEqual(trade.trend_1h, "unknown")
+        self.assertEqual(trade.trend_1h, "up")
         self.assertEqual(trade.trend_15m, "up")
+        self.assertEqual(trade.volatility_15m, "normal")
 
     def test_confirmed_trailing_stop_applies_only_to_the_next_candle(self):
         start = 1_800_000_000

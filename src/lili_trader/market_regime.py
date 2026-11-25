@@ -1,6 +1,6 @@
 """Rule-based explainable market regime and strategy selector (research only)."""
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from math import isfinite
 from collections.abc import Mapping, Sequence
 from .strategy_engines import STRATEGY_CATALOG
@@ -99,6 +99,33 @@ def classify_market_regime(candles: Sequence, trend_state, *, volatility_window:
     confidence = "moderate" if quality == "aligned" and vol in ("low", "normal") else "low"
     reason = f"ساختار={trend}، نوسان={vol}، کیفیت={quality}، جایگاه قیمت={pos}؛ تشخیص قطعی یا پیش‌بینی نیست."
     return MarketRegime(trend, vol, quality, pos, tuple(strategies), confidence, reason)
+
+def apply_primary_trend(regime: MarketRegime, trend_1h: str, trend_15m: str) -> MarketRegime:
+    """Use 1h direction unless it is explicitly range; then fall back to 15m.
+
+    Volatility and price location remain measured on 15m. Unknown or transition
+    1h states do not silently fall back to a lower timeframe.
+    """
+    valid = {"up", "down", "range", "transition", "unknown"}
+    if trend_1h not in valid or trend_15m not in valid:
+        raise ValueError("timeframe trend must be a known price-action state")
+    primary_trend = trend_15m if trend_1h == "range" else trend_1h
+    primary_timeframe = "15m" if trend_1h == "range" else "1h"
+    if primary_trend in ("up", "down") and regime.volatility not in ("high", "unknown"):
+        allowed = tuple(name for name in STRATEGY_CATALOG if name != "range_trading")
+    elif primary_trend == "range" and regime.volatility not in ("high", "unknown"):
+        allowed = ("no_trade_range_policy",)
+    else:
+        allowed = ("no_trade_wait",)
+    return replace(
+        regime,
+        trend=primary_trend,
+        allowed_strategies=allowed,
+        reason=(f"جهت اصلی از {primary_timeframe}: {primary_trend}؛ "
+                f"روند ۱ساعته={trend_1h}، روند ۱۵دقیقه={trend_15m}. "
+                f"{regime.reason}"),
+    )
+
 
 def select_strategy_candidates(
     regime: MarketRegime, *, allow_short: bool = False

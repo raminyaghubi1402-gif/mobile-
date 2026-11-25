@@ -1,6 +1,6 @@
 import unittest
 from types import SimpleNamespace
-from lili_trader.market_regime import classify_market_regime, select_strategy_candidates
+from lili_trader.market_regime import apply_primary_trend, classify_market_regime, select_strategy_candidates
 from lili_trader.strategy_engines import STRATEGY_CATALOG
 
 def candles(count=30, step=1.0, width=2.0):
@@ -89,6 +89,50 @@ class MarketRegimeTests(unittest.TestCase):
             with self.subTest(value=value):
                 with self.assertRaises(ValueError):
                     classify_market_regime(candles(), trend, volatility_window=value)
+
+
+    def test_one_hour_range_uses_fifteen_minute_direction(self):
+        base = classify_market_regime(
+            candles(),
+            SimpleNamespace(direction="up", last_two_swing_highs=(110,120),
+                            last_two_swing_lows=(100,110)),
+        )
+        up = apply_primary_trend(base, "range", "up")
+        self.assertEqual(up.trend, "up")
+        self.assertIn("15m", up.reason)
+        self.assertEqual(
+            set(candidate.name for candidate in select_strategy_candidates(up)),
+            set(STRATEGY_CATALOG) - {"range_trading"},
+        )
+        down = apply_primary_trend(base, "range", "down")
+        self.assertEqual(down.trend, "down")
+        self.assertEqual(
+            [candidate.name for candidate in select_strategy_candidates(down)],
+            ["no_trade_wait"],
+        )
+
+    def test_directional_one_hour_remains_primary_over_fifteen_minute(self):
+        base = classify_market_regime(
+            candles(),
+            SimpleNamespace(direction="up", last_two_swing_highs=(110,120),
+                            last_two_swing_lows=(100,110)),
+        )
+        result = apply_primary_trend(base, "up", "down")
+        self.assertEqual(result.trend, "up")
+        self.assertIn("1h", result.reason)
+
+    def test_unknown_one_hour_does_not_silently_fall_back_to_fifteen_minute(self):
+        base = classify_market_regime(
+            candles(),
+            SimpleNamespace(direction="up", last_two_swing_highs=(110,120),
+                            last_two_swing_lows=(100,110)),
+        )
+        result = apply_primary_trend(base, "unknown", "up")
+        self.assertEqual(result.trend, "unknown")
+        self.assertEqual(
+            [candidate.name for candidate in select_strategy_candidates(result)],
+            ["no_trade_wait"],
+        )
 
 if __name__ == "__main__":
     unittest.main()

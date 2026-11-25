@@ -8,7 +8,7 @@ from __future__ import annotations
 from math import isfinite
 from typing import Any, Mapping, Sequence
 
-from .market_regime import classify_market_regime
+from .market_regime import apply_primary_trend, classify_market_regime
 from .nobitex_data import NobitexCandle
 from .price_action_trend import classify_price_action_trend
 from .support_resistance import find_support_resistance, nearest_zone
@@ -110,12 +110,18 @@ def build_independent_engine_snapshots(
     market_regime = classify_market_regime(list(fifteen), trend_15m, volatility_window=20)
     try:
         trend_1h = classify_price_action_trend(list(hourly), pivot_window=2, min_swings=2)
+    except (ValueError, TypeError, IndexError):
+        trend_1h = None
+
+    # Keep the independently classified 1h bias even if Trend Pullback's
+    # own structure/zone snapshot fails. Other engines still need that bias
+    # to apply the agreed 1h-primary / 15m-range-fallback regime rule.
+    try:
         from .live_paper_monitor import build_trend_pullback_snapshot
         trend_snapshot = build_trend_pullback_snapshot(
             list(hourly), list(fifteen), list(five), now=now
         )
     except (ValueError, TypeError, IndexError):
-        trend_1h = None
         trend_snapshot = {
             "spot_only": True,
             "regime": market_regime.trend,
@@ -124,7 +130,7 @@ def build_independent_engine_snapshots(
             "latest_5m": candle_views[-1],
             "structure_5m": {},
             "context": {
-                "trend_1h": "unknown",
+                "trend_1h": trend_1h.direction if trend_1h is not None else "unknown",
                 "trend_15m": trend_15m.direction,
                 "volatility_15m": market_regime.volatility,
                 "regime_reason": market_regime.reason,
@@ -132,19 +138,38 @@ def build_independent_engine_snapshots(
                 "support_zone_touches": 0,
             },
         }
+    primary_regime = apply_primary_trend(
+        market_regime,
+        trend_1h.direction if trend_1h is not None else "unknown",
+        trend_15m.direction,
+    )
+    trend_snapshot["context"]["primary_trend"] = primary_regime.trend
+    trend_snapshot["context"]["primary_trend_timeframe"] = (
+        "15m" if trend_1h is not None and trend_1h.direction == "range" else "1h"
+    )
+    trend_snapshot["regime"] = (
+        "bullish" if primary_regime.trend == "up"
+        and primary_regime.volatility in {"low", "normal"}
+        and trend_snapshot.get("structure_5m", {}).get("bias") == "up"
+        else primary_regime.trend
+    )
     trend_snapshot["expected_entry_slippage_rate"] = DEFAULT_ENTRY_SLIPPAGE_RATE
     previous, latest = candle_views[-2], candle_views[-1]
     pre_breakout, breakout, retest = candle_views
     engine_regime = (
-        "bullish" if market_regime.trend == "up" and market_regime.volatility in {"low", "normal"}
-        else market_regime.trend
+        "bullish" if primary_regime.trend == "up" and primary_regime.volatility in {"low", "normal"}
+        else primary_regime.trend
     )
     common = {
         "spot_only": True,
         "regime": engine_regime,
         "trend_1h": trend_1h.direction if trend_1h is not None else "unknown",
         "trend_15m": trend_15m.direction,
-        "volatility_15m": market_regime.volatility,
+        "primary_trend": primary_regime.trend,
+        "primary_trend_timeframe": (
+            "15m" if trend_1h is not None and trend_1h.direction == "range" else "1h"
+        ),
+        "volatility_15m": primary_regime.volatility,
         "range_position_15m": market_regime.range_position,
         "expected_entry_slippage_rate": DEFAULT_ENTRY_SLIPPAGE_RATE,
     }

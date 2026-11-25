@@ -18,7 +18,7 @@ from typing import Any
 
 from .decision_journal import DecisionJournal, DecisionJournalError
 from .engine_snapshot_builder import build_independent_engine_snapshots
-from .market_regime import classify_market_regime, select_strategy_candidates
+from .market_regime import apply_primary_trend, classify_market_regime, select_strategy_candidates
 from .market_structure import analyze_market_structure
 from .nobitex_data import NobitexAdapter, NobitexCandle
 from .price_action_trend import classify_price_action_trend
@@ -135,11 +135,12 @@ def build_trend_pullback_snapshot(
             "close": event.close,
         }
 
+    primary_regime = apply_primary_trend(
+        regime, trend_1h.direction, trend_15m.direction
+    )
     bullish = (
-        trend_1h.direction == "up"
-        and trend_15m.direction == "up"
-        and regime.trend == "up"
-        and regime.volatility in {"low", "normal"}
+        primary_regime.trend == "up"
+        and primary_regime.volatility in {"low", "normal"}
         and structure.bias == "up"
     )
     return {
@@ -165,7 +166,9 @@ def build_trend_pullback_snapshot(
             "trend_1h": trend_1h.direction,
             "trend_15m": trend_15m.direction,
             "volatility_15m": regime.volatility,
-            "regime_reason": regime.reason,
+            "regime_reason": primary_regime.reason,
+            "primary_trend": primary_regime.trend,
+            "primary_trend_timeframe": "15m" if trend_1h.direction == "range" else "1h",
             "structure_reason": structure.reason_fa,
             "support_zone_touches": support.touches if support else 0,
         },
@@ -529,10 +532,21 @@ def run_live_paper_monitor(
                 validated["1h"], validated["15m"], validated["5m"], now=observed_at
             )
             snapshot = engine_snapshots["trend_pullback"]
-            regime = classify_market_regime(
+            regime_15m = classify_market_regime(
                 validated["15m"],
                 classify_price_action_trend(validated["15m"], pivot_window=2, min_swings=2),
                 volatility_window=20,
+            )
+            observed_trend_1h = engine_snapshots["breakout"]["trend_1h"]
+            observed_trend_15m = engine_snapshots["breakout"]["trend_15m"]
+            regime = apply_primary_trend(
+                regime_15m, observed_trend_1h, observed_trend_15m
+            )
+            snapshot["context"]["trend_1h"] = observed_trend_1h
+            snapshot["context"]["trend_15m"] = observed_trend_15m
+            snapshot["context"]["primary_trend"] = regime.trend
+            snapshot["context"]["primary_trend_timeframe"] = (
+                "15m" if observed_trend_1h == "range" else "1h"
             )
             candidates = select_strategy_candidates(regime, allow_short=False)
             eligible_ids = {candidate.name for candidate in candidates if candidate.eligible}

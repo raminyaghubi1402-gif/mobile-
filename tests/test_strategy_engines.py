@@ -131,8 +131,12 @@ class TrendPullbackEngineTests(unittest.TestCase):
         self.assertEqual(decision.evidence["take_profit"], 108.0)
 
     def test_wick_only_or_stale_structure_event_cannot_trigger(self):
-        self.snapshot["structure_5m"]["last_event"]["candle_index"] = 98
+        self.snapshot["structure_5m"]["last_event"]["candle_index"] = 50
         self.assertEqual(self.engine.evaluate(self.snapshot).status, "WAIT")
+
+    def test_recent_structure_break_can_be_followed_by_a_later_pullback(self):
+        self.snapshot["structure_5m"]["last_event"]["candle_index"] = 98
+        self.assertEqual(self.engine.evaluate(self.snapshot).status, "SIGNAL")
 
     def test_no_signal_in_range_or_bearish_regime(self):
         self.snapshot["regime"] = "range"

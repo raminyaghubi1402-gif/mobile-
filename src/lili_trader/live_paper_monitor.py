@@ -20,6 +20,7 @@ from .market_regime import classify_market_regime, select_strategy_candidates
 from .market_structure import analyze_market_structure
 from .nobitex_data import NobitexAdapter, NobitexCandle
 from .price_action_trend import classify_price_action_trend
+from .risk_management import propose_structural_trailing_stop
 from .strategy_engines import StrategyRegistry, TrendPullbackEngine
 from .support_resistance import find_support_resistance
 
@@ -218,44 +219,68 @@ def _manage_position(
     if not position:
         return "no_open_position"
     expected = int(position["last_processed_timestamp"]) + 300
-    for candle in candles:
+    stop_updates = 0
+    for candle_index, candle in enumerate(candles):
         if candle.timestamp < expected:
             continue
         if candle.timestamp != expected:
             return f"position_paused_data_gap_expected_{expected}_got_{candle.timestamp}"
+        # The stop in force at the start of this candle is checked first.
+        # A newly confirmed trailing stop can only apply to later candles.
         stop_hit = candle.low <= float(position["stop_loss"])
         target_hit = candle.high >= float(position["take_profit"])
         exit_reason = "stop_loss" if stop_hit else ("take_profit" if target_hit else None)
-        if exit_reason is None:
-            position["last_processed_timestamp"] = candle.timestamp
-            expected += 300
-            continue
+        if exit_reason is not None:
+            raw_exit = float(position["stop_loss"] if stop_hit else position["take_profit"])
+            exit_fill = raw_exit * (1 - SLIPPAGE_RATE)
+            quantity = float(position["quantity"])
+            raw_entry = float(position["raw_entry_price"])
+            entry_fill = float(position["entry_fill_price"])
+            gross = (raw_exit - raw_entry) * quantity
+            fees = (entry_fill + exit_fill) * quantity * FEE_RATE
+            slippage = ((entry_fill - raw_entry) + (raw_exit - exit_fill)) * quantity
+            net = gross - fees - slippage
+            journal.append_outcome(
+                decision_id=position["decision_id"],
+                occurred_at=_iso(now),
+                trade_id=position["trade_id"],
+                side="BUY",
+                entry_at=_iso(int(position["entry_timestamp"])),
+                exit_at=_iso(candle.timestamp + 300),
+                gross_pnl_quote=gross,
+                fees_quote=fees,
+                slippage_quote=slippage,
+                net_pnl_quote=net,
+                exit_reason=exit_reason,
+            )
+            del state.data["positions"][symbol]
+            return f"closed_{exit_reason}_net_{net:.2f}_IRT"
 
-        raw_exit = float(position["stop_loss"] if stop_hit else position["take_profit"])
-        exit_fill = raw_exit * (1 - SLIPPAGE_RATE)
-        quantity = float(position["quantity"])
-        raw_entry = float(position["raw_entry_price"])
-        entry_fill = float(position["entry_fill_price"])
-        gross = (raw_exit - raw_entry) * quantity
-        fees = (entry_fill + exit_fill) * quantity * FEE_RATE
-        slippage = ((entry_fill - raw_entry) + (raw_exit - exit_fill)) * quantity
-        net = gross - fees - slippage
-        journal.append_outcome(
-            decision_id=position["decision_id"],
-            occurred_at=_iso(now),
-            trade_id=position["trade_id"],
-            side="BUY",
-            entry_at=_iso(int(position["entry_timestamp"])),
-            exit_at=_iso(candle.timestamp + 300),
-            gross_pnl_quote=gross,
-            fees_quote=fees,
-            slippage_quote=slippage,
-            net_pnl_quote=net,
-            exit_reason=exit_reason,
-        )
-        del state.data["positions"][symbol]
-        return f"closed_{exit_reason}_net_{net:.2f}_IRT"
+        # Raise the stop only after a right-side-confirmed higher low exists.
+        # The risk manager requires a closed, contiguous sequence including
+        # the entry candle and rejects any candidate already traded through.
+        if candle.timestamp > int(position["entry_timestamp"]):
+            update = propose_structural_trailing_stop(
+                candles[:candle_index + 1],
+                entry_timestamp=int(position["entry_timestamp"]),
+                entry_fill_price=float(position["entry_fill_price"]),
+                current_stop=float(position["stop_loss"]),
+                fee_rate=FEE_RATE,
+                slippage_rate=SLIPPAGE_RATE,
+            )
+            if update is not None:
+                position["stop_loss"] = update.stop_loss
+                position["stop_updated_at"] = candle.timestamp
+                position["stop_update_reason"] = "confirmed_higher_low_after_fee_adjusted_breakeven"
+                position["last_trailing_swing_timestamp"] = update.swing_timestamp
+                stop_updates += 1
+
+        position["last_processed_timestamp"] = candle.timestamp
+        expected += 300
+
     state.data["positions"][symbol] = position
+    if stop_updates:
+        return f"position_open_trailing_stop_raised_{stop_updates}_times_to_{float(position['stop_loss']):.2f}"
     return "position_open"
 
 

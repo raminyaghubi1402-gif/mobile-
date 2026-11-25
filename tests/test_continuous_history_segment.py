@@ -44,16 +44,18 @@ class ContinuousHistorySegmentTests(unittest.TestCase):
             _contiguous_segments(candles(0, 2, 300), 0)
 
     def test_backtest_runs_each_overlapping_five_minute_segment_independently(self):
-        hourly = candles(0, 10, 3600)
-        fifteen = candles(0, 40, 900)
-        five = candles(0, 10, 300) + candles(3600, 10, 300)
+        base = 1800000000
+        hourly = candles(base - 10 * 3600, 20, 3600)
+        fifteen = candles(base - 6 * 3600, 60, 900)
+        five = candles(base, 10, 300) + candles(base + 3600, 10, 300)
 
         windows = _build_contiguous_backtest_windows(hourly, fifteen, five)
 
         self.assertEqual(len(windows), 2)
         self.assertEqual(
             [[row.timestamp for row in window[2]] for window in windows],
-            [list(range(0, 3000, 300)), list(range(3600, 6600, 300))],
+            [list(range(base, base + 3000, 300)),
+             list(range(base + 3600, base + 6600, 300))],
         )
         self.assertTrue(all(len(window[0]) >= 10 for window in windows))
         self.assertTrue(all(len(window[1]) >= 20 for window in windows))

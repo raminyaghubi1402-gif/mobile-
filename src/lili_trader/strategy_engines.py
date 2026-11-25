@@ -114,6 +114,35 @@ class StrategyRegistry:
 
 
 
+DEFAULT_ENTRY_SLIPPAGE_RATE = 0.001
+
+
+def _target_for_minimum_reward_risk(
+    entry_reference: float,
+    stop_loss: float,
+    minimum_reward_risk: float,
+    *,
+    expected_entry_slippage_rate: float = DEFAULT_ENTRY_SLIPPAGE_RATE,
+) -> float:
+    """Set a target that preserves the minimum gross R:R after expected entry slip."""
+    from math import isfinite
+    values = (entry_reference, stop_loss, minimum_reward_risk,
+              expected_entry_slippage_rate)
+    if any(isinstance(value, bool) or not isinstance(value, (int, float))
+           or not isfinite(value) for value in values):
+        raise ValueError("target calculation values must be finite numbers")
+    if (entry_reference <= 0 or stop_loss <= 0 or stop_loss >= entry_reference
+            or minimum_reward_risk < 1.5
+            or not 0 <= expected_entry_slippage_rate < 0.1):
+        raise ValueError("invalid target calculation parameters")
+    expected_fill = entry_reference * (1 + expected_entry_slippage_rate)
+    expected_risk = expected_fill - stop_loss
+    target = expected_fill + expected_risk * minimum_reward_risk
+    if not isfinite(target) or target <= expected_fill:
+        raise ValueError("target calculation is invalid")
+    return target
+
+
 def _positive_price(value: Any, field_name: str) -> float:
     from math import isfinite
     if isinstance(value, bool):
@@ -230,7 +259,7 @@ class TrendPullbackEngine:
             if risk <= 0:
                 return StrategyDecision(self.strategy_id, "WAIT",
                                         "حد ضرر معتبر زیر قیمت ورود تشکیل نشده است.")
-            target = close + risk * self.minimum_reward_risk
+            target = _target_for_minimum_reward_risk(close, stop, self.minimum_reward_risk)
             if not all(isfinite(x) for x in (stop, target)):
                 raise ValueError("non-finite risk levels")
         except ValueError as exc:

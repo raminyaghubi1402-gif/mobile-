@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Sequence
 
-from .live_paper_monitor import build_trend_pullback_snapshot
 from .nobitex_data import NobitexCandle
 from .support_resistance import find_support_resistance, nearest_zone
 
@@ -81,8 +80,7 @@ def build_independent_engine_snapshots(
         if resistance is not None else None
     )
 
-    trend_snapshot = build_trend_pullback_snapshot(
-        list(hourly), list(fifteen), list(five), now=now
+    # Lazy import avoids a module cycle when the live monitor adopts this builder.\n    from .live_paper_monitor import build_trend_pullback_snapshot\n\n    trend_snapshot = build_trend_pullback_snapshot(\n        list(hourly), list(fifteen), list(five), now=now
     )
     previous, latest = candle_views[-2], candle_views[-1]
     pre_breakout, breakout, retest = candle_views

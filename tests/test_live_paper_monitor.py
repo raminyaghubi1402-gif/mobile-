@@ -12,6 +12,7 @@ from lili_trader.live_paper_monitor import (
     _activate_pending,
     _committed_risk_quote,
     _manage_position,
+    _validated_signal_levels,
 )
 
 TEST_PAPER_EQUITY_QUOTE = 27_100_000.0
@@ -22,6 +23,7 @@ from lili_trader.nobitex_limits import (
     NOBITEX_MINIMUM_SPOT_ORDER_IRT,
 )
 from lili_trader.risk_management import fee_adjusted_breakeven_stop
+from lili_trader.strategy_engines import StrategyDecision
 
 
 def candle(ts, resolution="5", close=100.0):
@@ -458,6 +460,29 @@ class PaperEntryTests(unittest.TestCase):
         )
         self.assertEqual(state.data["positions"]["BTCIRT"]["stop_loss"], 98.0)
         self.assertEqual(state.data["positions"]["BTCIRT"]["last_processed_timestamp"], rows[-2].timestamp)
+
+
+class EngineSignalIsolationTests(unittest.TestCase):
+    def test_valid_signal_levels_are_parsed_independently(self):
+        decision = StrategyDecision(
+            "breakout", "SIGNAL", "valid levels",
+            {"entry_reference": 100.0, "stop_loss": 98.0, "take_profit": 103.0},
+        )
+        self.assertEqual(
+            _validated_signal_levels(decision),
+            {"entry_reference": 100.0, "stop_loss": 98.0, "take_profit": 103.0},
+        )
+
+    def test_invalid_or_boolean_signal_levels_are_rejected(self):
+        for evidence in (
+            {"entry_reference": 100, "stop_loss": 98},
+            {"entry_reference": True, "stop_loss": 98, "take_profit": 104},
+            {"entry_reference": 100, "stop_loss": 101, "take_profit": 104},
+            {"entry_reference": 100, "stop_loss": 98, "take_profit": 102},
+        ):
+            decision = StrategyDecision("breakout", "SIGNAL", "bad levels", evidence)
+            with self.assertRaises(ValueError):
+                _validated_signal_levels(decision)
 
 
 class EngineOwnedPaperPositionTests(unittest.TestCase):

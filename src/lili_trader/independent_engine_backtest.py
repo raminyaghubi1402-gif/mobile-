@@ -15,6 +15,7 @@ from .market_regime import classify_market_regime, select_strategy_candidates
 from .nobitex_data import NobitexCandle
 from .price_action_trend import classify_price_action_trend
 from .strategy_engines import build_default_strategy_registry
+from .risk_management import propose_structural_trailing_stop
 from .engine_snapshot_builder import build_independent_engine_snapshots
 
 
@@ -182,6 +183,9 @@ def run_independent_engine_backtest(
         net = ((exit_fill - position["entry_fill"]) * position["quantity"]
                - position["entry_fee"] - exit_fee)
         ledger["cash"] += exit_fill * position["quantity"] - exit_fee
+        exit_reason = reason
+        if reason == "stop_loss" and position["stop"] > position["initial_stop"]:
+            exit_reason = "smart_stop"
         ledger["trades"].append(EngineTrade(
             strategy_id=engine_id,
             entry_timestamp=position["entry_timestamp"],
@@ -191,7 +195,7 @@ def run_independent_engine_backtest(
             quantity=position["quantity"],
             net_pnl=net,
             fees=position["entry_fee"] + exit_fee,
-            exit_reason=reason,
+            exit_reason=exit_reason,
         ))
         ledger["position"] = None
 
@@ -286,6 +290,7 @@ def run_independent_engine_backtest(
                                 "quantity": quantity,
                                 "entry_fee": entry_fee,
                                 "stop": stop,
+                                "initial_stop": stop,
                                 "target": target,
                             }
                     ledger["pending"] = None
@@ -299,6 +304,30 @@ def run_independent_engine_backtest(
                 elif target_hit:
                     close_position(engine_id, ledger, execution_candle,
                                    position["target"], "take_profit")
+
+            position = ledger["position"]
+            if position is not None and index > 0:
+                try:
+                    entry_index = next(
+                        i for i, row in enumerate(five[:index + 1])
+                        if row.timestamp == position["entry_timestamp"]
+                    )
+                    trailing_window = [
+                        _closed_copy(row) for row in five[entry_index:index + 1]
+                    ]
+                    stop_update = propose_structural_trailing_stop(
+                        trailing_window,
+                        entry_timestamp=position["entry_timestamp"],
+                        entry_fill_price=position["entry_fill"],
+                        current_stop=position["stop"],
+                        fee_rate=fee_rate,
+                        slippage_rate=slippage_rate,
+                    )
+                    if stop_update is not None and stop_update.stop_loss > position["stop"]:
+                        position["stop"] = stop_update.stop_loss
+                except (ValueError, TypeError, StopIteration):
+                    # Invalid/incomplete structure means keep the existing stop.
+                    pass
 
             if (index < len(five) - 1 and not occupied_at_start
                     and ledger["position"] is None and ledger["pending"] is None):

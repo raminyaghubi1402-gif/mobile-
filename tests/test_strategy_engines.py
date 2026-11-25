@@ -4,6 +4,7 @@ from lili_trader.strategy_engines import (
     STRATEGY_CATALOG,
     StrategyDecision,
     StrategyRegistry,
+    _target_for_minimum_reward_risk,
 )
 
 
@@ -26,6 +27,15 @@ class IndependentEngine:
 
 
 class StrategyEngineRegistryTests(unittest.TestCase):
+    def test_minimum_reward_risk_survives_expected_entry_slippage(self):
+        entry_reference = 102.0
+        stop = 98.0
+        target = _target_for_minimum_reward_risk(entry_reference, stop, 1.5)
+        expected_fill = entry_reference * 1.001
+        actual_planned_rr = (target - expected_fill) / (expected_fill - stop)
+        self.assertAlmostEqual(actual_planned_rr, 1.5)
+        self.assertGreater(target, entry_reference + (entry_reference - stop) * 1.5)
+
     def test_catalog_contains_exactly_the_seven_agreed_engines(self):
         self.assertEqual(len(STRATEGY_CATALOG), 7)
         self.assertEqual(len(set(STRATEGY_CATALOG)), 7)

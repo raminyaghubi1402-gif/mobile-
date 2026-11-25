@@ -147,6 +147,7 @@ class TrendPullbackEngine:
     enabled: bool = True
     minimum_reward_risk: float = 1.5
     maximum_candle_age_seconds: int = 900
+    maximum_structure_event_age_bars: int = 36
 
     def evaluate(self, market_snapshot: Mapping[str, Any]) -> StrategyDecision:
         if not isinstance(market_snapshot, Mapping):
@@ -157,7 +158,9 @@ class TrendPullbackEngine:
                 or not isfinite(self.minimum_reward_risk)
                 or self.minimum_reward_risk < 1.5
                 or type(self.maximum_candle_age_seconds) is not int
-                or self.maximum_candle_age_seconds < 0):
+                or self.maximum_candle_age_seconds < 0
+                or type(self.maximum_structure_event_age_bars) is not int
+                or self.maximum_structure_event_age_bars < 0):
             raise ValueError("invalid reward/risk or candle freshness configuration")
         if type(self.enabled) is not bool or not self.enabled:
             return StrategyDecision(self.strategy_id, "DISABLED", "موتور غیرفعال است.")
@@ -206,8 +209,10 @@ class TrendPullbackEngine:
             if not isinstance(event, Mapping):
                 raise ValueError("latest structure event is missing")
             event_index = event.get("candle_index")
-            if type(event_index) is not int or event_index != latest_index:
-                raise ValueError("structure event is not on the latest closed candle")
+            if (type(event_index) is not int or event_index < 0
+                    or event_index > latest_index
+                    or latest_index - event_index > self.maximum_structure_event_age_bars):
+                raise ValueError("structure event is stale or from a future candle")
             if event.get("kind") not in ("CHOCH_UP", "BOS_UP"):
                 return StrategyDecision(self.strategy_id, "WAIT",
                                         "شکست صعودی معتبر با بسته‌شدن کندل ۵ دقیقه تأیید نشده است.")
@@ -234,7 +239,7 @@ class TrendPullbackEngine:
         return StrategyDecision(
             self.strategy_id,
             "SIGNAL",
-            "روند صعودی، اصلاح فعال، حفظ حمایت، کندل صعودی و CHoCH/BOS روی آخرین کندل بسته‌شده هم‌زمان تأیید شدند؛ فقط سیگنال Paper.",
+            "روند صعودی، اصلاح فعال، حفظ حمایت و کندل تأییدی صعودی پس از CHoCH/BOS معتبر و تازه تأیید شدند؛ فقط سیگنال Paper.",
             {
                 "entry_reference": close,
                 "stop_loss": stop,

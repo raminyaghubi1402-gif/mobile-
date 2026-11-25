@@ -5,6 +5,7 @@ only evidence each registered engine needs, from validated Nobitex OHLCV.
 """
 from __future__ import annotations
 
+from math import isfinite
 from typing import Any, Mapping, Sequence
 
 from .nobitex_data import NobitexCandle

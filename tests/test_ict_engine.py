@@ -19,7 +19,7 @@ class ICTEngineTests(unittest.TestCase):
             (99.5, 100.0, 98.0, 99.5),
             (99.5, 103.0, 99.4, 102.5),
             (102.5, 104.0, 101.0, 103.5),
-            (102.0, 103.0, 101.5, 102.5),
+            (102.0, 103.0, 100.5, 102.5),
         ]
         self.pattern = []
         for i, (o, h, l, c) in enumerate(specs, start=20):
@@ -67,7 +67,7 @@ class ICTEngineTests(unittest.TestCase):
         self.snapshot["retest_5m"]["timestamp"] -= 300
         self.snapshot["retest_5m"]["fetched_at"] -= 1
         self.assertEqual(self.engine.evaluate(self.snapshot).status, "WAIT")
-        self.snapshot["retest_5m"]["fetched_at"] += 901
+        self.snapshot["retest_5m"]["fetched_at"] += 902
         self.assertEqual(self.engine.evaluate(self.snapshot).status, "WAIT")
         self.snapshot["retest_5m"]["fetched_at"] = self.snapshot["retest_5m"]["timestamp"] + 300
         self.snapshot["regime"] = "range"

@@ -104,11 +104,28 @@ class StrategyRegistry:
                 engine_snapshot = deepcopy(dict(market_snapshot))
             except Exception as exc:
                 raise ValueError("market_snapshot cannot be isolated safely") from exc
-            decision = engine.evaluate(engine_snapshot)
-            if not isinstance(decision, StrategyDecision):
-                raise TypeError("strategy engine must return StrategyDecision")
-            if decision.strategy_id != strategy_id:
-                raise ValueError("engine returned a decision for another strategy")
+            # A defect in one engine is converted into that engine's own WAIT.
+            # It must never abort dispatch or suppress another engine's decision.
+            try:
+                decision = engine.evaluate(engine_snapshot)
+                if not isinstance(decision, StrategyDecision):
+                    raise TypeError("strategy engine must return StrategyDecision")
+                if decision.strategy_id != strategy_id:
+                    raise ValueError("engine returned a decision for another strategy")
+            except Exception as exc:
+                decision = StrategyDecision(
+                    strategy_id=strategy_id,
+                    status="WAIT",
+                    reason=(
+                        "این موتور به‌دلیل خطای داخلی خودش موقتاً از صدور سیگنال منع شد؛ "
+                        "موتورهای دیگر مستقل ارزیابی می‌شوند."
+                    ),
+                    evidence={
+                        "engine_error_type": type(exc).__name__,
+                        "engine_error": str(exc)[:300],
+                        "engine_isolated": True,
+                    },
+                )
             decisions.append(decision)
         return tuple(decisions)
 

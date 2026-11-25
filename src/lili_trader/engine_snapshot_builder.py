@@ -70,31 +70,49 @@ def build_independent_engine_snapshots(
         raise ValueError("the last three 5m candles are not contiguous")
 
     candle_views = [_candle_snapshot(candle, now=now) for candle in recent]
-    if len(five) < 21:
-        raise ValueError("at least 21 contiguous 5m candles are required for the volume engine")
-    volume_rows = list(five[-21:])
-    if any(
-        volume_rows[index].timestamp != volume_rows[index - 1].timestamp + 300
-        for index in range(1, len(volume_rows))
-    ):
-        raise ValueError("the 20-bar volume reference is not contiguous")
-    volume_views = [_candle_snapshot(candle, now=now) for candle in volume_rows]
-    ict_rows = list(five[-24:]) if len(five) >= 24 else []
-    ict_contiguous = bool(ict_rows) and all(
-        ict_rows[index].timestamp == ict_rows[index - 1].timestamp + 300
-        for index in range(1, len(ict_rows))
-    )
-    ict_views = [_candle_snapshot(candle, now=now) for candle in ict_rows] if ict_contiguous else []
+    # Long lookback requirements belong to the engines that consume them.
+    # A short/malformed volume or ICT history disables only that engine snapshot.
+    volume_views: list[dict[str, int | float]] = []
+    if len(five) >= 21:
+        volume_rows = list(five[-21:])
+        volume_contiguous = all(
+            volume_rows[index].timestamp == volume_rows[index - 1].timestamp + 300
+            for index in range(1, len(volume_rows))
+        )
+        if volume_contiguous:
+            try:
+                volume_views = [_candle_snapshot(candle, now=now) for candle in volume_rows]
+            except Exception:
+                volume_views = []
+
+    ict_views: list[dict[str, int | float]] = []
+    if len(five) >= 24:
+        ict_rows = list(five[-24:])
+        ict_contiguous = all(
+            ict_rows[index].timestamp == ict_rows[index - 1].timestamp + 300
+            for index in range(1, len(ict_rows))
+        )
+        if ict_contiguous:
+            try:
+                ict_views = [_candle_snapshot(candle, now=now) for candle in ict_rows]
+            except Exception:
+                ict_views = []
     if any(now - (view["timestamp"] + 300) > 900 for view in candle_views):
         raise ValueError("one of the required 5m candles is stale")
 
     latest_price = float(recent[-1].close)
-    zones = find_support_resistance(
-        fifteen, pivot_window=3, atr_period=14, tolerance_atr=0.5,
-        min_touches=2, max_zones=4,
-    )
-    support = nearest_zone(zones, latest_price, "support")
-    resistance = nearest_zone(zones, latest_price, "resistance")
+    # Zone extraction is shared read-only evidence, but its failure is local
+    # to zone-dependent engines; breakout-independent engines still run.
+    try:
+        zones = find_support_resistance(
+            fifteen, pivot_window=3, atr_period=14, tolerance_atr=0.5,
+            min_touches=2, max_zones=4,
+        )
+        support = nearest_zone(zones, latest_price, "support")
+        resistance = nearest_zone(zones, latest_price, "resistance")
+    except Exception:
+        support = None
+        resistance = None
     support_payload = (
         {"kind": "support", "lower": float(support.lower), "upper": float(support.upper)}
         if support is not None else None
@@ -121,7 +139,7 @@ def build_independent_engine_snapshots(
         trend_snapshot = build_trend_pullback_snapshot(
             list(hourly), list(fifteen), list(five), now=now
         )
-    except (ValueError, TypeError, IndexError):
+    except Exception:
         trend_snapshot = {
             "spot_only": True,
             "regime": market_regime.trend,
@@ -197,8 +215,8 @@ def build_independent_engine_snapshots(
         },
         "volume_trading": {
             **common,
-            "volume_history_5m": volume_views[:-1],
-            "latest_5m": volume_views[-1],
+            "volume_history_5m": volume_views[:-1] if volume_views else [],
+            "latest_5m": volume_views[-1] if volume_views else None,
         },
         "ict": {
             **common,

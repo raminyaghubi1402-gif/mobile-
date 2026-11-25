@@ -91,6 +91,35 @@ class StrategyEngineRegistryTests(unittest.TestCase):
         )
         self.assertEqual(observer.observed, "original")
 
+    def test_one_engine_exception_isolated_and_next_engine_still_runs(self):
+        class BrokenEngine:
+            strategy_id = "breakout"
+            enabled = True
+
+            def evaluate(self, snapshot):
+                raise RuntimeError("isolated test failure")
+
+        class HealthyEngine:
+            strategy_id = "volume_trading"
+            enabled = True
+
+            def __init__(self):
+                self.calls = 0
+
+            def evaluate(self, snapshot):
+                self.calls += 1
+                return StrategyDecision(self.strategy_id, "SIGNAL", "healthy engine passed")
+
+        healthy = HealthyEngine()
+        registry = StrategyRegistry((BrokenEngine(), healthy))
+        decisions = registry.evaluate_selected(
+            {"nested": {"value": "original"}},
+            ("breakout", "volume_trading"),
+        )
+        self.assertEqual([item.status for item in decisions], ["WAIT", "SIGNAL"])
+        self.assertTrue(decisions[0].evidence["engine_isolated"])
+        self.assertEqual(healthy.calls, 1)
+
     def test_selected_ids_must_be_a_tuple_of_strings(self):
         registry = StrategyRegistry()
         with self.assertRaises(ValueError):

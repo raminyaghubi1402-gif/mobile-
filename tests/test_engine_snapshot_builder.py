@@ -77,6 +77,29 @@ class EngineSnapshotBuilderTests(unittest.TestCase):
         self.assertIsNone(snapshots["ict"]["retest_5m"])
         self.assertEqual(len(snapshots["volume_trading"]["volume_history_5m"]), 20)
 
+    def test_short_volume_history_disables_only_volume_and_ict_evidence(self):
+        snapshots = build_independent_engine_snapshots(
+            self.hourly, self.fifteen, self.five[-10:], now=self.now
+        )
+        self.assertIn("breakout", snapshots)
+        self.assertIn("support_resistance_rejection", snapshots)
+        self.assertEqual(snapshots["volume_trading"]["volume_history_5m"], [])
+        self.assertEqual(snapshots["ict"]["reference_5m"], [])
+        self.assertIsNone(snapshots["ict"]["liquidity_sweep_5m"])
+
+    def test_zone_detection_failure_only_removes_zone_dependent_evidence(self):
+        with patch(
+            "lili_trader.engine_snapshot_builder.find_support_resistance",
+            side_effect=RuntimeError("zone evidence unavailable"),
+        ):
+            snapshots = build_independent_engine_snapshots(
+                self.hourly, self.fifteen, self.five, now=self.now
+            )
+        self.assertIsNone(snapshots["breakout"]["resistance_zone"])
+        self.assertIsNone(snapshots["support_resistance_rejection"]["support_zone"])
+        self.assertEqual(len(snapshots["volume_trading"]["volume_history_5m"]), 20)
+        self.assertIn("ict", snapshots)
+
     def test_missing_zones_are_not_replaced_with_guessed_levels(self):
         flat_fifteen = [
             NobitexCandle(
@@ -189,7 +212,7 @@ class EngineSnapshotBuilderTests(unittest.TestCase):
             side_effect=[trend_15m, trend_1h],
         ), patch(
             "lili_trader.live_paper_monitor.build_trend_pullback_snapshot",
-            side_effect=ValueError("trend-pullback evidence unavailable"),
+            side_effect=RuntimeError("trend-pullback evidence unavailable"),
         ):
             snapshots = build_independent_engine_snapshots(
                 self.hourly, self.fifteen, self.five, now=self.now

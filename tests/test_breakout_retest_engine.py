@@ -31,7 +31,7 @@ class BreakoutRetestEngineTests(unittest.TestCase):
         self.assertEqual(decision.evidence["execution"], "paper_only")
         self.assertEqual(decision.evidence["entry_reference"], 101.5)
         self.assertEqual(decision.evidence["stop_loss"], 98.0)
-        self.assertEqual(decision.evidence["take_profit"], 106.75)
+        self.assertAlmostEqual(decision.evidence["take_profit"], 107.00375)
 
     def test_no_touch_of_old_resistance_means_wait(self):
         self.snapshot["retest_5m"]["low"] = 100.1

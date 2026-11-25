@@ -51,7 +51,7 @@ class VolumeTradingEngineTests(unittest.TestCase):
         self.assertEqual(self.engine.evaluate(self.snapshot).status, "WAIT")
         self.snapshot["latest_5m"]["fetched_at"] += 902
         self.assertEqual(self.engine.evaluate(self.snapshot).status, "WAIT")
-        self.snapshot["latest_5m"]["fetched_at"] -= 902
+        self.snapshot["latest_5m"]["fetched_at"] = self.snapshot["latest_5m"]["timestamp"] + 300
         self.snapshot["volume_history_5m"][10]["timestamp"] += 300
         self.assertEqual(self.engine.evaluate(self.snapshot).status, "WAIT")
 

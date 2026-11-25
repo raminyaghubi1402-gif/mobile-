@@ -24,7 +24,7 @@ from .nobitex_data import NobitexAdapter, NobitexCandle
 from .price_action_trend import classify_price_action_trend
 from .nobitex_limits import NOBITEX_BASE_SPOT_FEE_RATE_IRT, NOBITEX_MINIMUM_SPOT_ORDER_IRT
 from .risk_management import propose_structural_trailing_stop
-from .strategy_engines import build_default_strategy_registry
+from .strategy_engines import StrategyDecision, build_default_strategy_registry
 from .support_resistance import find_support_resistance
 
 
@@ -236,6 +236,31 @@ def _record_symbol(key: str, record: dict[str, Any]) -> str:
     if symbol not in SYMBOLS:
         raise LivePaperMonitorError("paper state contains an unknown symbol")
     return symbol
+
+
+def _validated_signal_levels(decision: StrategyDecision) -> dict[str, float]:
+    """Validate one engine's execution levels without affecting other engines."""
+    evidence = decision.evidence
+    values: dict[str, float] = {}
+    for name in ("entry_reference", "stop_loss", "take_profit"):
+        raw = evidence.get(name)
+        if isinstance(raw, bool):
+            raise ValueError(f"{name} is not a valid price")
+        try:
+            value = float(raw)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(f"{name} is missing or invalid") from exc
+        if not isfinite(value) or value <= 0:
+            raise ValueError(f"{name} must be finite and positive")
+        values[name] = value
+    entry, stop, target = (
+        values["entry_reference"], values["stop_loss"], values["take_profit"]
+    )
+    if not stop < entry < target:
+        raise ValueError("signal prices are not ordered for a spot BUY")
+    if (target - entry) / (entry - stop) + 1e-9 < 1.5:
+        raise ValueError("signal reward/risk is below the 1.5 minimum")
+    return values
 
 
 def _decision_id(
@@ -606,22 +631,34 @@ def run_live_paper_monitor(
             position_status: dict[str, str] = {}
             for position_key, position_record in list(state.data["positions"].items()):
                 if isinstance(position_record, dict) and _record_symbol(position_key, position_record) == symbol:
-                    position_status[position_key] = _manage_position(
-                        symbol, validated["5m"], state, journal, now=observed_at,
-                        state_key=position_key,
-                    )
+                    try:
+                        position_status[position_key] = _manage_position(
+                            symbol, validated["5m"], state, journal, now=observed_at,
+                            state_key=position_key,
+                        )
+                    except Exception as exc:
+                        # Corruption in one engine-owned position must not stop
+                        # management of another engine's independent position.
+                        position_status[position_key] = (
+                            f"position_isolated_error_{type(exc).__name__}"
+                        )
 
             pending_status: dict[str, str] = {}
             for pending_key, pending_record in list(state.data["pending"].items()):
                 if isinstance(pending_record, dict) and _record_symbol(pending_key, pending_record) == symbol:
-                    pending_status[pending_key] = (
-                        _activate_pending(
-                            symbol, validated["5m"], state, equity_quote=paper_equity_quote,
-                            state_key=pending_key,
+                    try:
+                        pending_status[pending_key] = (
+                            _activate_pending(
+                                symbol, validated["5m"], state, equity_quote=paper_equity_quote,
+                                state_key=pending_key,
+                            )
+                            if paper_equity_quote is not None
+                            else "pending_entry_paused_usdt_irt_rate_unavailable"
                         )
-                        if paper_equity_quote is not None
-                        else "pending_entry_paused_usdt_irt_rate_unavailable"
-                    )
+                    except Exception as exc:
+                        pending_status[pending_key] = (
+                            f"pending_isolated_error_{type(exc).__name__}"
+                        )
             engine_snapshots = build_independent_engine_snapshots(
                 validated["1h"], validated["15m"], validated["5m"], now=observed_at
             )
@@ -650,10 +687,26 @@ def run_live_paper_monitor(
                 and engine_id in eligible_ids
             )
 
-            engine_decisions = [
-                registry.evaluate_selected(engine_snapshots[engine_id], (engine_id,))[0]
-                for engine_id in selected
-            ]
+            engine_decisions = []
+            for engine_id in selected:
+                try:
+                    engine_snapshot = engine_snapshots.get(engine_id)
+                    if not isinstance(engine_snapshot, dict):
+                        raise ValueError("engine-specific snapshot is unavailable")
+                    engine_decisions.append(
+                        registry.evaluate_selected(engine_snapshot, (engine_id,))[0]
+                    )
+                except Exception as exc:
+                    engine_decisions.append(StrategyDecision(
+                        strategy_id=engine_id,
+                        status="WAIT",
+                        reason="شواهد این موتور در این نوبت مستقل از سایر موتورها در دسترس نیست.",
+                        evidence={
+                            "engine_isolated": True,
+                            "engine_error_type": type(exc).__name__,
+                            "engine_error": str(exc)[:300],
+                        },
+                    ))
             latest_timestamp = int(validated["5m"][-1].timestamp)
             known_decisions = {
                 event.decision_id for event in journal.events()
@@ -665,9 +718,20 @@ def run_live_paper_monitor(
                 )
                 if isinstance(record, dict) and _record_symbol(key, record) == symbol
             }
+            signal_levels: dict[str, dict[str, float]] = {}
+            signal_validation_errors: dict[str, str] = {}
+            for decision in engine_decisions:
+                if decision.status != "SIGNAL":
+                    continue
+                try:
+                    signal_levels[decision.strategy_id] = _validated_signal_levels(decision)
+                except Exception as exc:
+                    signal_validation_errors[decision.strategy_id] = str(exc)
+
             new_signals = [
                 decision for decision in engine_decisions
                 if decision.status == "SIGNAL"
+                and decision.strategy_id in signal_levels
                 and _engine_state_key(symbol, decision.strategy_id) not in occupied_slots
             ]
             portfolio_risk_cap = (
@@ -725,6 +789,12 @@ def run_live_paper_monitor(
                     is_buy = decision.strategy_id in allocations
                     if paper_equity_quote is None:
                         event_reason = reason
+                    elif decision.strategy_id in signal_validation_errors:
+                        event_reason = (
+                            "سیگنال این موتور به‌دلیل اشکال در سطوح ورود/حدضرر/هدف "
+                            "رد شد؛ سایر موتورها مستقل ادامه می‌دهند: "
+                            + signal_validation_errors[decision.strategy_id]
+                        )
                     elif decision.status == "SIGNAL" and slot_key in occupied_slots:
                         event_reason = "برای همین موتور روی این نماد موقعیت یا ورود معلق خودش از قبل وجود دارد."
                     elif decision.status == "SIGNAL" and not is_buy:
@@ -752,12 +822,15 @@ def run_live_paper_monitor(
                             else f"{decision.strategy_id}_v1"
                         ),
                         "status": "WAIT" if paper_equity_quote is None or (
-                            decision.status == "SIGNAL" and not is_buy
+                            decision.status == "SIGNAL" and (
+                                not is_buy or decision.strategy_id in signal_validation_errors
+                            )
                         ) else decision.status,
                         "reason": event_reason,
                         "evidence": engine_evidence,
                         "is_buy": is_buy,
                         "risk_quote": allocations.get(decision.strategy_id, 0.0),
+                        "levels": signal_levels.get(decision.strategy_id),
                     })
 
             for item in log_decisions:
@@ -788,9 +861,9 @@ def run_live_paper_monitor(
                         "paper_equity_quote_irt": paper_equity_quote,
                         "capital_rate_source": "Nobitex public USDTIRT orderbook best bid",
                     },
-                    entry_price=float(item["evidence"]["entry_reference"]) if is_buy else None,
-                    stop_loss=float(item["evidence"]["stop_loss"]) if is_buy else None,
-                    take_profit=float(item["evidence"]["take_profit"]) if is_buy else None,
+                    entry_price=item["levels"]["entry_reference"] if is_buy else None,
+                    stop_loss=item["levels"]["stop_loss"] if is_buy else None,
+                    take_profit=item["levels"]["take_profit"] if is_buy else None,
                     risk_quote=float(item["risk_quote"]) if is_buy else None,
                     timeframe="1h/15m/5m",
                     trade_id=f"paper-{decision_id}" if is_buy else None,
@@ -802,9 +875,9 @@ def run_live_paper_monitor(
                         "strategy": strategy_id,
                         "decision_id": decision_id,
                         "signal_timestamp": latest_timestamp,
-                        "entry_reference": float(item["evidence"]["entry_reference"]),
-                        "stop_loss": float(item["evidence"]["stop_loss"]),
-                        "take_profit": float(item["evidence"]["take_profit"]),
+                        "entry_reference": item["levels"]["entry_reference"],
+                        "stop_loss": item["levels"]["stop_loss"],
+                        "take_profit": item["levels"]["take_profit"],
                         "risk_quote": float(item["risk_quote"]),
                     }
 

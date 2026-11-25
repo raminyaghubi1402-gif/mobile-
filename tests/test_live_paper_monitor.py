@@ -10,6 +10,7 @@ from lili_trader.live_paper_monitor import (
     PaperState,
     latest_contiguous_closed_segment,
     _activate_pending,
+    _committed_risk_quote,
     _manage_position,
 )
 
@@ -458,6 +459,106 @@ class PaperEntryTests(unittest.TestCase):
         self.assertEqual(state.data["positions"]["BTCIRT"]["stop_loss"], 98.0)
         self.assertEqual(state.data["positions"]["BTCIRT"]["last_processed_timestamp"], rows[-2].timestamp)
 
+
+class EngineOwnedPaperPositionTests(unittest.TestCase):
+    def test_two_engines_can_hold_separate_positions_for_same_symbol(self):
+        state = PaperState("unused-state.json")
+        for engine in ("trend_pullback", "volume_trading"):
+            key = f"BTCIRT::{engine}"
+            state.data["pending"][key] = {
+                "symbol": "BTCIRT",
+                "strategy": engine,
+                "decision_id": f"decision-{engine}",
+                "signal_timestamp": 300,
+                "entry_reference": 100.0,
+                "stop_loss": 98.0,
+                "take_profit": 106.0,
+                "risk_quote": 135_500.0,
+            }
+        result_a = _activate_pending(
+            "BTCIRT", [candle(600)], state, equity_quote=TEST_PAPER_EQUITY_QUOTE,
+            state_key="BTCIRT::trend_pullback",
+        )
+        result_b = _activate_pending(
+            "BTCIRT", [candle(600)], state, equity_quote=TEST_PAPER_EQUITY_QUOTE,
+            state_key="BTCIRT::volume_trading",
+        )
+        self.assertTrue(result_a.startswith("paper_entry_at_next_open"))
+        self.assertTrue(result_b.startswith("paper_entry_at_next_open"))
+        self.assertEqual(
+            set(state.data["positions"]),
+            {"BTCIRT::trend_pullback", "BTCIRT::volume_trading"},
+        )
+        self.assertEqual(state.data["positions"]["BTCIRT::trend_pullback"]["strategy"], "trend_pullback")
+        self.assertEqual(state.data["positions"]["BTCIRT::volume_trading"]["strategy"], "volume_trading")
+        reserved_cash = sum(
+            p["entry_fill_price"] * p["quantity"] + p["entry_fee_quote"]
+            for p in state.data["positions"].values()
+        )
+        self.assertLessEqual(reserved_cash, TEST_PAPER_EQUITY_QUOTE + 1e-6)
+
+    def test_managing_one_engine_position_does_not_close_another(self):
+        entry_ts = 1_800_000_000
+        state = PaperState("unused-state.json")
+        for engine, stop in (("trend_pullback", 99.0), ("volume_trading", 95.0)):
+            state.data["positions"][f"BTCIRT::{engine}"] = {
+                "symbol": "BTCIRT",
+                "strategy": engine,
+                "trade_id": f"trade-{engine}",
+                "decision_id": f"decision-{engine}",
+                "entry_timestamp": entry_ts,
+                "last_processed_timestamp": entry_ts,
+                "raw_entry_price": 100.0,
+                "entry_fill_price": 100.1,
+                "quantity": 1.0,
+                "stop_loss": stop,
+                "take_profit": 150.0,
+                "entry_fee_quote": 0.1,
+                "risk_quote": 1.0,
+                "execution": "paper_only",
+            }
+        stop_bar = NobitexCandle(
+            symbol="BTCIRT", resolution="5", timestamp=entry_ts + 300,
+            open=100.0, high=101.0, low=98.0, close=99.5,
+            volume=10.0, fetched_at=entry_ts + 600,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            journal = DecisionJournal(Path(directory) / "journal.jsonl")
+            result = _manage_position(
+                "BTCIRT", [stop_bar], state, journal, now=entry_ts + 600,
+                state_key="BTCIRT::trend_pullback",
+            )
+            self.assertIn("closed_stop_loss", result)
+            self.assertNotIn("BTCIRT::trend_pullback", state.data["positions"])
+            self.assertIn("BTCIRT::volume_trading", state.data["positions"])
+
+    def test_portfolio_risk_is_scoped_and_sum_of_symbol_caps_is_bounded(self):
+        state = PaperState("unused-state.json")
+        state.data["positions"]["BTCIRT::trend_pullback"] = {"symbol": "BTCIRT", "risk_quote": 40.0}
+        state.data["pending"]["BTCIRT::volume_trading"] = {"symbol": "BTCIRT", "risk_quote": 20.0}
+        state.data["positions"]["ETHIRT::breakout"] = {"symbol": "ETHIRT", "risk_quote": 30.0}
+        self.assertEqual(_committed_risk_quote(state, symbol="BTCIRT"), 60.0)
+        self.assertEqual(_committed_risk_quote(state, symbol="ETHIRT"), 30.0)
+        self.assertEqual(_committed_risk_quote(state), 90.0)
+        equity = 10_000.0
+        total_cap = equity * 0.005
+        per_symbol_cap = total_cap / 2
+        self.assertLessEqual(per_symbol_cap * 2, total_cap)
+
+    def test_schema_one_state_migrates_without_dropping_existing_positions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "state.json"
+            path.write_text(
+                '{"schema_version":1,"pending":{"BTCIRT":{"strategy":"ict","decision_id":"p"}},'
+                '"positions":{"ETHIRT":{"trade_id":"legacy-trade","entry_fill_price":10,'
+                '"quantity":1,"stop_loss":9}}}',
+                encoding="utf-8",
+            )
+            state = PaperState(path)
+            self.assertEqual(state.data["schema_version"], 2)
+            self.assertIn("BTCIRT::ict", state.data["pending"])
+            self.assertIn("ETHIRT::legacy", state.data["positions"])
+            self.assertEqual(state.data["positions"]["ETHIRT::legacy"]["trade_id"], "legacy-trade")
 
 class PaperStateTests(unittest.TestCase):
     def test_state_round_trips_pending_and_positions(self):

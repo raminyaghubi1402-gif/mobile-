@@ -101,10 +101,6 @@ class StrategyEngineRegistryTests(unittest.TestCase):
             registry.evaluate_selected({}, ("made_up",))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 
 class TrendPullbackEngineTests(unittest.TestCase):
     def setUp(self):
@@ -158,3 +154,7 @@ class TrendPullbackEngineTests(unittest.TestCase):
         self.snapshot["support_zone"] = None
         self.assertEqual(self.engine.evaluate(self.snapshot).status, "WAIT")
 
+
+
+if __name__ == "__main__":
+    unittest.main()

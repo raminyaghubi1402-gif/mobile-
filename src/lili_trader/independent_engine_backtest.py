@@ -217,6 +217,8 @@ def run_independent_engine_backtest(
             snapshots = build_independent_engine_snapshots(
                 hourly_window, fifteen_window, five_window, now=signal_close_time
             )
+            for engine_snapshot in snapshots.values():
+                engine_snapshot["expected_entry_slippage_rate"] = slippage_rate
             trend_15m = classify_price_action_trend(
                 fifteen_window, pivot_window=2, min_swings=2
             )

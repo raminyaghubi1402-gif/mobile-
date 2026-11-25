@@ -215,8 +215,8 @@ def build_independent_engine_snapshots(
         },
         "volume_trading": {
             **common,
-            "volume_history_5m": volume_views[:-1],
-            "latest_5m": volume_views[-1],
+            "volume_history_5m": volume_views[:-1] if volume_views else [],
+            "latest_5m": volume_views[-1] if volume_views else None,
         },
         "ict": {
             **common,

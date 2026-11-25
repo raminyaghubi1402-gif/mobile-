@@ -121,12 +121,12 @@ def propose_structural_trailing_stop(
     timestamps = [_timestamp(c) for c in candles]
     if any(b - a != 300 for a, b in zip(timestamps, timestamps[1:])):
         return None
-    # When the source exposes fetch time, independently reject any candle
-    # whose 5m close had not occurred by that observation time.
+    # Every bar must carry source fetch time; never assume an unverified
+    # candle was closed when the monitor observed it.
     for candle, timestamp in zip(candles, timestamps):
         fetched = (candle.get("fetched_at") if isinstance(candle, Mapping)
                    else getattr(candle, "fetched_at", None))
-        if fetched is not None and (type(fetched) is not int or fetched < timestamp + 300):
+        if type(fetched) is not int or fetched < timestamp + 300:
             return None
     try:
         entry_index = timestamps.index(entry_timestamp)

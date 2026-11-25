@@ -67,9 +67,10 @@ class ICTEngineTests(unittest.TestCase):
         self.snapshot["retest_5m"]["timestamp"] -= 300
         self.snapshot["retest_5m"]["fetched_at"] -= 1
         self.assertEqual(self.engine.evaluate(self.snapshot).status, "WAIT")
-        self.snapshot["retest_5m"]["fetched_at"] += 902
-        self.assertEqual(self.engine.evaluate(self.snapshot).status, "WAIT")
         self.snapshot["retest_5m"]["fetched_at"] = self.snapshot["retest_5m"]["timestamp"] + 300
+        self.snapshot["now"] -= 901
+        self.assertEqual(self.engine.evaluate(self.snapshot).status, "WAIT")
+        self.snapshot["now"] += 901
         self.snapshot["regime"] = "range"
         self.assertEqual(self.engine.evaluate(self.snapshot).status, "WAIT")
 

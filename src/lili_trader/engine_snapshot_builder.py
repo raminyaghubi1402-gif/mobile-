@@ -19,7 +19,7 @@ def _candle_snapshot(candle: NobitexCandle, *, now: int) -> dict[str, int | floa
     fetched_at = candle.fetched_at
     if (type(timestamp) is not int or timestamp <= 0
             or type(fetched_at) is not int or fetched_at <= 0
-            or timestamp + 300 > fetched_at):
+            or timestamp + 300 > fetched_at or fetched_at > now):
         raise ValueError("5m candle close/fetch timestamps are invalid")
     values = (candle.open, candle.high, candle.low, candle.close)
     volume = candle.volume
@@ -78,6 +78,12 @@ def build_independent_engine_snapshots(
     ):
         raise ValueError("the 20-bar volume reference is not contiguous")
     volume_views = [_candle_snapshot(candle, now=now) for candle in volume_rows]
+    ict_rows = list(five[-24:]) if len(five) >= 24 else []
+    ict_contiguous = bool(ict_rows) and all(
+        ict_rows[index].timestamp == ict_rows[index - 1].timestamp + 300
+        for index in range(1, len(ict_rows))
+    )
+    ict_views = [_candle_snapshot(candle, now=now) for candle in ict_rows] if ict_contiguous else []
     if any(now - (view["timestamp"] + 300) > 900 for view in candle_views):
         raise ValueError("one of the required 5m candles is stale")
 
@@ -97,18 +103,36 @@ def build_independent_engine_snapshots(
         if resistance is not None else None
     )
 
-    # Lazy import avoids a module cycle when the live monitor adopts this builder.
-    from .live_paper_monitor import build_trend_pullback_snapshot
-
-    trend_snapshot = build_trend_pullback_snapshot(
-        list(hourly), list(fifteen), list(five), now=now
-    )
-    previous, latest = candle_views[-2], candle_views[-1]
-    pre_breakout, breakout, retest = candle_views
-    # Select independent engines from the 15m regime only. The trend-pullback
-    # engine keeps its own stricter 1h/15m/5m structural requirements.
+    # Compute the 15m regime independently; a failure in Trend Pullback's
+    # stricter 1h/5m structure must never suppress the other engines.
     trend_15m = classify_price_action_trend(list(fifteen), pivot_window=2, min_swings=2)
     market_regime = classify_market_regime(list(fifteen), trend_15m, volatility_window=20)
+    try:
+        trend_1h = classify_price_action_trend(list(hourly), pivot_window=2, min_swings=2)
+        from .live_paper_monitor import build_trend_pullback_snapshot
+        trend_snapshot = build_trend_pullback_snapshot(
+            list(hourly), list(fifteen), list(five), now=now
+        )
+    except (ValueError, TypeError, IndexError):
+        trend_1h = None
+        trend_snapshot = {
+            "spot_only": True,
+            "regime": market_regime.trend,
+            "pullback_active": False,
+            "support_zone": None,
+            "latest_5m": candle_views[-1],
+            "structure_5m": {},
+            "context": {
+                "trend_1h": "unknown",
+                "trend_15m": trend_15m.direction,
+                "volatility_15m": market_regime.volatility,
+                "regime_reason": market_regime.reason,
+                "structure_reason": "شواهد اختصاصی Trend Pullback کامل نیست؛ سایر موتورها مستقل ارزیابی می‌شوند.",
+                "support_zone_touches": 0,
+            },
+        }
+    previous, latest = candle_views[-2], candle_views[-1]
+    pre_breakout, breakout, retest = candle_views
     engine_regime = (
         "bullish" if market_regime.trend == "up" and market_regime.volatility in {"low", "normal"}
         else market_regime.trend
@@ -140,5 +164,14 @@ def build_independent_engine_snapshots(
             **common,
             "volume_history_5m": volume_views[:-1],
             "latest_5m": volume_views[-1],
+        },
+        "ict": {
+            **common,
+            "now": now,
+            "reference_5m": ict_views[:20] if ict_views else [],
+            "liquidity_sweep_5m": ict_views[20] if ict_views else None,
+            "displacement_5m": ict_views[21] if ict_views else None,
+            "fvg_confirmation_5m": ict_views[22] if ict_views else None,
+            "retest_5m": ict_views[23] if ict_views else None,
         },
     }

@@ -72,6 +72,21 @@ class IndependentEngineSegmentTests(unittest.TestCase):
         )
         self.assertEqual(windows, [])
 
+    def test_rejects_duplicate_timestamps_in_history(self):
+        rows = candles(0, 3, 300)
+        rows.insert(2, SimpleNamespace(timestamp=300))
+        with self.assertRaises(ValueError):
+            _contiguous_segments(rows, 300)
+
+    def test_rejects_out_of_order_timestamps_in_history(self):
+        rows = [
+            SimpleNamespace(timestamp=0),
+            SimpleNamespace(timestamp=600),
+            SimpleNamespace(timestamp=300),
+        ]
+        with self.assertRaises(ValueError):
+            _contiguous_segments(rows, 300)
+
     def test_invalid_timeframe_is_rejected(self):
         with self.assertRaises(ValueError):
             _contiguous_segments(candles(0, 2, 300), 0)

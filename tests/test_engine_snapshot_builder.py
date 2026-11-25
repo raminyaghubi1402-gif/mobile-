@@ -90,6 +90,21 @@ class EngineSnapshotBuilderTests(unittest.TestCase):
         self.assertIsNone(snapshots["breakout"]["resistance_zone"])
         self.assertIsNone(snapshots["support_resistance_rejection"]["support_zone"])
 
+    def test_fetch_time_slightly_after_observation_does_not_mark_closed_bar_future(self):
+        rows = list(self.five)
+        latest = rows[-1]
+        rows[-1] = candle(
+            latest.timestamp, "5", latest.close,
+            fetched_at=self.now + 2,
+        )
+        snapshots = build_independent_engine_snapshots(
+            self.hourly, self.fifteen, rows, now=self.now
+        )
+        self.assertEqual(
+            snapshots["breakout"]["latest_5m"]["timestamp"],
+            latest.timestamp,
+        )
+
     def test_gap_in_three_required_5m_candles_fails_closed(self):
         broken = list(self.five)
         broken[-1] = candle(broken[-1].timestamp + 300, "5", 103)

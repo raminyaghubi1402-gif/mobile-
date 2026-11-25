@@ -253,3 +253,8 @@ class TrendPullbackEngine:
                 "execution": "paper_only",
             },
         )
+
+def build_default_strategy_registry() -> StrategyRegistry:
+    """Return the implemented engines; unimplemented catalog entries stay disabled."""
+    from .breakout_engine import BreakoutEngine
+    return StrategyRegistry((TrendPullbackEngine(), BreakoutEngine()))

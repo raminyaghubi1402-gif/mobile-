@@ -146,10 +146,19 @@ class TrendPullbackEngine:
     strategy_id: str = "trend_pullback"
     enabled: bool = True
     minimum_reward_risk: float = 1.5
+    maximum_candle_age_seconds: int = 900
 
     def evaluate(self, market_snapshot: Mapping[str, Any]) -> StrategyDecision:
         if not isinstance(market_snapshot, Mapping):
             raise ValueError("market_snapshot must be a mapping")
+        from math import isfinite
+        if (isinstance(self.minimum_reward_risk, bool)
+                or not isinstance(self.minimum_reward_risk, (int, float))
+                or not isfinite(self.minimum_reward_risk)
+                or self.minimum_reward_risk < 1.5
+                or type(self.maximum_candle_age_seconds) is not int
+                or self.maximum_candle_age_seconds < 0):
+            raise ValueError("invalid reward/risk or candle freshness configuration")
         if type(self.enabled) is not bool or not self.enabled:
             return StrategyDecision(self.strategy_id, "DISABLED", "موتور غیرفعال است.")
         if market_snapshot.get("spot_only") is not True:
@@ -178,12 +187,20 @@ class TrendPullbackEngine:
             low = _positive_price(candle.get("low"), "low")
             close = _positive_price(candle.get("close"), "close")
             timestamp = candle.get("timestamp")
+            fetched_at = candle.get("fetched_at")
             latest_index = structure.get("latest_candle_index")
             event = structure.get("last_event")
             if lower > upper or low > min(open_, close) or high < max(open_, close) or low > high:
                 raise ValueError("inconsistent zone/candle")
-            if type(timestamp) is not int or timestamp <= 0:
-                raise ValueError("closed candle timestamp is invalid")
+            if (type(timestamp) is not int or timestamp <= 0
+                    or type(fetched_at) is not int or fetched_at <= 0):
+                raise ValueError("closed candle timestamp/fetch time is invalid")
+            candle_close_time = timestamp + 300
+            if candle_close_time > fetched_at:
+                raise ValueError("latest 5m candle is not closed yet")
+            candle_age = fetched_at - candle_close_time
+            if candle_age > self.maximum_candle_age_seconds:
+                raise ValueError("latest 5m candle is stale")
             if type(latest_index) is not int or latest_index < 0:
                 raise ValueError("latest closed-candle index is invalid")
             if not isinstance(event, Mapping):
@@ -209,7 +226,7 @@ class TrendPullbackEngine:
                 return StrategyDecision(self.strategy_id, "WAIT",
                                         "حد ضرر معتبر زیر قیمت ورود تشکیل نشده است.")
             target = close + risk * self.minimum_reward_risk
-            if not all(__import__("math").isfinite(x) for x in (stop, target)):
+            if not all(isfinite(x) for x in (stop, target)):
                 raise ValueError("non-finite risk levels")
         except ValueError as exc:
             return StrategyDecision(self.strategy_id, "WAIT",
@@ -226,6 +243,8 @@ class TrendPullbackEngine:
                 "structure_event": event.get("kind"),
                 "structure_event_candle_index": event_index,
                 "market_data_timestamp": timestamp,
+                "market_data_fetched_at": fetched_at,
+                "candle_age_seconds": candle_age,
                 "execution": "paper_only",
             },
         )

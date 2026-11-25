@@ -1,7 +1,10 @@
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from lili_trader.independent_engine_backtest import run_independent_engine_backtest
 from lili_trader.nobitex_data import NobitexCandle
+from lili_trader.strategy_engines import StrategyDecision
 
 
 def series(symbol, resolution, count, start, step, price_start=100.0):
@@ -38,6 +41,62 @@ class IndependentEngineBacktestTests(unittest.TestCase):
         )
         self.assertTrue(all(row.starting_cash == 13_550_000 for row in result.engines))
         self.assertTrue(all(row.ending_equity >= 0 for row in result.engines))
+
+    def test_signal_enters_at_the_immediately_following_candle_open(self):
+        start = 1_800_000_000
+
+        def flat(resolution, count, step):
+            return [
+                NobitexCandle(
+                    symbol="BTCIRT", resolution=resolution,
+                    timestamp=start + i * step,
+                    open=100.0, high=101.0, low=99.0, close=100.0,
+                    volume=10.0, fetched_at=start + i * step + step,
+                )
+                for i in range(count)
+            ]
+
+        hourly = flat("60", 60, 3600)
+        fifteen = flat("15", 240, 900)
+        five = flat("5", 720, 300)
+
+        class OneSignalRegistry:
+            registered_ids = ("breakout",)
+
+            def evaluate_selected(self, snapshot, selected):
+                return (StrategyDecision(
+                    strategy_id="breakout",
+                    status="SIGNAL",
+                    reason="test-only deterministic setup",
+                    evidence={
+                        "entry_reference": 100.0,
+                        "stop_loss": 98.0,
+                        "take_profit": 103.25,
+                    },
+                ),)
+
+        with (
+            patch("lili_trader.independent_engine_backtest.build_default_strategy_registry",
+                  return_value=OneSignalRegistry()),
+            patch("lili_trader.independent_engine_backtest.build_independent_engine_snapshots",
+                  return_value={"breakout": {}}),
+            patch("lili_trader.independent_engine_backtest.classify_price_action_trend",
+                  return_value=object()),
+            patch("lili_trader.independent_engine_backtest.classify_market_regime",
+                  return_value=SimpleNamespace(trend="up", volatility="normal")),
+            patch("lili_trader.independent_engine_backtest.select_strategy_candidates",
+                  return_value=(SimpleNamespace(name="breakout", eligible=True),)),
+        ):
+            result = run_independent_engine_backtest(
+                hourly, fifteen, five, minimum_order_quote=1.0
+            )
+
+        breakout = next(row for row in result.engines if row.strategy_id == "breakout")
+        self.assertEqual(breakout.trade_count, 1)
+        self.assertEqual(breakout.entry_attempts, 1)
+        self.assertEqual(breakout.cancelled_rr, 0)
+        self.assertEqual(breakout.trades[0].entry_timestamp, five[361].timestamp)
+        self.assertAlmostEqual(breakout.trades[0].entry_price, 100.1)
 
     def test_rejects_gapped_or_mixed_symbol_history(self):
         broken = list(self.five)

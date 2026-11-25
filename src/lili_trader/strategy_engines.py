@@ -259,9 +259,11 @@ def build_default_strategy_registry() -> StrategyRegistry:
     from .breakout_engine import BreakoutEngine
     from .breakout_retest_engine import BreakoutRetestEngine
     from .support_resistance_rejection_engine import SupportResistanceRejectionEngine
+    from .volume_trading_engine import VolumeTradingEngine
     return StrategyRegistry((
         TrendPullbackEngine(),
         BreakoutEngine(),
         BreakoutRetestEngine(),
         SupportResistanceRejectionEngine(),
+        VolumeTradingEngine(),
     ))

@@ -1,0 +1,61 @@
+name: Nobitex live paper monitor
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/nobitex-paper-monitor.yml"
+      - "src/lili_trader/live_paper_monitor.py"
+      - "src/lili_trader/strategy_engines.py"
+      - "scripts/run_nobitex_paper_monitor.py"
+      - "tests/test_live_paper_monitor.py"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nobitex-live-paper-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  paper-observation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Restore paper state (scheduled/default branch only)
+        if: github.event_name != 'pull_request'
+        uses: actions/cache/restore@v4
+        with:
+          path: data/paper/live
+          key: lili-paper-state-main-${{ github.run_id }}
+          restore-keys: |
+            lili-paper-state-main-
+      - name: Run public Nobitex paper observation
+        id: monitor
+        run: |
+          set -o pipefail
+          python scripts/run_nobitex_paper_monitor.py 2>&1 | tee nobitex-live-paper-report.json
+      - name: Save paper state (scheduled/default branch only)
+        if: always() && github.event_name != 'pull_request'
+        uses: actions/cache/save@v4
+        with:
+          path: data/paper/live
+          key: lili-paper-state-main-${{ github.run_id }}
+      - name: Upload observation and paper journal
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nobitex-live-paper-${{ github.run_id }}
+          path: |
+            nobitex-live-paper-report.json
+            data/paper/live/
+          if-no-files-found: ignore
+          retention-days: 30

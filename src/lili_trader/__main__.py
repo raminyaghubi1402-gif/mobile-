@@ -37,6 +37,84 @@ def _longest_contiguous_segment(candles, timeframe_seconds: int):
     return max(segments, key=len)
 
 
+def _candle_timestamp(candle) -> int:
+    raw = candle.get("timestamp") if isinstance(candle, dict) else candle.timestamp
+    if type(raw) is not int or raw < 0:
+        raise ValueError("candle timestamp must be a non-negative integer")
+    return raw
+
+
+def _contiguous_segments(candles, timeframe_seconds: int):
+    """Split a chronological candle series into gap-free segments."""
+    if type(timeframe_seconds) is not int or timeframe_seconds <= 0:
+        raise ValueError("timeframe_seconds must be a positive integer")
+    if not candles:
+        return []
+    segments = []
+    start = 0
+    previous = _candle_timestamp(candles[0])
+    for index in range(1, len(candles)):
+        current = _candle_timestamp(candles[index])
+        if current - previous != timeframe_seconds:
+            segments.append(candles[start:index])
+            start = index
+        previous = current
+    segments.append(candles[start:])
+    return segments
+
+
+def _build_contiguous_engine_backtest_windows(
+    hourly, fifteen, five, *, minimum_warmup: int = 30
+):
+    """Build every overlapping 1h/15m/5m window without crossing any gap.
+
+    Higher-timeframe candles before the 5m segment are retained as warm-up
+    history, but the backtest itself only exposes candles closed by each
+    5m decision timestamp.
+    """
+    if type(minimum_warmup) is not int or minimum_warmup < 30:
+        raise ValueError("minimum_warmup must be an integer >= 30")
+    hourly_segments = _contiguous_segments(hourly, 3600)
+    fifteen_segments = _contiguous_segments(fifteen, 900)
+    five_segments = _contiguous_segments(five, 300)
+    windows = []
+    for h_rows in hourly_segments:
+        h_start = _candle_timestamp(h_rows[0])
+        h_end = _candle_timestamp(h_rows[-1]) + 3600
+        for m_rows in fifteen_segments:
+            m_start = _candle_timestamp(m_rows[0])
+            m_end = _candle_timestamp(m_rows[-1]) + 900
+            for f_rows in five_segments:
+                f_start = _candle_timestamp(f_rows[0])
+                f_end = _candle_timestamp(f_rows[-1]) + 300
+                common_start = max(h_start, m_start, f_start)
+                common_end = min(h_end, m_end, f_end)
+                if common_end <= common_start:
+                    continue
+                five_rows = [
+                    row for row in f_rows
+                    if _candle_timestamp(row) >= common_start
+                    and _candle_timestamp(row) + 300 <= common_end
+                ]
+                if len(five_rows) < minimum_warmup:
+                    continue
+                first_decision_close = _candle_timestamp(five_rows[0]) + 300
+                closed_hourly = [
+                    row for row in h_rows
+                    if _candle_timestamp(row) + 3600 <= first_decision_close
+                ]
+                closed_fifteen = [
+                    row for row in m_rows
+                    if _candle_timestamp(row) + 900 <= first_decision_close
+                ]
+                if (len(closed_hourly) < minimum_warmup
+                        or len(closed_fifteen) < minimum_warmup):
+                    continue
+                windows.append((h_rows, m_rows, five_rows))
+    windows.sort(key=lambda window: _candle_timestamp(window[2][0]))
+    return windows
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="لی‌لی تریدر — تحلیل فقط‌خواندنی")
     parser.add_argument("--nobitex", action="store_true", help="دریافت کندل عمومی از نوبیتکس")
@@ -225,57 +303,82 @@ def main() -> None:
         hourly_all = load_engine_history("60", min(args.count, 2000))
         native_fifteen = load_engine_history("15", min(args.count, 2000))
         all_five = load_engine_history("5", args.count)
-        hourly = _longest_contiguous_segment(hourly_all, 3600)
-        five = _longest_contiguous_segment(all_five, 300)
         fifteen_all = extend_fifteen_with_five(native_fifteen, all_five)
-        fifteen = _longest_contiguous_segment(fifteen_all, 900)
-        if min(len(hourly), len(fifteen), len(five)) < 30:
+        windows = _build_contiguous_engine_backtest_windows(
+            hourly_all, fifteen_all, all_five, minimum_warmup=30
+        )
+        if not windows:
             parser.error(
-                "برای بک‌تست مستقل، هر سه تایم‌فریم باید حداقل ۳۰ کندل پیوسته و هم‌پوشان داشته باشند؛ "
+                "هیچ بازهٔ هم‌پوشان و پیوستهٔ معتبر برای هر سه تایم‌فریم با حداقل ۳۰ کندل warm-up پیدا نشد؛ "
                 "هیچ شکافی پر یا حدس زده نمی‌شود."
             )
-        try:
-            result = run_independent_engine_backtest(
-                hourly, fifteen, five,
-                starting_cash=backtest_cash_local,
-                risk_fraction=0.005,
-                fee_rate=NOBITEX_BASE_SPOT_FEE_RATE_IRT,
-                slippage_rate=0.001,
-                minimum_order_quote=NOBITEX_MINIMUM_SPOT_ORDER_IRT,
-                maximum_5m_bars=args.count,
+        print("لی‌لی تریدر — بک‌تست مستقل شش موتور روی تمام بازه‌های معتبر (Paper فقط)")
+        print(
+            f"تاریخچه: ۱h={len(hourly_all)} در {len(_contiguous_segments(hourly_all, 3600))} قطعه | "
+            f"۱۵m={len(fifteen_all)} در {len(_contiguous_segments(fifteen_all, 900))} قطعه | "
+            f"۵m={len(all_five)} در {len(_contiguous_segments(all_five, 300))} قطعه"
+        )
+        print(f"بازه‌های معتبر مستقل: {len(windows)}؛ هر قطعه سرمایهٔ مجزای تازه دارد و هیچ معامله‌ای از شکاف عبور نمی‌کند.")
+        for segment_index, (hourly, fifteen, five) in enumerate(windows, 1):
+            if len(five) > args.count:
+                five = five[-args.count:]
+            print(
+                f"\n--- قطعهٔ معتبر {segment_index}/{len(windows)} --- "
+                f"۵m: {_format_market_time(five[0].timestamp)} تا "
+                f"{_format_market_time(five[-1].timestamp + 300)} | "
+                f"تعداد={len(five)} | ۱h={len(hourly)} | ۱۵m={len(fifteen)}"
             )
-        except (ValueError, TypeError, ArithmeticError) as exc:
-            parser.error(f"بک‌تست مستقل با دادهٔ معتبر اجرا نشد: {type(exc).__name__}: {exc}")
-        print("لی‌لی تریدر — بک‌تست مستقل شش موتور (هر موتور حساب Paper جداگانه)")
-        print(
-            f"نماد: {result.symbol} | کندل‌های ۵دقیقه: {result.bars} | "
-            f"از {_format_market_time(result.first_timestamp)} تا {_format_market_time(result.last_timestamp)}"
-        )
-        print(
-            f"تاریخچهٔ پیوسته: ۱h={len(hourly)} | ۱۵m={len(fifteen)} | ۵m={len(five)}؛ "
-            "شکاف‌ها به هم متصل نشده‌اند."
-        )
-        print(f"سرمایهٔ فرضی مستقل برای هر موتور: {result.engines[0].starting_cash:,.2f} IRT | کارمزد پایه: {NOBITEX_BASE_SPOT_FEE_RATE_IRT * 100:.2f}% | حداقل سفارش: {NOBITEX_MINIMUM_SPOT_ORDER_IRT:,.0f} IRT")
-        for row in result.engines:
-            pf = (
-                "نامشخص" if row.profit_factor is None else
-                ("بی‌نهایت/بدون زیان" if row.profit_factor == float("inf") else f"{row.profit_factor:.2f}")
+            try:
+                result = run_independent_engine_backtest(
+                    hourly, fifteen, five,
+                    starting_cash=backtest_cash_local,
+                    risk_fraction=0.005,
+                    fee_rate=NOBITEX_BASE_SPOT_FEE_RATE_IRT,
+                    slippage_rate=0.001,
+                    minimum_order_quote=NOBITEX_MINIMUM_SPOT_ORDER_IRT,
+                    maximum_5m_bars=args.count,
+                )
+            except (ValueError, TypeError, ArithmeticError) as exc:
+                parser.error(
+                    f"بک‌تست قطعهٔ {segment_index} با دادهٔ معتبر اجرا نشد: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+            print(
+                f"نماد: {result.symbol} | از {_format_market_time(result.first_timestamp)} "
+                f"تا {_format_market_time(result.last_timestamp)}"
             )
             print(
-                f"{row.strategy_id}: معاملات={row.trade_count} | سیگنال‌ها={row.signal_count} | تلاش ورود={row.entry_attempts} | "
-                f"لغو RR={row.cancelled_rr} | لغو حداقل سفارش={row.cancelled_minimum_order} | "
-                f"خالص={row.net_profit:,.2f} IRT ({row.return_pct:.3f}٪) | "
-                f"برد={row.win_rate_pct:.1f}٪ | افت سرمایه={row.max_drawdown_pct:.3f}٪ | PF={pf}"
+                f"سرمایهٔ فرضی مستقل برای هر موتور: {result.engines[0].starting_cash:,.2f} IRT | "
+                f"کارمزد پایه: {NOBITEX_BASE_SPOT_FEE_RATE_IRT * 100:.2f}% | "
+                f"حداقل سفارش: {NOBITEX_MINIMUM_SPOT_ORDER_IRT:,.0f} IRT"
             )
-            for trade_index, trade in enumerate(row.trades, 1):
-                print(
-                    f"  معاملهٔ {trade_index}: ورود {_format_market_time(trade.entry_timestamp)} "
-                    f"@ {trade.entry_price:,.2f} | خروج {_format_market_time(trade.exit_timestamp)} "
-                    f"@ {trade.exit_price:,.2f} | خالص={trade.net_pnl:,.2f} IRT "
-                    f"| هزینه={trade.fees:,.2f} | علت={trade.exit_reason}"
+            for row in result.engines:
+                pf = (
+                    "نامشخص" if row.profit_factor is None else
+                    ("بی‌نهایت/بدون زیان" if row.profit_factor == float("inf") else f"{row.profit_factor:.2f}")
                 )
-        for warning in result.warnings:
-            print(f"هشدار: {warning}")
+                print(
+                    f"{row.strategy_id}: معاملات={row.trade_count} | سیگنال‌ها={row.signal_count} | "
+                    f"تلاش ورود={row.entry_attempts} | لغو RR={row.cancelled_rr} | "
+                    f"لغو حداقل سفارش={row.cancelled_minimum_order} | "
+                    f"خالص={row.net_profit:,.2f} IRT ({row.return_pct:.3f}٪) | "
+                    f"برد={row.win_rate_pct:.1f}٪ | افت سرمایه={row.max_drawdown_pct:.3f}٪ | PF={pf}"
+                )
+                for trade_index, trade in enumerate(row.trades, 1):
+                    print(
+                        f"  معاملهٔ {trade_index}: سیگنال={_format_market_time(trade.signal_timestamp)} | "
+                        f"ورود={_format_market_time(trade.entry_timestamp)} @ {trade.entry_price:,.2f} | "
+                        f"خروج={_format_market_time(trade.exit_timestamp)} @ {trade.exit_price:,.2f} | "
+                        f"خالص={trade.net_pnl:,.2f} IRT | هزینه={trade.fees:,.2f} | "
+                        f"خروج={trade.exit_reason} | مدت={trade.bars_held} کندل | "
+                        f"MFE={trade.max_favorable_r:.2f}R | MAE={trade.max_adverse_r:.2f}R | "
+                        f"گپ ورود={trade.entry_gap_pct:.3f}% | "
+                        f"روند ۱h={trade.trend_1h}، ۱۵m={trade.trend_15m}"
+                    )
+                    print(f"    علت سیگنال: {trade.signal_reason}")
+                    print(f"    شواهد سیگنال: {trade.signal_evidence}")
+            for warning in result.warnings:
+                print(f"هشدار: {warning}")
         return
 
     if args.price_action_backtest:

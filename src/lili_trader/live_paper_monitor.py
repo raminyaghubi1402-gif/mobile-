@@ -1073,6 +1073,8 @@ def run_live_paper_monitor(
                 "trend_15m": snapshot["context"]["trend_15m"],
                 "regime": snapshot["regime"],
                 "decision": decision_status,
+                "selected_engines": list(selected),
+                "engine_decisions": engine_report,
                 "reason": reason,
                 "position": position_status,
                 "pending": pending_status,

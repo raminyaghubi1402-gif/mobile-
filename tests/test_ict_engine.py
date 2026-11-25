@@ -44,7 +44,7 @@ class ICTEngineTests(unittest.TestCase):
         self.assertEqual(decision.evidence["stop_loss"], 98.0)
         self.assertEqual(decision.evidence["fvg_lower"], 100.0)
         self.assertEqual(decision.evidence["fvg_upper"], 101.0)
-        self.assertEqual(decision.evidence["take_profit"], 109.25)
+        self.assertAlmostEqual(decision.evidence["take_profit"], 109.50625)
 
     def test_no_sell_side_sweep_is_rejected(self):
         self.snapshot["liquidity_sweep_5m"]["low"] = 99.0

@@ -316,7 +316,7 @@ def _activate_pending(
     actual_risk = entry_fill - stop
     actual_rr = actual_reward / actual_risk if actual_risk > 0 else 0.0
     if (unit_risk <= 0 or raw_entry <= stop or raw_entry >= target
-            or actual_rr < 1.5):
+            or actual_rr + 1e-9 < 1.5):
         del state.data["pending"][symbol]
         return "pending_entry_cancelled_gap_or_invalid_risk"
     risk_budget = float(pending["risk_quote"])

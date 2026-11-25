@@ -214,6 +214,40 @@ class NobitexPaginationTests(unittest.TestCase):
                     adapter.fetch_recent("BTCIRT", "5", 500, **kwargs)
 
 
+
+class NobitexUsdtIrtRateTests(unittest.TestCase):
+    def test_uses_fresh_best_bid_from_public_orderbook(self):
+        now = 1_800_000_000
+        book = {
+            "status": "ok", "lastUpdate": (now - 3) * 1000,
+            "bids": [["2700000", "10"]], "asks": [["2701000", "8"]],
+        }
+        adapter = NobitexAdapter(opener=lambda request, timeout: FakeResponse(book))
+        self.assertEqual(adapter.fetch_usdt_irt_rate(now=now), 2_700_000.0)
+
+    def test_rejects_stale_orderbook(self):
+        now = 1_800_000_000
+        book = {
+            "status": "ok", "lastUpdate": (now - 121) * 1000,
+            "bids": [["2700000", "10"]], "asks": [["2701000", "8"]],
+        }
+        adapter = NobitexAdapter(opener=lambda request, timeout: FakeResponse(book))
+        with self.assertRaises(NobitexDataError):
+            adapter.fetch_usdt_irt_rate(now=now)
+
+    def test_rejects_crossed_or_incomplete_orderbook(self):
+        now = 1_800_000_000
+        books = (
+            {"status": "ok", "lastUpdate": now * 1000,
+             "bids": [["2701000", "10"]], "asks": [["2699000", "8"]]},
+            {"status": "ok", "lastUpdate": now * 1000,
+             "bids": [], "asks": [["2701000", "8"]]},
+        )
+        for book in books:
+            adapter = NobitexAdapter(opener=lambda request, timeout, p=book: FakeResponse(p))
+            with self.assertRaises(NobitexDataError):
+                adapter.fetch_usdt_irt_rate(now=now)
+
 class NobitexRetryTests(unittest.TestCase):
     def test_retries_timeout_once_then_returns_data(self):
         calls = []

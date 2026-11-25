@@ -286,6 +286,7 @@ def run_independent_engine_backtest(
                             ledger["cash"] -= entry_fill * quantity + entry_fee
                             ledger["position"] = {
                                 "entry_timestamp": execution_candle.timestamp,
+                                "entry_index": index,
                                 "entry_fill": entry_fill,
                                 "quantity": quantity,
                                 "entry_fee": entry_fee,
@@ -308,10 +309,7 @@ def run_independent_engine_backtest(
             position = ledger["position"]
             if position is not None and index > 0:
                 try:
-                    entry_index = next(
-                        i for i, row in enumerate(five[:index + 1])
-                        if row.timestamp == position["entry_timestamp"]
-                    )
+                    entry_index = position["entry_index"]
                     trailing_window = [
                         _closed_copy(row) for row in five[entry_index:index + 1]
                     ]

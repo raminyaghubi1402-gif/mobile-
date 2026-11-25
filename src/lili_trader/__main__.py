@@ -19,22 +19,79 @@ def _load_backtest_history(path, symbol: str, resolution: str, count: int, adapt
     return merge_candle_history(stored, fresh, max_rows=20_000)
 
 
-def _longest_contiguous_segment(candles, timeframe_seconds: int):
-    """Return the longest strictly contiguous candle segment without bridging gaps."""
+def _candle_timestamp(candle) -> int:
+    raw = candle.get("timestamp") if isinstance(candle, dict) else candle.timestamp
+    if type(raw) is not int or raw < 0:
+        raise ValueError("candle timestamp must be a non-negative integer")
+    return raw
+
+
+def _contiguous_segments(candles, timeframe_seconds: int):
+    """Split candles into every chronological, gap-free segment; never bridge gaps."""
+    if type(timeframe_seconds) is not int or timeframe_seconds <= 0:
+        raise ValueError("timeframe_seconds must be a positive integer")
     if not candles:
         return []
     segments = []
     start = 0
+    previous_ts = _candle_timestamp(candles[0])
     for index in range(1, len(candles)):
-        previous = candles[index - 1]
-        current = candles[index]
-        previous_ts = previous.get("timestamp") if isinstance(previous, dict) else previous.timestamp
-        current_ts = current.get("timestamp") if isinstance(current, dict) else current.timestamp
+        current_ts = _candle_timestamp(candles[index])
         if current_ts - previous_ts != timeframe_seconds:
             segments.append(candles[start:index])
             start = index
+        previous_ts = current_ts
     segments.append(candles[start:])
-    return max(segments, key=len)
+    return segments
+
+
+def _longest_contiguous_segment(candles, timeframe_seconds: int):
+    """Backward-compatible helper returning the longest gap-free segment."""
+    segments = _contiguous_segments(candles, timeframe_seconds)
+    return max(segments, key=len) if segments else []
+
+
+def _build_contiguous_backtest_windows(hourly, fifteen, five):
+    """Return independent 1h/15m/5m windows formed only from overlapping valid segments."""
+    hourly_segments = _contiguous_segments(hourly, 3600)
+    fifteen_segments = _contiguous_segments(fifteen, 900)
+    five_segments = _contiguous_segments(five, 300)
+    windows = []
+
+    for hourly_segment in hourly_segments:
+        hourly_start = _candle_timestamp(hourly_segment[0])
+        hourly_end = _candle_timestamp(hourly_segment[-1]) + 3600
+        for fifteen_segment in fifteen_segments:
+            fifteen_start = _candle_timestamp(fifteen_segment[0])
+            fifteen_end = _candle_timestamp(fifteen_segment[-1]) + 900
+            for five_segment in five_segments:
+                five_start = _candle_timestamp(five_segment[0])
+                five_end = _candle_timestamp(five_segment[-1]) + 300
+                common_start = max(hourly_start, fifteen_start, five_start)
+                common_end = min(hourly_end, fifteen_end, five_end)
+                if common_end <= common_start:
+                    continue
+
+                hourly_rows = [
+                    row for row in hourly_segment
+                    if _candle_timestamp(row) + 3600 <= common_end
+                ]
+                fifteen_rows = [
+                    row for row in fifteen_segment
+                    if _candle_timestamp(row) + 900 <= common_end
+                ]
+                five_rows = [
+                    row for row in five_segment
+                    if _candle_timestamp(row) >= common_start
+                    and _candle_timestamp(row) + 300 <= common_end
+                ]
+                # Mirror run_three_timeframe_backtest's minimum warm-up requirements.
+                if len(hourly_rows) < 10 or len(fifteen_rows) < 20 or len(five_rows) < 10:
+                    continue
+                windows.append((hourly_rows, fifteen_rows, five_rows))
+
+    windows.sort(key=lambda window: _candle_timestamp(window[2][0]))
+    return windows
 
 
 def main() -> None:
@@ -53,7 +110,7 @@ def main() -> None:
     parser.add_argument("--usd-irt-rate-at", default=None, help="زمان دریافت نرخ تبدیل با ISO-8601 و منطقهٔ زمانی")
     parser.add_argument("--symbol", default="BTCIRT", help="نماد نوبیتکس، مثل BTCIRT یا ETHIRT")
     parser.add_argument("--resolution", default="60", help="بازه: 1, 5, 15, 30, 60, 240 یا D")
-    parser.add_argument("--count", type=int, default=100, help="تعداد کندل؛ بک‌تست ساختار قیمت تا ۵۰۰۰، سایر حالت‌ها تا ۵۰۰")
+    parser.add_argument("--count", type=int, default=100, help="حداکثر تعداد کندل در هر قطعهٔ بک‌تست؛ ساختار قیمت تا ۵۰۰۰، سایر حالت‌ها تا ۵۰۰")
     parser.add_argument("--decision-journal", default=None, metavar="PATH", help="ثبت تمام تصمیم‌های هر کندل بسته‌شدهٔ ۵ دقیقه در دفتر ممیزی")
     parser.add_argument("--decision-journal-report", default=None, metavar="PATH", help="گزارش تصمیم‌های BUY/SELL/WAIT و بازبینی خطاها")
     parser.add_argument("--journal-report", default=None, metavar="PATH", help="گزارش عملکرد ژورنال معاملات آزمایشی JSONL")
@@ -221,28 +278,42 @@ def main() -> None:
         hourly = load_and_refresh("60", min(args.count, 2000))
         native_fifteen = load_and_refresh("15", min(args.count, 2000))
         all_five = load_and_refresh("5", args.count)
-        continuous_five = _longest_contiguous_segment(all_five, 300)
-        if len(continuous_five) < 10:
-            parser.error("تاریخچهٔ ۵ دقیقه‌ای هیچ بازهٔ پیوستهٔ معتبر با حداقل ۱۰ کندل ندارد؛ بک‌تست اجرا نشد.")
-        if len(continuous_five) > args.count:
-            continuous_five = continuous_five[-args.count:]
-        five = continuous_five
         fifteen = extend_fifteen_with_five(native_fifteen, all_five)
-        if all_five:
-            print(
-                "بازهٔ پیوستهٔ انتخاب‌شده برای بک‌تست: "
-                f"{len(five)} کندل ۵ دقیقه‌ای، از {five[0].timestamp} تا {five[-1].timestamp}. "
-                f"از {len(all_five)} کندل ذخیره‌شده؛ شکاف‌ها به هم متصل نشده‌اند."
+        if args.count < 10:
+            parser.error("--count باید حداقل ۱۰ کندل برای هر قطعه باشد.")
+        backtest_windows = _build_contiguous_backtest_windows(hourly, fifteen, all_five)
+        if not backtest_windows:
+            parser.error(
+                "هیچ هم‌پوشانی معتبر و پیوستهٔ سه‌تایم‌فریمی با حداقل دادهٔ لازم پیدا نشد؛ "
+                "بازه‌ها اجرا نشدند."
             )
+
+        hourly_segment_count = len(_contiguous_segments(hourly, 3600))
+        fifteen_segment_count = len(_contiguous_segments(fifteen, 900))
+        five_segment_count = len(_contiguous_segments(all_five, 300))
+        print("لی‌لی تریدر — بک‌تست ساختار قیمت ۱h / ۱۵m / ۵m (فقط شبیه‌سازی)")
+        print(
+            f"تاریخچهٔ واقعی: ۱h={len(hourly)} در {hourly_segment_count} قطعه، "
+            f"۱۵m={len(fifteen)} در {fifteen_segment_count} قطعه، "
+            f"۵m={len(all_five)} در {five_segment_count} قطعه."
+        )
+        print(
+            f"بازه‌های سه‌تایم‌فریمی معتبر برای اجرای مستقل: {len(backtest_windows)}؛ "
+            f"حداکثر {args.count} کندل ۵m برای هر قطعه. شکاف‌ها پر یا به هم متصل نمی‌شوند."
+        )
+        print(
+            "هر قطعه حساب شبیه‌سازی را از سرمایهٔ شروع مستقل می‌کند؛ "
+            "سرمایه و موقعیت باز از یک قطعه به قطعهٔ دیگر منتقل نمی‌شود."
+        )
+
         decision_callback = None
-        decision_run_id = None
+        decision_journal = None
         if args.decision_journal is not None:
             import uuid
             from .decision_journal import DecisionJournal
             if args.symbol not in {"BTCIRT", "ETHIRT"}:
                 parser.error("دفتر تصمیم فقط BTCIRT و ETHIRT را می‌پذیرد.")
             decision_journal = DecisionJournal(args.decision_journal)
-            decision_run_id = uuid.uuid4().hex[:12]
 
             def decision_callback(event):
                 from .nobitex_limits import (
@@ -291,95 +362,141 @@ def main() -> None:
         else:
             audit_fee_rate = 0.001
 
-        result = run_three_timeframe_backtest(
-            hourly, fifteen, five, starting_cash=backtest_cash_local,
-            decision_callback=decision_callback,
-            decision_run_id=decision_run_id,
-            symbol=args.symbol,
-            allow_short=(args.decision_journal is None and not args.spot_only),
-            minimum_order_quote=minimum_order_quote,
-            fee_rate=audit_fee_rate,
-        )
-        if args.decision_journal is not None:
-            from .decision_outcome import append_backtest_outcomes
-            try:
-                linked_outcomes = append_backtest_outcomes(
-                    result, decision_journal, run_id=decision_run_id, symbol=args.symbol
+        from .decision_outcome import append_backtest_outcomes
+        from .journal import TradeJournal
+        from .backtest_journal import append_backtest_result
+
+        total_linked_outcomes = 0
+        for segment_number, (segment_hourly, segment_fifteen, segment_five) in enumerate(backtest_windows, 1):
+            five = segment_five[-args.count:]
+            segment_start = five[0].timestamp
+            segment_end = five[-1].timestamp + 300
+            decision_run_id = uuid.uuid4().hex[:12] if args.decision_journal is not None else None
+
+            print(f"\n--- قطعهٔ معتبر {segment_number}/{len(backtest_windows)} ---")
+            print(
+                f"بازهٔ ۵m: {_format_market_time(segment_start)} تا "
+                f"{_format_market_time(segment_end)} | کندل={len(five)}"
+            )
+            for label, rows, seconds in (
+                ("۱h", segment_hourly, 3600),
+                ("۱۵m", segment_fifteen, 900),
+            ):
+                print(
+                    f"بازهٔ {label}: {_format_market_time(rows[0].timestamp)} تا "
+                    f"{_format_market_time(rows[-1].timestamp + seconds)} | کندل={len(rows)}"
                 )
-            except (OSError, ValueError, TypeError) as exc:
-                parser.error(f"اتصال نتیجهٔ معاملات به تصمیم‌ها انجام نشد: {type(exc).__name__}")
-            print(f"نتایج بسته‌شدهٔ متصل‌شده به تصمیم‌ها: {linked_outcomes}")
-            summary = decision_journal.summary()
-            print(f"دفتر تصمیم‌ها: {args.decision_journal} | شناسه اجرا: {decision_run_id}")
-            print(f"تصمیم‌های این دفتر: BUY={summary['buy']} | SELL={summary['sell']} | WAIT={summary['wait']}")
-        if args.backtest_journal is not None:
-            from .journal import TradeJournal
-            from .backtest_journal import append_backtest_result
-            try:
-                journaled = append_backtest_result(
-                    result, TradeJournal(args.backtest_journal), symbol=args.symbol
-                )
-            except (OSError, ValueError, TypeError) as exc:
-                parser.error(f"ثبت معاملات بک‌تست در ژورنال انجام نشد: {type(exc).__name__}")
-            print(f"معاملات جدید ثبت‌شده در ژورنال: {journaled} | مسیر: {args.backtest_journal}")
-        if args.sr_diagnostic:
-            baseline = run_three_timeframe_backtest(
-                hourly, fifteen, five,
+
+            result = run_three_timeframe_backtest(
+                segment_hourly, segment_fifteen, five,
                 starting_cash=backtest_cash_local,
-                fee_rate=audit_fee_rate,
-                slippage_rate=0.001,
-                use_support_resistance_filter=False,
+                decision_callback=decision_callback,
+                decision_run_id=decision_run_id,
                 symbol=args.symbol,
                 allow_short=(args.decision_journal is None and not args.spot_only),
                 minimum_order_quote=minimum_order_quote,
+                fee_rate=audit_fee_rate,
             )
-            print("مقایسهٔ تشخیصی SR — داده و تنظیمات یکسان؛ این مقایسه پیش‌بینی سود نیست")
-            print(f"با فیلتر SR: معاملات={result.trade_count} | خالص={result.net_profit:,.2f} | بازده={result.return_pct:.2f}% | افت سرمایه={result.max_drawdown_pct:.2f}%")
-            print(f"بدون فیلتر SR: معاملات={baseline.trade_count} | خالص={baseline.net_profit:,.2f} | بازده={baseline.return_pct:.2f}% | افت سرمایه={baseline.max_drawdown_pct:.2f}%")
-            print("تفاوت خالص (با فیلتر منهای بدون فیلتر): " + f"{result.net_profit - baseline.net_profit:,.2f}")
-        print("لی‌لی تریدر — بک‌تست ساختار قیمت ۱h / ۱۵m / ۵m (فقط شبیه‌سازی)")
-        derived_fifteen = max(0, len(fifteen) - len(native_fifteen))
-        print(f"نماد: {args.symbol} | کندل‌ها: ۱h={len(hourly)}، ۱۵m={len(fifteen)} (نوبیتکس={len(native_fifteen)}، تکمیل‌شده از ۵m={derived_fifteen})، ۵m={len(five)}")
-        for label, rows in (("۱h", hourly), ("۱۵m", fifteen), ("۵m", five)):
-            print(f"بازهٔ {label}: {_format_market_time(rows[0].timestamp)} تا {_format_market_time(rows[-1].timestamp)}")
-        overlap_start = max(hourly[0].timestamp, fifteen[0].timestamp, five[0].timestamp)
-        overlap_end = min(hourly[-1].timestamp + 3600,
-                          fifteen[-1].timestamp + 900, five[-1].timestamp + 300)
-        if overlap_end > overlap_start:
-            overlap_days = (overlap_end - overlap_start) / 86400
-            print(f"بازهٔ مشترک سه تایم‌فریم: {_format_market_time(overlap_start)} تا {_format_market_time(overlap_end)} ({overlap_days:.1f} روز)")
-        else:
-            print("هشدار: سه تایم‌فریم بازهٔ زمانی مشترک ندارند.")
-        print(f"سرمایهٔ مبنا: {args.backtest_cash:,.2f} {args.backtest_currency} | نرخ USD→IRT: {args.usd_irt_rate or 'ندارد'} | سرمایهٔ محاسباتی: {result.starting_cash:,.2f} IRT")
-        if args.backtest_currency == "USD" and args.symbol.upper().endswith("IRT"):
-            print("توجه: سود/زیان خام در واحد IRT بازار گزارش می‌شود؛ منبع و زمان نرخ تبدیل باید جداگانه در گزارش اجرا ثبت شود.")
-        print(f"سود/زیان خالص محاسباتی: {result.net_profit:,.2f} IRT ({result.return_pct:.2f}٪)")
-        if args.backtest_currency == "USD" and args.symbol.upper().endswith("IRT"):
-            print(f"معادل تقریبی سود/زیان به USD با نرخ ورودی همین اجرا: {result.net_profit / args.usd_irt_rate:,.4f} USD")
-            print("توجه: نرخ USDT/IRT فقط پروکسی تقریبی USD/IRT است؛ این معادل ارزش‌گذاری دقیق دلاری نیست.")
-        print(f"بیشترین افت سرمایه: {result.max_drawdown_pct:.2f}٪")
-        print(f"نرخ برد: {result.win_rate_pct:.2f}٪ | معاملات: {result.trade_count} (BUY={result.buy_count}, SELL={result.sell_count})")
-        pf = "نامشخص" if result.profit_factor is None else ("بی‌نهایت/بدون زیان" if result.profit_factor == float("inf") else f"{result.profit_factor:.2f}")
-        print(f"ضریب سود: {pf}")
-        print("وضعیت دروازه‌ها: " + ", ".join(f"{key}={value}" for key, value in result.gate_counts))
-        for side in ("BUY", "SELL"):
-            group = [trade for trade in result.trades if trade.direction == side]
-            if group:
-                wins = sum(trade.net_pnl > 0 for trade in group)
-                net = sum(trade.net_pnl for trade in group)
-                print(f"جمع‌بندی {side}: تعداد={len(group)} | برد={wins} | باخت={len(group)-wins} | خالص={net:,.2f}")
-        for reason in sorted({trade.exit_reason for trade in result.trades}):
-            group = [trade for trade in result.trades if trade.exit_reason == reason]
-            print(f"خروج {reason}: تعداد={len(group)} | خالص={sum(t.net_pnl for t in group):,.2f}")
-        for index, trade in enumerate(result.trades, 1):
+
+            if args.decision_journal is not None:
+                try:
+                    linked_outcomes = append_backtest_outcomes(
+                        result, decision_journal, run_id=decision_run_id, symbol=args.symbol
+                    )
+                except (OSError, ValueError, TypeError) as exc:
+                    parser.error(f"اتصال نتیجهٔ معاملات قطعه به تصمیم‌ها انجام نشد: {type(exc).__name__}")
+                total_linked_outcomes += linked_outcomes
+                print(
+                    f"نتایج بسته‌شدهٔ متصل به تصمیم‌های این قطعه: {linked_outcomes} | "
+                    f"شناسه اجرا: {decision_run_id}"
+                )
+
+            if args.backtest_journal is not None:
+                try:
+                    journaled = append_backtest_result(
+                        result, TradeJournal(args.backtest_journal), symbol=args.symbol
+                    )
+                except (OSError, ValueError, TypeError) as exc:
+                    parser.error(f"ثبت معاملات قطعه در ژورنال انجام نشد: {type(exc).__name__}")
+                print(f"معاملات ثبت‌شده از این قطعه: {journaled} | مسیر: {args.backtest_journal}")
+
+            if args.sr_diagnostic:
+                baseline = run_three_timeframe_backtest(
+                    segment_hourly, segment_fifteen, five,
+                    starting_cash=backtest_cash_local,
+                    fee_rate=audit_fee_rate,
+                    slippage_rate=0.001,
+                    use_support_resistance_filter=False,
+                    symbol=args.symbol,
+                    allow_short=(args.decision_journal is None and not args.spot_only),
+                    minimum_order_quote=minimum_order_quote,
+                )
+                print("مقایسهٔ تشخیصی SR — همین قطعه و تنظیمات یکسان؛ پیش‌بینی سود نیست")
+                print(
+                    f"با فیلتر SR: معاملات={result.trade_count} | خالص={result.net_profit:,.2f} | "
+                    f"بازده={result.return_pct:.2f}% | افت سرمایه={result.max_drawdown_pct:.2f}%"
+                )
+                print(
+                    f"بدون فیلتر SR: معاملات={baseline.trade_count} | خالص={baseline.net_profit:,.2f} | "
+                    f"بازده={baseline.return_pct:.2f}% | افت سرمایه={baseline.max_drawdown_pct:.2f}%"
+                )
+                print(
+                    "تفاوت خالص (با فیلتر منهای بدون فیلتر): "
+                    f"{result.net_profit - baseline.net_profit:,.2f}"
+                )
+
             print(
-                f"معاملهٔ {index}: {trade.direction} | "
-                f"ورود {_format_market_time(trade.entry_timestamp)} @ {trade.entry_price:,.2f} | "
-                f"خروج {_format_market_time(trade.exit_timestamp)} @ {trade.exit_price:,.2f} | "
-                f"خالص {trade.net_pnl:,.2f} | علت {trade.exit_reason}"
+                f"سرمایهٔ شروع مستقل: {args.backtest_cash:,.2f} {args.backtest_currency} | "
+                f"سرمایهٔ محاسباتی: {result.starting_cash:,.2f} IRT"
             )
-        for warning in result.warnings:
-            print(f"هشدار: {warning}")
+            print(f"سود/زیان خالص این قطعه: {result.net_profit:,.2f} IRT ({result.return_pct:.2f}٪)")
+            print(f"بیشترین افت سرمایهٔ این قطعه: {result.max_drawdown_pct:.2f}٪")
+            print(
+                f"نرخ برد: {result.win_rate_pct:.2f}٪ | معاملات: {result.trade_count} "
+                f"(BUY={result.buy_count}, SELL={result.sell_count})"
+            )
+            pf = "نامشخص" if result.profit_factor is None else (
+                "بی‌نهایت/بدون زیان" if result.profit_factor == float("inf")
+                else f"{result.profit_factor:.2f}"
+            )
+            print(f"ضریب سود این قطعه: {pf}")
+            print("وضعیت دروازه‌ها: " + ", ".join(f"{key}={value}" for key, value in result.gate_counts))
+            for side in ("BUY", "SELL"):
+                group = [trade for trade in result.trades if trade.direction == side]
+                if group:
+                    wins = sum(trade.net_pnl > 0 for trade in group)
+                    net = sum(trade.net_pnl for trade in group)
+                    print(
+                        f"جمع‌بندی {side}: تعداد={len(group)} | برد={wins} | "
+                        f"باخت={len(group)-wins} | خالص={net:,.2f}"
+                    )
+            for reason in sorted({trade.exit_reason for trade in result.trades}):
+                group = [trade for trade in result.trades if trade.exit_reason == reason]
+                print(
+                    f"خروج {reason}: تعداد={len(group)} | "
+                    f"خالص={sum(trade.net_pnl for trade in group):,.2f}"
+                )
+            for trade_index, trade in enumerate(result.trades, 1):
+                print(
+                    f"معاملهٔ {trade_index}: {trade.direction} | "
+                    f"ورود {_format_market_time(trade.entry_timestamp)} @ {trade.entry_price:,.2f} | "
+                    f"خروج {_format_market_time(trade.exit_timestamp)} @ {trade.exit_price:,.2f} | "
+                    f"خالص {trade.net_pnl:,.2f} | علت {trade.exit_reason}"
+                )
+            for warning in result.warnings:
+                print(f"هشدار: {warning}")
+
+        if decision_journal is not None:
+            summary = decision_journal.summary()
+            print(
+                f"\nخلاصهٔ دفتر همهٔ قطعه‌ها: BUY={summary['buy']} | "
+                f"SELL={summary['sell']} | WAIT={summary['wait']} | "
+                f"نتیجهٔ بستهٔ متصل={total_linked_outcomes}"
+            )
+        print(
+            "\nتوجه: سود/زیان و افت سرمایه برای هر قطعه مستقل گزارش شده‌اند؛ "
+            "این اعداد یک منحنی سرمایهٔ پیوسته یا تضمین عملکرد آینده نیستند."
+        )
         return
 
     if args.nobitex or args.backtest:

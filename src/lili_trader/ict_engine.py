@@ -8,7 +8,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from math import isfinite
 
-from .strategy_engines import StrategyDecision, _positive_price
+from .strategy_engines import StrategyDecision, _positive_price, _target_for_minimum_reward_risk
 
 
 class ICTEngine:
@@ -110,7 +110,7 @@ class ICTEngine:
             risk = entry - stop
             if risk <= 0:
                 raise ValueError("structural stop is not below entry")
-            target = entry + risk * self.minimum_reward_risk
+            target = _target_for_minimum_reward_risk(entry, stop, self.minimum_reward_risk)
             if not all(isfinite(value) for value in (entry, stop, target)):
                 raise ValueError("non-finite risk levels")
         except ValueError as exc:

@@ -43,6 +43,41 @@ class IndependentEngineBacktestTests(unittest.TestCase):
         self.assertTrue(all(row.starting_cash == 13_550_000 for row in result.engines))
         self.assertTrue(all(row.ending_equity >= 0 for row in result.engines))
 
+    def test_global_one_hour_bullish_gate_blocks_all_engines_when_hourly_trend_is_not_up(self):
+        class OneSignalRegistry:
+            registered_ids = ("breakout",)
+
+            def evaluate_selected(self, snapshot, selected):
+                return (StrategyDecision(
+                    "breakout", "SIGNAL", "test-only signal",
+                    {"entry_reference": 100.0, "stop_loss": 98.0, "take_profit": 103.25},
+                ),)
+
+        with (
+            patch("lili_trader.independent_engine_backtest.build_default_strategy_registry",
+                  return_value=OneSignalRegistry()),
+            patch("lili_trader.independent_engine_backtest.build_independent_engine_snapshots",
+                  return_value={"breakout": {"trend_1h": "down", "context": {
+                      "trend_1h": "down", "trend_15m": "up",
+                      "volatility_15m": "normal",
+                  }}}),
+            patch("lili_trader.independent_engine_backtest.classify_price_action_trend",
+                  return_value=object()),
+            patch("lili_trader.independent_engine_backtest.classify_market_regime",
+                  return_value=SimpleNamespace(trend="up", volatility="normal")),
+            patch("lili_trader.independent_engine_backtest.select_strategy_candidates",
+                  return_value=(SimpleNamespace(name="breakout", eligible=True),)),
+        ):
+            result = run_independent_engine_backtest(
+                self.hourly, self.fifteen, self.five,
+                minimum_order_quote=1.0, require_1h_bullish=True,
+            )
+
+        breakout = next(row for row in result.engines if row.strategy_id == "breakout")
+        self.assertGreater(result.higher_timeframe_gate_rejections, 0)
+        self.assertEqual(breakout.signal_count, 0)
+        self.assertEqual(breakout.trade_count, 0)
+
     def test_signal_enters_at_the_immediately_following_candle_open(self):
         start = 1_800_000_000
 

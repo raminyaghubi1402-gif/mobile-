@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import time
+from math import isfinite
 from dataclasses import dataclass
 from typing import Callable
 from urllib.error import HTTPError, URLError
@@ -135,9 +136,13 @@ class NobitexAdapter:
                 or not isinstance(asks[0], list) or len(asks[0]) < 2):
             raise NobitexDataError("USDTIRT orderbook has no valid best bid/ask")
         try:
-            if isinstance(raw_update, bool):
-                raise ValueError("boolean update timestamp")
-            update_ms = int(raw_update)
+            raw_numbers = (raw_update, bids[0][0], bids[0][1], asks[0][0], asks[0][1])
+            if any(isinstance(value, bool) for value in raw_numbers):
+                raise ValueError("boolean orderbook value")
+            update_number = float(raw_update)
+            if not isfinite(update_number) or not update_number.is_integer():
+                raise ValueError("invalid orderbook update timestamp")
+            update_ms = int(update_number)
             best_bid, best_ask = float(bids[0][0]), float(asks[0][0])
             bid_volume, ask_volume = float(bids[0][1]), float(asks[0][1])
         except (TypeError, ValueError, OverflowError) as exc:

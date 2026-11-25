@@ -222,8 +222,13 @@ class NobitexUsdtIrtRateTests(unittest.TestCase):
             "status": "ok", "lastUpdate": (now - 3) * 1000,
             "bids": [["2700000", "10"]], "asks": [["2701000", "8"]],
         }
-        adapter = NobitexAdapter(opener=lambda request, timeout: FakeResponse(book))
+        requested = []
+        def opener(request, timeout):
+            requested.append(request.full_url)
+            return FakeResponse(book)
+        adapter = NobitexAdapter(opener=opener)
         self.assertEqual(adapter.fetch_usdt_irt_rate(now=now), 2_700_000.0)
+        self.assertEqual(requested, ["https://apiv2.nobitex.ir/v2/depth/USDTIRT"])
 
 
     def test_non_retryable_orderbook_http_error_reports_status(self):

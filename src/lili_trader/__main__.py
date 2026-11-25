@@ -238,8 +238,9 @@ def main() -> None:
                 hourly, fifteen, five,
                 starting_cash=backtest_cash_local,
                 risk_fraction=0.005,
-                fee_rate=0.001,
+                fee_rate=0.0025,
                 slippage_rate=0.001,
+                minimum_order_quote=3_000_000.0,
                 maximum_5m_bars=args.count,
             )
         except (ValueError, TypeError, ArithmeticError) as exc:
@@ -253,7 +254,7 @@ def main() -> None:
             f"تاریخچهٔ پیوسته: ۱h={len(hourly)} | ۱۵m={len(fifteen)} | ۵m={len(five)}؛ "
             "شکاف‌ها به هم متصل نشده‌اند."
         )
-        print(f"سرمایهٔ فرضی مستقل برای هر موتور: {result.engines[0].starting_cash:,.2f} IRT")
+        print(f"سرمایهٔ فرضی مستقل برای هر موتور: {result.engines[0].starting_cash:,.2f} IRT | کارمزد پایه: ۰٫۲۵٪ | حداقل سفارش: ۳٬۰۰۰٬۰۰۰ IRT")
         for row in result.engines:
             pf = (
                 "نامشخص" if row.profit_factor is None else

@@ -110,12 +110,18 @@ def build_independent_engine_snapshots(
     market_regime = classify_market_regime(list(fifteen), trend_15m, volatility_window=20)
     try:
         trend_1h = classify_price_action_trend(list(hourly), pivot_window=2, min_swings=2)
+    except (ValueError, TypeError, IndexError):
+        trend_1h = None
+
+    # Keep the independently classified 1h bias even if Trend Pullback's
+    # own structure/zone snapshot fails. Other engines still need that bias
+    # to apply the agreed 1h-primary / 15m-range-fallback regime rule.
+    try:
         from .live_paper_monitor import build_trend_pullback_snapshot
         trend_snapshot = build_trend_pullback_snapshot(
             list(hourly), list(fifteen), list(five), now=now
         )
     except (ValueError, TypeError, IndexError):
-        trend_1h = None
         trend_snapshot = {
             "spot_only": True,
             "regime": market_regime.trend,
@@ -124,7 +130,7 @@ def build_independent_engine_snapshots(
             "latest_5m": candle_views[-1],
             "structure_5m": {},
             "context": {
-                "trend_1h": "unknown",
+                "trend_1h": trend_1h.direction if trend_1h is not None else "unknown",
                 "trend_15m": trend_15m.direction,
                 "volatility_15m": market_regime.volatility,
                 "regime_reason": market_regime.reason,

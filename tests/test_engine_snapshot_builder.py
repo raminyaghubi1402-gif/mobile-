@@ -17,8 +17,8 @@ class EngineSnapshotBuilderTests(unittest.TestCase):
     def setUp(self):
         self.now = 1_800_010_000
         self.five = [
-            candle(self.now - 900 + i * 300, "5", 100 + i)
-            for i in range(3)
+            candle(self.now - 6300 + i * 300, "5", 100 + i)
+            for i in range(21)
         ]
         self.fifteen = [
             candle(self.now - 18_000 + i * 900, "15", 100 + (i % 5))
@@ -36,7 +36,7 @@ class EngineSnapshotBuilderTests(unittest.TestCase):
         self.assertEqual(
             set(snapshots),
             {"trend_pullback", "breakout", "breakout_retest",
-             "support_resistance_rejection"},
+             "support_resistance_rejection", "volume_trading"},
         )
         self.assertEqual(
             snapshots["breakout"]["latest_5m"]["timestamp"],
@@ -50,6 +50,7 @@ class EngineSnapshotBuilderTests(unittest.TestCase):
             snapshots["support_resistance_rejection"]["previous_5m"]["timestamp"],
             self.five[-2].timestamp,
         )
+        self.assertEqual(len(snapshots["volume_trading"]["volume_history_5m"]), 20)
 
     def test_missing_zones_are_not_replaced_with_guessed_levels(self):
         flat_fifteen = [
@@ -86,8 +87,8 @@ class EngineSnapshotBuilderTests(unittest.TestCase):
             )
 
         stale = list(self.five)
-        old = stale[0]
-        stale[0] = candle(
+        old = stale[-3]
+        stale[-3] = candle(
             old.timestamp, "5", old.close,
             fetched_at=old.timestamp + 300,
         )

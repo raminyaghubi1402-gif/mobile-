@@ -225,6 +225,21 @@ class NobitexUsdtIrtRateTests(unittest.TestCase):
         adapter = NobitexAdapter(opener=lambda request, timeout: FakeResponse(book))
         self.assertEqual(adapter.fetch_usdt_irt_rate(now=now), 2_700_000.0)
 
+
+    def test_non_retryable_orderbook_http_error_reports_status(self):
+        calls = []
+        delays = []
+
+        def opener(request, timeout):
+            calls.append(request.full_url)
+            raise HTTPError(request.full_url, 403, "forbidden", {}, BytesIO())
+
+        adapter = NobitexAdapter(opener=opener, sleep=delays.append)
+        with self.assertRaisesRegex(NobitexDataError, "HTTP 403"):
+            adapter.fetch_usdt_irt_rate(now=1_800_000_000)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(delays, [])
+
     def test_rejects_stale_orderbook(self):
         now = 1_800_000_000
         book = {

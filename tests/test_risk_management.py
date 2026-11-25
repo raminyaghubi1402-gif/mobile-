@@ -114,4 +114,5 @@ class StructuralTrailingStopTests(unittest.TestCase):
             self.call(pivot_window=0)
 
 
-if __tests__;
+if __name__ == "__main__":
+    unittest.main()

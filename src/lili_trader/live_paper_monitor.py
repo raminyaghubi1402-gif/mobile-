@@ -247,19 +247,56 @@ def _manage_position(
             fees = (entry_fill + exit_fill) * quantity * FEE_RATE
             slippage = ((entry_fill - raw_entry) + (raw_exit - exit_fill)) * quantity
             net = gross - fees - slippage
-            journal.append_outcome(
-                decision_id=position["decision_id"],
-                occurred_at=_iso(now),
-                trade_id=position["trade_id"],
-                side="BUY",
-                entry_at=_iso(int(position["entry_timestamp"])),
-                exit_at=_iso(candle.timestamp + 300),
-                gross_pnl_quote=gross,
-                fees_quote=fees,
-                slippage_quote=slippage,
-                net_pnl_quote=net,
-                exit_reason=exit_reason,
-            )
+            expected_outcome = {
+                "trade_id": position["trade_id"],
+                "side": "BUY",
+                "entry_at": _iso(int(position["entry_timestamp"])),
+                "exit_at": _iso(candle.timestamp + 300),
+                "gross_pnl_quote": gross,
+                "fees_quote": fees,
+                "slippage_quote": slippage,
+                "net_pnl_quote": net,
+                "exit_reason": exit_reason,
+            }
+            prior_outcomes = [
+                event for event in journal.events()
+                if event.event_type == "OUTCOME"
+                and event.decision_id == position["decision_id"]
+            ]
+            if prior_outcomes:
+                # A previous run may have appended the outcome but stopped before
+                # the updated state was cached. Reconcile that exact event instead
+                # of appending a duplicate or leaving the position stuck forever.
+                if len(prior_outcomes) != 1:
+                    raise LivePaperMonitorError(
+                        "paper position has multiple journal outcomes; refusing reconciliation"
+                    )
+                prior = prior_outcomes[0].payload
+                for key, expected_value in expected_outcome.items():
+                    actual_value = prior.get(key)
+                    if isinstance(expected_value, (int, float)):
+                        try:
+                            actual_number = float(actual_value)
+                        except (TypeError, ValueError, OverflowError) as exc:
+                            raise LivePaperMonitorError(
+                                "existing journal outcome does not match paper position"
+                            ) from exc
+                        if (not isfinite(actual_number)
+                                or abs(actual_number - expected_value)
+                                > max(1e-8, abs(expected_value) * 1e-9)):
+                            raise LivePaperMonitorError(
+                                "existing journal outcome does not match paper position"
+                            )
+                    elif actual_value != expected_value:
+                        raise LivePaperMonitorError(
+                            "existing journal outcome does not match paper position"
+                        )
+            else:
+                journal.append_outcome(
+                    decision_id=position["decision_id"],
+                    occurred_at=_iso(now),
+                    **expected_outcome,
+                )
             del state.data["positions"][symbol]
             return f"closed_{exit_reason}_net_{net:.2f}_IRT"
 

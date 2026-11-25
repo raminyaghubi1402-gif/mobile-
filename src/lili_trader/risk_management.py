@@ -156,6 +156,14 @@ def propose_structural_trailing_stop(
         return None
 
     for swing in reversed(eligible):
+        previous_lows = [
+            prior for prior in analysis.swings
+            if prior.kind == "low" and prior.index < swing.index
+        ]
+        # A lower low is not a valid higher-low trailing anchor, even if its
+        # numerical level would otherwise raise the current stop.
+        if not previous_lows or swing.price <= previous_lows[-1].price:
+            continue
         candidate = swing.price - atr * float(atr_buffer_fraction)
         # Reject invalidated pivots and any level already crossed since its
         # formation. This prevents retroactively pretending the stop was live.

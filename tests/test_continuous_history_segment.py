@@ -1,10 +1,14 @@
 import unittest
+from contextlib import redirect_stderr
+from io import StringIO
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from lili_trader.__main__ import (
     _build_contiguous_backtest_windows,
     _contiguous_segments,
     _longest_contiguous_segment,
+    main,
 )
 
 
@@ -80,6 +84,25 @@ class ContinuousHistorySegmentTests(unittest.TestCase):
             candles(0, 10, 300),
         )
         self.assertEqual(windows, [])
+
+    def test_full_6269_candle_segment_is_not_truncated_by_window_builder(self):
+        base = 1800000000
+        windows = _build_contiguous_backtest_windows(
+            candles(base - 10 * 3600, 540, 3600),
+            candles(base - 6 * 3600, 2200, 900),
+            candles(base, 6269, 300),
+        )
+        self.assertEqual(len(windows), 1)
+        self.assertEqual(len(windows[0][2]), 6269)
+
+    def test_cli_rejects_count_above_supported_per_segment_limit(self):
+        stderr = StringIO()
+        with patch("sys.argv", ["lili", "--price-action-backtest", "--count", "10001"]):
+            with redirect_stderr(stderr):
+                with self.assertRaises(SystemExit) as raised:
+                    main()
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("بین ۱۰ و ۱۰۰۰۰", stderr.getvalue())
 
 
 if __name__ == "__main__":

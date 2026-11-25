@@ -261,7 +261,7 @@ def run_independent_engine_backtest(
                     actual_rr = actual_reward / actual_risk if actual_risk > 0 else 0.0
                     if raw_entry <= stop or raw_entry >= target or unit_risk <= 0:
                         ledger["cancelled_invalid_price"] += 1
-                    elif actual_rr < 1.5:
+                    elif actual_rr + 1e-9 < 1.5:
                         ledger["cancelled_rr"] += 1
                     else:
                         risk_budget = ledger["cash"] * risk_fraction

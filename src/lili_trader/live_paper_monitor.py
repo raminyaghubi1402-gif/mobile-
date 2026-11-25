@@ -537,14 +537,16 @@ def run_live_paper_monitor(
                 classify_price_action_trend(validated["15m"], pivot_window=2, min_swings=2),
                 volatility_window=20,
             )
+            observed_trend_1h = engine_snapshots["breakout"]["trend_1h"]
+            observed_trend_15m = engine_snapshots["breakout"]["trend_15m"]
             regime = apply_primary_trend(
-                regime_15m,
-                snapshot["context"]["trend_1h"],
-                snapshot["context"]["trend_15m"],
+                regime_15m, observed_trend_1h, observed_trend_15m
             )
+            snapshot["context"]["trend_1h"] = observed_trend_1h
+            snapshot["context"]["trend_15m"] = observed_trend_15m
             snapshot["context"]["primary_trend"] = regime.trend
             snapshot["context"]["primary_trend_timeframe"] = (
-                "15m" if snapshot["context"]["trend_1h"] == "range" else "1h"
+                "15m" if observed_trend_1h == "range" else "1h"
             )
             candidates = select_strategy_candidates(regime, allow_short=False)
             eligible_ids = {candidate.name for candidate in candidates if candidate.eligible}

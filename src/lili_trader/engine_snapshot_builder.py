@@ -12,6 +12,7 @@ from .market_regime import classify_market_regime
 from .nobitex_data import NobitexCandle
 from .price_action_trend import classify_price_action_trend
 from .support_resistance import find_support_resistance, nearest_zone
+from .strategy_engines import DEFAULT_ENTRY_SLIPPAGE_RATE
 
 
 def _candle_snapshot(candle: NobitexCandle, *, now: int) -> dict[str, int | float]:
@@ -131,13 +132,18 @@ def build_independent_engine_snapshots(
                 "support_zone_touches": 0,
             },
         }
+    trend_snapshot["expected_entry_slippage_rate"] = DEFAULT_ENTRY_SLIPPAGE_RATE
     previous, latest = candle_views[-2], candle_views[-1]
     pre_breakout, breakout, retest = candle_views
     engine_regime = (
         "bullish" if market_regime.trend == "up" and market_regime.volatility in {"low", "normal"}
         else market_regime.trend
     )
-    common = {"spot_only": True, "regime": engine_regime}
+    common = {
+        "spot_only": True,
+        "regime": engine_regime,
+        "expected_entry_slippage_rate": DEFAULT_ENTRY_SLIPPAGE_RATE,
+    }
 
     return {
         "trend_pullback": trend_snapshot,

@@ -8,7 +8,9 @@ from __future__ import annotations
 from math import isfinite
 from typing import Any, Mapping, Sequence
 
+from .market_regime import classify_market_regime
 from .nobitex_data import NobitexCandle
+from .price_action_trend import classify_price_action_trend
 from .support_resistance import find_support_resistance, nearest_zone
 
 
@@ -103,7 +105,15 @@ def build_independent_engine_snapshots(
     )
     previous, latest = candle_views[-2], candle_views[-1]
     pre_breakout, breakout, retest = candle_views
-    common = {"spot_only": True, "regime": trend_snapshot["regime"]}
+    # Select independent engines from the 15m regime only. The trend-pullback
+    # engine keeps its own stricter 1h/15m/5m structural requirements.
+    trend_15m = classify_price_action_trend(list(fifteen), pivot_window=2, min_swings=2)
+    market_regime = classify_market_regime(list(fifteen), trend_15m, volatility_window=20)
+    engine_regime = (
+        "bullish" if market_regime.trend == "up" and market_regime.volatility in {"low", "normal"}
+        else market_regime.trend
+    )
+    common = {"spot_only": True, "regime": engine_regime}
 
     return {
         "trend_pullback": trend_snapshot,

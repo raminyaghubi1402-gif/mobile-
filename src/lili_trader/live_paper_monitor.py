@@ -854,8 +854,14 @@ def run_live_paper_monitor(
             reports[symbol] = {
                 "status": "data_or_evaluation_error",
                 "error": f"{type(exc).__name__}: {exc}",
-                "open_position": symbol in state.data["positions"],
-                "pending_entry": symbol in state.data["pending"],
+                "open_position": any(
+                    isinstance(record, dict) and _record_symbol(key, record) == symbol
+                    for key, record in state.data["positions"].items()
+                ),
+                "pending_entry": any(
+                    isinstance(record, dict) and _record_symbol(key, record) == symbol
+                    for key, record in state.data["pending"].items()
+                ),
             }
 
     state.save()

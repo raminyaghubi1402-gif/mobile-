@@ -129,6 +129,10 @@ class IndependentEngineBacktestTests(unittest.TestCase):
             result = run_independent_engine_backtest(
                 hourly, fifteen, five, minimum_order_quote=1.0
             )
+            cost_aware_result = run_independent_engine_backtest(
+                hourly, fifteen, five, minimum_order_quote=1.0,
+                minimum_net_reward_risk=1.5,
+            )
 
         breakout = next(row for row in result.engines if row.strategy_id == "breakout")
         self.assertEqual(breakout.trade_count, 1)
@@ -147,6 +151,12 @@ class IndependentEngineBacktestTests(unittest.TestCase):
         self.assertEqual(trade.trend_1h, "up")
         self.assertEqual(trade.trend_15m, "up")
         self.assertEqual(trade.volatility_15m, "normal")
+        cost_aware_breakout = next(
+            row for row in cost_aware_result.engines
+            if row.strategy_id == "breakout"
+        )
+        self.assertEqual(cost_aware_breakout.trade_count, 0)
+        self.assertGreater(cost_aware_breakout.cancelled_rr, 0)
 
     def test_confirmed_trailing_stop_applies_only_to_the_next_candle(self):
         start = 1_800_000_000

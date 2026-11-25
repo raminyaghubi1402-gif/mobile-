@@ -174,6 +174,7 @@ def main() -> None:
     parser.add_argument("--price-action-backtest", action="store_true", help="بک‌تست اختصاصی راهبرد ۱h/۱۵m/۵m بدون اندیکاتور")
     parser.add_argument("--independent-engine-backtest", action="store_true", help="بک‌تست جداگانهٔ هر موتور مستقل روی تاریخچهٔ پیوستهٔ نوبیتکس")
     parser.add_argument("--require-1h-bullish", action="store_true", help="در بک‌تست مستقل، همهٔ موتورهای خرید فقط با روند صعودی ۱h اجازهٔ سیگنال دارند")
+    parser.add_argument("--minimum-net-reward-risk", type=float, default=None, help="حداقل نسبت سود به زیان خالص پس از کسر کارمزد و لغزش؛ فقط تشخیصی")
     parser.add_argument("--stored-history-only", action="store_true", help="در بک‌تست فقط تاریخچهٔ CSV ذخیره‌شده را استفاده کن؛ هیچ درخواست تازه‌ای به API نزن")
     parser.add_argument("--spot-only", action="store_true", help="اجبار به معاملات نقدی؛ فروش استقراضی در بک‌تست ممنوع")
     parser.add_argument("--sr-diagnostic", action="store_true", help="مقایسهٔ بک‌تست با فیلتر حمایت‌ومقاومت و بدون آن؛ فقط تشخیصی")
@@ -368,6 +369,7 @@ def main() -> None:
             )
         print("لی‌لی تریدر — بک‌تست مستقل شش موتور روی تمام بازه‌های معتبر (Paper فقط)")
         print("فیلتر سراسری روند ۱h: " + ("روشن؛ فقط روند صعودی" if args.require_1h_bullish else "خاموش؛ حالت مبنا"))
+        print("فیلتر حداقل R/R خالص: " + (f"روشن؛ حداقل {args.minimum_net_reward_risk:.2f}" if args.minimum_net_reward_risk is not None else "خاموش"))
         print(
             f"تاریخچه: ۱h={len(hourly_all)} در {len(_contiguous_segments(hourly_all, 3600))} قطعه | "
             f"۱۵m={len(fifteen_all)} در {len(_contiguous_segments(fifteen_all, 900))} قطعه | "
@@ -393,6 +395,7 @@ def main() -> None:
                     minimum_order_quote=NOBITEX_MINIMUM_SPOT_ORDER_IRT,
                     maximum_5m_bars=args.count,
                     require_1h_bullish=args.require_1h_bullish,
+                    minimum_net_reward_risk=args.minimum_net_reward_risk,
                 )
             except (ValueError, TypeError, ArithmeticError) as exc:
                 parser.error(

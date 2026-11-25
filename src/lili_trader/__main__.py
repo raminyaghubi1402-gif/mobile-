@@ -110,7 +110,7 @@ def main() -> None:
     parser.add_argument("--usd-irt-rate-at", default=None, help="زمان دریافت نرخ تبدیل با ISO-8601 و منطقهٔ زمانی")
     parser.add_argument("--symbol", default="BTCIRT", help="نماد نوبیتکس، مثل BTCIRT یا ETHIRT")
     parser.add_argument("--resolution", default="60", help="بازه: 1, 5, 15, 30, 60, 240 یا D")
-    parser.add_argument("--count", type=int, default=100, help="حداکثر تعداد کندل در هر قطعهٔ بک‌تست؛ ساختار قیمت تا ۵۰۰۰، سایر حالت‌ها تا ۵۰۰")
+    parser.add_argument("--count", type=int, default=100, help="حداکثر تعداد کندل در هر قطعهٔ بک‌تست؛ ساختار قیمت تا ۱۰۰۰۰، سایر حالت‌ها تا ۵۰۰")
     parser.add_argument("--decision-journal", default=None, metavar="PATH", help="ثبت تمام تصمیم‌های هر کندل بسته‌شدهٔ ۵ دقیقه در دفتر ممیزی")
     parser.add_argument("--decision-journal-report", default=None, metavar="PATH", help="گزارش تصمیم‌های BUY/SELL/WAIT و بازبینی خطاها")
     parser.add_argument("--journal-report", default=None, metavar="PATH", help="گزارش عملکرد ژورنال معاملات آزمایشی JSONL")
@@ -126,6 +126,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.stored_history_only and not args.price_action_backtest:
         parser.error("--stored-history-only فقط همراه --price-action-backtest قابل استفاده است.")
+    if args.price_action_backtest and not 10 <= args.count <= 10_000:
+        parser.error("--count برای بک‌تست ساختار قیمت باید بین ۱۰ و ۱۰۰۰۰ باشد.")
 
     if args.paper_forward:
         from .paper_forward import ForwardPaperError, StaleMarketDataError, run_forward_cycle

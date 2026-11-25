@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: "45 18 * * 0"
   workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/nobitex-backtest.yml"
+      - "src/lili_trader/**"
+      - "tests/**"
+      - "data/history/**"
   push:
     branches: [main]
     paths:

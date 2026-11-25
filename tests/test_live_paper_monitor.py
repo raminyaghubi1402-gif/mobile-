@@ -346,6 +346,79 @@ class PaperEntryTests(unittest.TestCase):
             self.assertNotIn("BTCIRT", state.data["positions"])
             self.assertEqual(journal.summary()["outcomes"], 1)
 
+    def test_conflicting_existing_outcome_keeps_position_and_fails_closed(self):
+        entry_timestamp = 1_800_000_000
+        exit_timestamp = entry_timestamp + 300
+        state = PaperState("unused-state.json")
+        state.data["positions"]["BTCIRT"] = {
+            "trade_id": "paper-recovery-test",
+            "decision_id": "decision-recovery-conflict",
+            "entry_timestamp": entry_timestamp,
+            "last_processed_timestamp": entry_timestamp,
+            "raw_entry_price": 100.0,
+            "entry_fill_price": 100.0 * (1 + SLIPPAGE_RATE),
+            "quantity": 1.0,
+            "stop_loss": 98.0,
+            "take_profit": 120.0,
+            "entry_fee_quote": 100.0 * (1 + SLIPPAGE_RATE) * FEE_RATE,
+            "execution": "paper_only",
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            journal = DecisionJournal(Path(directory) / "decisions.jsonl")
+            occurred_at = datetime.fromtimestamp(
+                entry_timestamp, tz=timezone.utc
+            ).isoformat()
+            journal.append_decision(
+                decision_id="decision-recovery-conflict",
+                occurred_at=occurred_at,
+                market_data_at=datetime.fromtimestamp(
+                    entry_timestamp + 300, tz=timezone.utc
+                ).isoformat(),
+                symbol="BTCIRT",
+                action="BUY",
+                strategy="trend_pullback",
+                strategy_version="test",
+                reason="paper recovery conflict test",
+                evidence={"test": True},
+                entry_price=100.0,
+                stop_loss=98.0,
+                take_profit=120.0,
+                risk_quote=100.0,
+                trade_id="paper-recovery-test",
+            )
+            journal.append_outcome(
+                decision_id="decision-recovery-conflict",
+                occurred_at=occurred_at,
+                trade_id="different-trade-id",
+                side="BUY",
+                entry_at=occurred_at,
+                exit_at=datetime.fromtimestamp(
+                    exit_timestamp + 300, tz=timezone.utc
+                ).isoformat(),
+                gross_pnl_quote=-2.0,
+                fees_quote=0.5,
+                slippage_quote=0.2,
+                net_pnl_quote=-2.7,
+                exit_reason="stop_loss",
+            )
+            stop_candle = NobitexCandle(
+                symbol="BTCIRT", resolution="5", timestamp=exit_timestamp,
+                open=99.0, high=101.0, low=97.0, close=99.0,
+                volume=10.0, fetched_at=exit_timestamp + 300,
+            )
+
+            with self.assertRaisesRegex(
+                LivePaperMonitorError, "existing journal outcome does not match"
+            ):
+                _manage_position(
+                    "BTCIRT", [stop_candle], state, journal,
+                    now=exit_timestamp + 300,
+                )
+
+            self.assertIn("BTCIRT", state.data["positions"])
+            self.assertEqual(journal.summary()["outcomes"], 1)
+
     def test_unclosed_confirmation_candle_cannot_raise_stop(self):
         rows = [
             (100, 103, 99, 102), (102, 105, 101, 104),

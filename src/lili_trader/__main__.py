@@ -43,6 +43,7 @@ def main() -> None:
     parser.add_argument("--market-analysis", action="store_true", help="تحلیل چندتایم‌فریمی حرفه‌ای با دادهٔ تازهٔ نوبیتکس (فقط‌خواندنی)")
     parser.add_argument("--backtest", action="store_true", help="اجرای بک‌تست قدیمی SMA روی کندل‌های عمومی نوبیتکس")
     parser.add_argument("--price-action-backtest", action="store_true", help="بک‌تست اختصاصی راهبرد ۱h/۱۵m/۵m بدون اندیکاتور")
+    parser.add_argument("--independent-engine-backtest", action="store_true", help="بک‌تست جداگانهٔ هر موتور مستقل روی تاریخچهٔ پیوستهٔ نوبیتکس")
     parser.add_argument("--stored-history-only", action="store_true", help="در بک‌تست فقط تاریخچهٔ CSV ذخیره‌شده را استفاده کن؛ هیچ درخواست تازه‌ای به API نزن")
     parser.add_argument("--spot-only", action="store_true", help="اجبار به معاملات نقدی؛ فروش استقراضی در بک‌تست ممنوع")
     parser.add_argument("--sr-diagnostic", action="store_true", help="مقایسهٔ بک‌تست با فیلتر حمایت‌ومقاومت و بدون آن؛ فقط تشخیصی")
@@ -67,8 +68,8 @@ def main() -> None:
     parser.add_argument("--forward-usd-irt-at", default=None, help="زمان دریافت نرخ اولیه با ISO-8601 و منطقهٔ زمانی")
     parser.add_argument("--forward-max-lag-seconds", type=int, default=180, help="حداکثر عمر کندل اجرایی ۵ دقیقه‌ای")
     args = parser.parse_args()
-    if args.stored_history_only and not args.price_action_backtest:
-        parser.error("--stored-history-only فقط همراه --price-action-backtest قابل استفاده است.")
+    if args.stored_history_only and not (args.price_action_backtest or args.independent_engine_backtest):
+        parser.error("--stored-history-only فقط همراه یکی از حالت‌های بک‌تست تاریخی قابل استفاده است.")
 
     if args.paper_forward:
         from .paper_forward import ForwardPaperError, StaleMarketDataError, run_forward_cycle
@@ -177,7 +178,7 @@ def main() -> None:
     # Price-action backtest operates in the quote currency of Nobitex IRT pairs.
     # Never silently treat USD as IRT: conversion must be explicitly supplied.
     backtest_cash_local = args.backtest_cash
-    if args.price_action_backtest:
+    if args.price_action_backtest or args.independent_engine_backtest:
         if args.backtest_currency == "USD" and args.symbol.upper().endswith("IRT"):
             import math
             if (args.usd_irt_rate is None or args.usd_irt_rate <= 0
@@ -201,6 +202,71 @@ def main() -> None:
             backtest_cash_local = args.backtest_cash
         elif args.backtest_currency == "USD":
             parser.error("واحد USD فقط برای نمادهای IRT با نرخ تبدیل صریح پشتیبانی می‌شود؛ واحد بازار را مشخص کنید.")
+
+    if args.independent_engine_backtest:
+        from pathlib import Path
+        from .history_store import load_history_csv, merge_candle_history
+        from .nobitex_data import NobitexAdapter
+        from .timeframe_resample import extend_fifteen_with_five
+        from .independent_engine_backtest import run_independent_engine_backtest
+
+        if args.count < 24:
+            parser.error("برای بک‌تست مستقل حداقل ۲۴ کندل ۵ دقیقه‌ای لازم است.")
+        adapter = NobitexAdapter()
+        history_dir = Path(__file__).resolve().parents[2] / "data" / "history"
+
+        def load_engine_history(resolution: str, count: int):
+            path = history_dir / f"{args.symbol}_{resolution}.csv"
+            return _load_backtest_history(
+                path, args.symbol, resolution, count, adapter, args.stored_history_only
+            )
+
+        hourly_all = load_engine_history("60", min(args.count, 2000))
+        native_fifteen = load_engine_history("15", min(args.count, 2000))
+        all_five = load_engine_history("5", args.count)
+        hourly = _longest_contiguous_segment(hourly_all, 3600)
+        five = _longest_contiguous_segment(all_five, 300)
+        fifteen_all = extend_fifteen_with_five(native_fifteen, all_five)
+        fifteen = _longest_contiguous_segment(fifteen_all, 900)
+        if min(len(hourly), len(fifteen), len(five)) < 30:
+            parser.error(
+                "برای بک‌تست مستقل، هر سه تایم‌فریم باید حداقل ۳۰ کندل پیوسته و هم‌پوشان داشته باشند؛ "
+                "هیچ شکافی پر یا حدس زده نمی‌شود."
+            )
+        try:
+            result = run_independent_engine_backtest(
+                hourly, fifteen, five,
+                starting_cash=backtest_cash_local,
+                risk_fraction=0.005,
+                fee_rate=0.001,
+                slippage_rate=0.001,
+                maximum_5m_bars=args.count,
+            )
+        except (ValueError, TypeError, ArithmeticError) as exc:
+            parser.error(f"بک‌تست مستقل با دادهٔ معتبر اجرا نشد: {type(exc).__name__}: {exc}")
+        print("لی‌لی تریدر — بک‌تست مستقل شش موتور (هر موتور حساب Paper جداگانه)")
+        print(
+            f"نماد: {result.symbol} | کندل‌های ۵دقیقه: {result.bars} | "
+            f"از {_format_market_time(result.first_timestamp)} تا {_format_market_time(result.last_timestamp)}"
+        )
+        print(
+            f"تاریخچهٔ پیوسته: ۱h={len(hourly)} | ۱۵m={len(fifteen)} | ۵m={len(five)}؛ "
+            "شکاف‌ها به هم متصل نشده‌اند."
+        )
+        print(f"سرمایهٔ فرضی مستقل برای هر موتور: {result.engines[0].starting_cash:,.2f} IRT")
+        for row in result.engines:
+            pf = (
+                "نامشخص" if row.profit_factor is None else
+                ("بی‌نهایت/بدون زیان" if row.profit_factor == float("inf") else f"{row.profit_factor:.2f}")
+            )
+            print(
+                f"{row.strategy_id}: معاملات={row.trade_count} | سیگنال‌ها={row.signal_count} | "
+                f"خالص={row.net_profit:,.2f} IRT ({row.return_pct:.3f}٪) | "
+                f"برد={row.win_rate_pct:.1f}٪ | افت سرمایه={row.max_drawdown_pct:.3f}٪ | PF={pf}"
+            )
+        for warning in result.warnings:
+            print(f"هشدار: {warning}")
+        return
 
     if args.price_action_backtest:
         from pathlib import Path

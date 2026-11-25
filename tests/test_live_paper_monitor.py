@@ -6,6 +6,7 @@ from lili_trader.live_paper_monitor import (
     LivePaperMonitorError,
     PaperState,
     latest_contiguous_closed_segment,
+    _activate_pending,
 )
 from lili_trader.nobitex_data import NobitexCandle
 
@@ -55,6 +56,42 @@ class LatestClosedSegmentTests(unittest.TestCase):
                 resolution_seconds=300, now=1200,
                 minimum_bars=2, maximum_age_seconds=600,
             )
+
+
+class PaperEntryTests(unittest.TestCase):
+    def setUp(self):
+        self.state = PaperState("unused-state.json")
+        self.state.data["pending"]["BTCIRT"] = {
+            "decision_id": "decision-1",
+            "signal_timestamp": 300,
+            "stop_loss": 98.0,
+            "take_profit": 106.0,
+            "risk_quote": 135500.0,
+        }
+
+    def test_entry_uses_the_next_candle_open_and_paper_only_state(self):
+        result = _activate_pending("BTCIRT", [candle(600)], self.state)
+        self.assertTrue(result.startswith("paper_entry_at_next_open"))
+        position = self.state.data["positions"]["BTCIRT"]
+        self.assertEqual(position["raw_entry_price"], 100.0)
+        self.assertEqual(position["execution"], "paper_only")
+        self.assertNotIn("BTCIRT", self.state.data["pending"])
+
+    def test_entry_is_cancelled_if_next_open_gaps_beyond_target(self):
+        gap = NobitexCandle(
+            symbol="BTCIRT", resolution="5", timestamp=600,
+            open=110.0, high=111.0, low=109.0, close=110.0,
+            volume=10.0, fetched_at=900,
+        )
+        result = _activate_pending("BTCIRT", [gap], self.state)
+        self.assertIn("cancelled", result)
+        self.assertNotIn("BTCIRT", self.state.data["positions"])
+
+    def test_entry_is_cancelled_if_actual_reward_risk_falls_below_minimum(self):
+        self.state.data["pending"]["BTCIRT"]["take_profit"] = 104.0
+        result = _activate_pending("BTCIRT", [candle(600, close=101.0)], self.state)
+        self.assertIn("cancelled", result)
+        self.assertNotIn("BTCIRT", self.state.data["positions"])
 
 
 class PaperStateTests(unittest.TestCase):

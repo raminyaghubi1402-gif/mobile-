@@ -400,7 +400,8 @@ def run_live_paper_monitor(
             eligible_ids = {candidate.name for candidate in candidates if candidate.eligible}
             selected = tuple(
                 engine_id for engine_id in registry.registered_ids
-                if snapshot["regime"] == "bullish" and engine_id in eligible_ids
+                if regime.trend == "up" and regime.volatility in {"low", "normal"}
+                and engine_id in eligible_ids
             )
 
             occupied = symbol in state.data["positions"] or symbol in state.data["pending"]

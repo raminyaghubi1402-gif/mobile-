@@ -152,7 +152,7 @@ class PaperEntryTests(unittest.TestCase):
             (105, 108, 104, 107), (107, 109, 105, 106),
             (106, 108, 103, 104), (104, 107, 102, 106),
             (106, 110, 105, 109), (109, 112, 109, 111),
-            (111, 113, 110, 112), (112, 114, 108, 111),
+            (111, 113, 110, 112), (112, 114, 105, 111),
             (111, 115, 110, 114), (114, 117, 112, 116),
             (116, 118, 113, 115), (115, 117, 111, 116),
             (116, 120, 115, 119), (119, 122, 117, 121),
@@ -172,14 +172,14 @@ class PaperEntryTests(unittest.TestCase):
             "entry_timestamp": rows[5].timestamp,
             "last_processed_timestamp": rows[4].timestamp,
             "raw_entry_price": 105.0, "entry_fill_price": 105.105,
-            "quantity": 1.0, "stop_loss": 107.6, "take_profit": 1_000.0,
+            "quantity": 1.0, "stop_loss": 98.0, "take_profit": 1_000.0,
             "entry_fee_quote": 0.105105, "execution": "paper_only",
         }
         _manage_position(
             "BTCIRT", rows, state, DecisionJournal("unused-journal.jsonl"),
             now=rows[-1].timestamp + 299,
         )
-        self.assertEqual(state.data["positions"]["BTCIRT"]["stop_loss"], 107.6)
+        self.assertEqual(state.data["positions"]["BTCIRT"]["stop_loss"], 98.0)
         self.assertEqual(state.data["positions"]["BTCIRT"]["last_processed_timestamp"], rows[-2].timestamp)
 
 

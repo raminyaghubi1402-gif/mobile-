@@ -34,13 +34,22 @@ class IndependentEngineSegmentTests(unittest.TestCase):
 
     def test_higher_timeframe_gap_splits_the_valid_five_minute_windows(self):
         base = 1_800_000_000
-        hourly = candles(base - 40 * 3600, 40, 3600) + candles(base + 80 * 3600, 40, 3600)
-        fifteen = candles(base - 40 * 3600, 480, 900)
-        five = candles(base, 60, 300) + candles(base + 80 * 3600, 60, 300)
+        hourly = (
+            candles(base - 40 * 3600, 45, 3600)
+            + candles(base + 10 * 3600, 45, 3600)
+        )
+        fifteen = (
+            candles(base - 40 * 3600, 180, 900)
+            + candles(base + 42 * 3600 + 1800, 210, 900)
+        )
+        five = (
+            candles(base, 60, 300)
+            + candles(base + 50 * 3600, 60, 300)
+        )
         windows = _build_contiguous_engine_backtest_windows(hourly, fifteen, five)
         self.assertEqual(len(windows), 2)
         self.assertEqual(windows[0][2][0].timestamp, base)
-        self.assertEqual(windows[1][2][0].timestamp, base + 80 * 3600)
+        self.assertEqual(windows[1][2][0].timestamp, base + 50 * 3600)
 
     def test_rejects_segments_without_higher_timeframe_warmup(self):
         base = 1_800_000_000

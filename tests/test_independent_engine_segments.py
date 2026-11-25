@@ -51,6 +51,18 @@ class IndependentEngineSegmentTests(unittest.TestCase):
         self.assertEqual(windows[0][2][0].timestamp, base)
         self.assertEqual(windows[1][2][0].timestamp, base + 50 * 3600)
 
+    def test_allows_higher_timeframe_warmup_to_accumulate_after_segment_start(self):
+        base = 1_800_000_000
+        windows = _build_contiguous_engine_backtest_windows(
+            candles(base - 40 * 3600, 50, 3600),
+            candles(base, 60, 900),
+            candles(base, 180, 300),
+        )
+        self.assertEqual(len(windows), 1)
+        # The first 15m bar is not closed at the first 5m decision, but
+        # sufficient 15m history exists later in this same valid overlap.
+        self.assertEqual(len(windows[0][2]), 120)
+
     def test_rejects_segments_without_higher_timeframe_warmup(self):
         base = 1_800_000_000
         windows = _build_contiguous_engine_backtest_windows(

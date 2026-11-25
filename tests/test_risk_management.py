@@ -96,6 +96,14 @@ class StructuralTrailingStopTests(unittest.TestCase):
         broken[-1] = dict(broken[-1], low=90.0)
         self.assertIsNone(self.call(candles=broken))
 
+    def test_unclosed_or_unverified_candles_fail_closed(self):
+        unclosed = list(self.candles)
+        unclosed[-1] = dict(unclosed[-1], fetched_at=unclosed[-1]["timestamp"] + 299)
+        self.assertIsNone(self.call(candles=unclosed))
+        unverified = list(self.candles)
+        del unverified[-1]["fetched_at"]
+        self.assertIsNone(self.call(candles=unverified))
+
     def test_no_trailing_when_not_above_fee_adjusted_breakeven(self):
         self.assertIsNone(self.call(entry_fill_price=150.0))
 

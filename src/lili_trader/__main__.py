@@ -209,6 +209,7 @@ def main() -> None:
         from .nobitex_data import NobitexAdapter
         from .timeframe_resample import extend_fifteen_with_five
         from .independent_engine_backtest import run_independent_engine_backtest
+        from .nobitex_limits import NOBITEX_MINIMUM_SPOT_ORDER_IRT, NOBITEX_BASE_SPOT_FEE_RATE_IRT
 
         if args.count < 24:
             parser.error("برای بک‌تست مستقل حداقل ۲۴ کندل ۵ دقیقه‌ای لازم است.")
@@ -238,9 +239,9 @@ def main() -> None:
                 hourly, fifteen, five,
                 starting_cash=backtest_cash_local,
                 risk_fraction=0.005,
-                fee_rate=0.0025,
+                fee_rate=NOBITEX_BASE_SPOT_FEE_RATE_IRT,
                 slippage_rate=0.001,
-                minimum_order_quote=3_000_000.0,
+                minimum_order_quote=NOBITEX_MINIMUM_SPOT_ORDER_IRT,
                 maximum_5m_bars=args.count,
             )
         except (ValueError, TypeError, ArithmeticError) as exc:
@@ -254,7 +255,7 @@ def main() -> None:
             f"تاریخچهٔ پیوسته: ۱h={len(hourly)} | ۱۵m={len(fifteen)} | ۵m={len(five)}؛ "
             "شکاف‌ها به هم متصل نشده‌اند."
         )
-        print(f"سرمایهٔ فرضی مستقل برای هر موتور: {result.engines[0].starting_cash:,.2f} IRT | کارمزد پایه: ۰٫۲۵٪ | حداقل سفارش: ۳٬۰۰۰٬۰۰۰ IRT")
+        print(f"سرمایهٔ فرضی مستقل برای هر موتور: {result.engines[0].starting_cash:,.2f} IRT | کارمزد پایه: {NOBITEX_BASE_SPOT_FEE_RATE_IRT * 100:.2f}% | حداقل سفارش: {NOBITEX_MINIMUM_SPOT_ORDER_IRT:,.0f} IRT")
         for row in result.engines:
             pf = (
                 "نامشخص" if row.profit_factor is None else

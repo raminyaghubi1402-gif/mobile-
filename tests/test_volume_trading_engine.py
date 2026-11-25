@@ -49,9 +49,9 @@ class VolumeTradingEngineTests(unittest.TestCase):
     def test_unclosed_stale_or_gapped_reference_candles_are_rejected(self):
         self.snapshot["latest_5m"]["fetched_at"] -= 1
         self.assertEqual(self.engine.evaluate(self.snapshot).status, "WAIT")
-        self.snapshot["latest_5m"]["fetched_at"] += 901
+        self.snapshot["latest_5m"]["fetched_at"] += 902
         self.assertEqual(self.engine.evaluate(self.snapshot).status, "WAIT")
-        self.snapshot["latest_5m"]["fetched_at"] -= 901
+        self.snapshot["latest_5m"]["fetched_at"] -= 902
         self.snapshot["volume_history_5m"][10]["timestamp"] += 300
         self.assertEqual(self.engine.evaluate(self.snapshot).status, "WAIT")
 

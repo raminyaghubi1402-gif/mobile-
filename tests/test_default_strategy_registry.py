@@ -14,7 +14,7 @@ class DefaultRegistryTests(unittest.TestCase):
             {}, ("support_resistance_rejection",
                  "range_trading", "volume_trading", "ict")
         )
-        self.assertEqual([d.status for d in decisions], ["DISABLED"] * 5)
+        self.assertEqual([d.status for d in decisions], ["DISABLED"] * 4)
 
 
 if __name__ == "__main__":

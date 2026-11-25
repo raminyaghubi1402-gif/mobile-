@@ -175,7 +175,13 @@ def recover_missing_5m_candles(
 
             expected_minutes = [timestamp + offset * 60 for offset in range(5)]
             by_timestamp = {row.timestamp: row for row in minute_rows}
-            if set(by_timestamp) != set(expected_minutes):
+            if (
+                len(minute_rows) != 5
+                or len(by_timestamp) != 5
+                or set(by_timestamp) != set(expected_minutes)
+                or any(row.symbol != symbol or row.resolution != "1" for row in minute_rows)
+                or timestamp % _INTERVAL_SECONDS != 0
+            ):
                 continue
             ordered = [by_timestamp[value] for value in expected_minutes]
             from .nobitex_data import NobitexCandle

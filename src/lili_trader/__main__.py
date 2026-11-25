@@ -98,14 +98,17 @@ def _build_contiguous_engine_backtest_windows(
                 ]
                 if len(five_rows) < minimum_warmup:
                     continue
-                first_decision_close = _candle_timestamp(five_rows[0]) + 300
+                # The backtest deliberately skips its early warm-up bars. Require
+                # enough higher-timeframe history by the end of this overlap,
+                # not at its first 5m candle, or valid long segments are discarded.
+                last_decision_close = _candle_timestamp(five_rows[-1]) + 300
                 closed_hourly = [
                     row for row in h_rows
-                    if _candle_timestamp(row) + 3600 <= first_decision_close
+                    if _candle_timestamp(row) + 3600 <= last_decision_close
                 ]
                 closed_fifteen = [
                     row for row in m_rows
-                    if _candle_timestamp(row) + 900 <= first_decision_close
+                    if _candle_timestamp(row) + 900 <= last_decision_close
                 ]
                 if (len(closed_hourly) < minimum_warmup
                         or len(closed_fifteen) < minimum_warmup):

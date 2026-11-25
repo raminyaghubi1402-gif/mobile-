@@ -128,6 +128,7 @@ def run_independent_engine_backtest(
     minimum_order_quote: float | None = 3_000_000.0,
     maximum_5m_bars: int | None = None,
     require_1h_bullish: bool = False,
+    minimum_net_reward_risk: float | None = None,
 ) -> IndependentEngineBacktestResult:
     """Evaluate each engine on closed history with a separate spot-long ledger.
 
@@ -155,6 +156,14 @@ def run_independent_engine_backtest(
         type(maximum_5m_bars) is not int or maximum_5m_bars < 24
     ):
         raise ValueError("maximum_5m_bars must be >= 24")
+    if minimum_net_reward_risk is not None and (
+        isinstance(minimum_net_reward_risk, bool)
+        or not isinstance(minimum_net_reward_risk, (int, float))
+        or not isfinite(minimum_net_reward_risk)
+        or minimum_net_reward_risk <= 0
+        or minimum_net_reward_risk > 10
+    ):
+        raise ValueError("minimum_net_reward_risk must be > 0 and <= 10")
 
     hourly = _validate_series(hourly_candles, "60", 3600, "1h")
     fifteen = _validate_series(fifteen_minute_candles, "15", 900, "15m")
@@ -310,9 +319,20 @@ def run_independent_engine_backtest(
                     actual_risk = entry_fill - stop
                     actual_reward = target - entry_fill
                     actual_rr = actual_reward / actual_risk if actual_risk > 0 else 0.0
+                    target_fill = target * (1 - slippage_rate)
+                    net_reward_per_unit = (
+                        target_fill - entry_fill
+                        - (entry_fill + target_fill) * fee_rate
+                    )
+                    net_rr = (
+                        net_reward_per_unit / unit_risk
+                        if unit_risk > 0 else 0.0
+                    )
                     if raw_entry <= stop or raw_entry >= target or unit_risk <= 0:
                         ledger["cancelled_invalid_price"] += 1
-                    elif actual_rr + 1e-9 < 1.5:
+                    elif (actual_rr + 1e-9 < 1.5
+                          or (minimum_net_reward_risk is not None
+                              and net_rr + 1e-9 < minimum_net_reward_risk)):
                         ledger["cancelled_rr"] += 1
                     else:
                         risk_budget = ledger["cash"] * risk_fraction
@@ -489,6 +509,9 @@ def run_independent_engine_backtest(
             "نتایج تاریخی تضمین‌کنندهٔ سودآوری آینده نیستند.",
             ("دروازهٔ سراسری روند ۱h فعال است؛ فقط سیگنال‌های ثبت‌شده در روند ۱h صعودی پذیرفته می‌شوند."
              if require_1h_bullish else "دروازهٔ سراسری روند ۱h غیرفعال است؛ این اجرای مبناست."),
+            (f"حداقل نسبت سود به زیان خالص پس از کارمزد و لغزش: {minimum_net_reward_risk:.2f}."
+             if minimum_net_reward_risk is not None
+             else "فیلتر نسبت سود به زیان خالص پس از هزینه‌ها غیرفعال است."),
         ),
         higher_timeframe_gate_rejections=higher_timeframe_gate_rejections,
     )

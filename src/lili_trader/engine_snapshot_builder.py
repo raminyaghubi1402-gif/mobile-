@@ -50,7 +50,8 @@ def build_independent_engine_snapshots(
     """Prepare one separate snapshot per implemented engine from closed bars.
 
     The caller must first supply the latest strictly contiguous segments.
-    This function rechecks the three 5m bars needed by breakout/retest logic.
+    This function rechecks the three 5m bars needed by breakout/retest logic
+    and a contiguous 20-bar volume reference for the volume engine.
     Missing zones are represented as None so an engine returns WAIT rather
     than borrowing a zone of the wrong type or inventing one.
     """

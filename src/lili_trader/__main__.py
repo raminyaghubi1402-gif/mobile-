@@ -55,7 +55,12 @@ def _contiguous_segments(candles, timeframe_seconds: int):
     previous = _candle_timestamp(candles[0])
     for index in range(1, len(candles)):
         current = _candle_timestamp(candles[index])
-        if current - previous != timeframe_seconds:
+        delta = current - previous
+        if delta <= 0:
+            raise ValueError(
+                "candle timestamps must be strictly increasing; duplicates and out-of-order rows are invalid"
+            )
+        if delta != timeframe_seconds:
             segments.append(candles[start:index])
             start = index
         previous = current

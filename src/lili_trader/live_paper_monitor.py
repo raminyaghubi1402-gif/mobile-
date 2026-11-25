@@ -225,6 +225,8 @@ def _manage_position(
             continue
         if candle.timestamp != expected:
             return f"position_paused_data_gap_expected_{expected}_got_{candle.timestamp}"
+        if candle.timestamp + 300 > now:
+            return f"position_paused_unclosed_candle_{candle.timestamp}"
         # The stop in force at the start of this candle is checked first.
         # A newly confirmed trailing stop can only apply to later candles.
         stop_hit = candle.low <= float(position["stop_loss"])

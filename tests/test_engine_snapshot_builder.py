@@ -90,7 +90,7 @@ class EngineSnapshotBuilderTests(unittest.TestCase):
     def test_zone_detection_failure_only_removes_zone_dependent_evidence(self):
         with patch(
             "lili_trader.engine_snapshot_builder.find_support_resistance",
-            side_effect=ValueError("zone evidence unavailable"),
+            side_effect=RuntimeError("zone evidence unavailable"),
         ):
             snapshots = build_independent_engine_snapshots(
                 self.hourly, self.fifteen, self.five, now=self.now
@@ -212,7 +212,7 @@ class EngineSnapshotBuilderTests(unittest.TestCase):
             side_effect=[trend_15m, trend_1h],
         ), patch(
             "lili_trader.live_paper_monitor.build_trend_pullback_snapshot",
-            side_effect=ValueError("trend-pullback evidence unavailable"),
+            side_effect=RuntimeError("trend-pullback evidence unavailable"),
         ):
             snapshots = build_independent_engine_snapshots(
                 self.hourly, self.fifteen, self.five, now=self.now

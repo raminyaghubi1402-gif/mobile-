@@ -126,6 +126,24 @@ class HistoryGapRecoveryTests(unittest.TestCase):
         self.assertEqual(self.path.read_text(encoding="utf-8"), original)
         self.assertFalse(self.path.with_name("BTCIRT_5_recovery_manifest.jsonl").exists())
 
+
+    def test_duplicate_one_minute_rows_are_rejected(self):
+        minute_rows = [
+            NobitexCandle(
+                symbol="BTCIRT", resolution="1", timestamp=900 + offset * 60,
+                open=100, high=101, low=99, close=100, volume=1, fetched_at=2_000,
+            )
+            for offset in range(5)
+        ]
+        minute_rows.append(minute_rows[-1])
+        adapter = FakeAdapter(returned_by_resolution={"5": [], "1": minute_rows})
+        original = self.path.read_text(encoding="utf-8")
+        result = recover_missing_5m_candles(self.path, "BTCIRT", adapter)
+
+        self.assertEqual(result["status"], "unresolved")
+        self.assertEqual(result["recovered_timestamps"], [])
+        self.assertEqual(self.path.read_text(encoding="utf-8"), original)
+
     def test_irregular_or_nonchronological_history_is_not_queried(self):
         for rows, expected in (
             ([[300, 100, 101, 99, 100, 1], [601, 100, 101, 99, 100, 1]], "irregular_interval"),

@@ -55,7 +55,7 @@ class EngineSnapshotBuilderTests(unittest.TestCase):
         flat_fifteen = [
             NobitexCandle(
                 symbol="BTCIRT", resolution="15", timestamp=c.timestamp,
-                open=100, high=100, low=100, close=100, volume=10,
+                open=100, high=101, low=99, close=100, volume=10,
                 fetched_at=c.fetched_at,
             ) for c in self.fifteen
         ]
@@ -93,7 +93,7 @@ class EngineSnapshotBuilderTests(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             build_independent_engine_snapshots(
-                self.hourly, self.fifteen, stale, now=self.now
+                self.hourly, self.fifteen, stale, now=self.now + 900
             )
 
 

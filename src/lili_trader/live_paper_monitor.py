@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import tempfile
+from math import isfinite
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ from .market_regime import classify_market_regime, select_strategy_candidates
 from .market_structure import analyze_market_structure
 from .nobitex_data import NobitexAdapter, NobitexCandle
 from .price_action_trend import classify_price_action_trend
+from .nobitex_limits import NOBITEX_BASE_SPOT_FEE_RATE_IRT, NOBITEX_MINIMUM_SPOT_ORDER_IRT
 from .risk_management import propose_structural_trailing_stop
 from .strategy_engines import build_default_strategy_registry
 from .support_resistance import find_support_resistance
@@ -31,9 +33,8 @@ RESOLUTIONS = {"5m": ("5", 300), "15m": ("15", 900), "1h": ("60", 3600)}
 ENGINE_VERSION = "trend_pullback_v1"
 PAPER_EQUITY_QUOTE = 27_100_000.0  # 10 USDT-equivalent at the user's reference rate.
 RISK_FRACTION = 0.005
-FEE_RATE = 0.001
+FEE_RATE = NOBITEX_BASE_SPOT_FEE_RATE_IRT
 SLIPPAGE_RATE = 0.001
-MAX_POSITION_NOTIONAL_FRACTION = 1.0
 
 
 class LivePaperMonitorError(RuntimeError):
@@ -290,6 +291,68 @@ def _manage_position(
     return "position_open"
 
 
+def _reserved_quote(state: PaperState, *, exclude_pending_symbol: str) -> float:
+    """Estimate cash committed to all other open and pending spot positions.
+
+    Open positions reserve their entry cost plus entry fee. Other pending
+    entries reserve their risk-sized notional using the signal reference price.
+    An older/corrupt pending record without that reference blocks new allocation
+    rather than allowing the shared paper account to over-allocate cash.
+    """
+    reserved = 0.0
+    for symbol, position in state.data["positions"].items():
+        if symbol not in SYMBOLS or not isinstance(position, dict):
+            raise LivePaperMonitorError("paper position state is invalid")
+        try:
+            entry_fill = float(position["entry_fill_price"])
+            quantity = float(position["quantity"])
+            entry_fee = float(position.get(
+                "entry_fee_quote", entry_fill * quantity * FEE_RATE
+            ))
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            raise LivePaperMonitorError("paper position allocation is invalid") from exc
+        if (not all(isfinite(value) for value in (entry_fill, quantity, entry_fee))
+                or entry_fill <= 0 or quantity <= 0 or entry_fee < 0):
+            raise LivePaperMonitorError("paper position allocation is non-finite or non-positive")
+        reserved += entry_fill * quantity + entry_fee
+
+    for symbol, pending in state.data["pending"].items():
+        if symbol == exclude_pending_symbol:
+            continue
+        if symbol not in SYMBOLS or not isinstance(pending, dict):
+            raise LivePaperMonitorError("pending paper allocation is invalid")
+        try:
+            reference = float(pending["entry_reference"])
+            stop = float(pending["stop_loss"])
+            risk_budget = float(pending["risk_quote"])
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            raise LivePaperMonitorError(
+                "pending paper allocation lacks a valid entry reference"
+            ) from exc
+        if (not all(isfinite(value) for value in (reference, stop, risk_budget))
+                or reference <= stop or stop <= 0 or risk_budget <= 0):
+            raise LivePaperMonitorError("pending paper allocation is invalid")
+        estimated_fill = reference * (1 + SLIPPAGE_RATE)
+        estimated_stop_fill = stop * (1 - SLIPPAGE_RATE)
+        unit_risk = (
+            estimated_fill - estimated_stop_fill
+            + (estimated_fill + estimated_stop_fill) * FEE_RATE
+        )
+        if not isfinite(unit_risk) or unit_risk <= 0:
+            raise LivePaperMonitorError("pending paper allocation has invalid unit risk")
+        quantity_by_risk = risk_budget / unit_risk
+        quantity_by_cash = PAPER_EQUITY_QUOTE / (
+            estimated_fill * (1 + FEE_RATE)
+        )
+        reserved += min(quantity_by_risk, quantity_by_cash) * estimated_fill * (
+            1 + FEE_RATE
+        )
+
+    if not isfinite(reserved) or reserved < 0:
+        raise LivePaperMonitorError("total paper cash reservation is invalid")
+    return min(reserved, PAPER_EQUITY_QUOTE)
+
+
 def _activate_pending(
     symbol: str,
     candles: list[NobitexCandle],
@@ -320,12 +383,26 @@ def _activate_pending(
         del state.data["pending"][symbol]
         return "pending_entry_cancelled_gap_or_invalid_risk"
     risk_budget = float(pending["risk_quote"])
+    if not isfinite(risk_budget) or risk_budget <= 0:
+        raise LivePaperMonitorError("pending entry risk budget is invalid")
+    available_cash = max(
+        0.0, PAPER_EQUITY_QUOTE - _reserved_quote(
+            state, exclude_pending_symbol=symbol
+        )
+    )
     quantity_by_risk = risk_budget / unit_risk
-    quantity_by_cash = PAPER_EQUITY_QUOTE / (entry_fill * (1 + FEE_RATE))
+    quantity_by_cash = available_cash / (entry_fill * (1 + FEE_RATE))
     quantity = min(quantity_by_risk, quantity_by_cash)
     if quantity <= 0:
         del state.data["pending"][symbol]
         return "pending_entry_cancelled_zero_quantity"
+    entry_notional = entry_fill * quantity
+    if entry_notional + 1e-9 < NOBITEX_MINIMUM_SPOT_ORDER_IRT:
+        del state.data["pending"][symbol]
+        return (
+            "pending_entry_cancelled_below_minimum_order_"
+            f"{NOBITEX_MINIMUM_SPOT_ORDER_IRT}"
+        )
     state.data["positions"][symbol] = {
         "trade_id": f"paper-{pending['decision_id']}",
         "decision_id": pending["decision_id"],
@@ -518,6 +595,7 @@ def run_live_paper_monitor(
                     state.data["pending"][symbol] = {
                         "decision_id": decision_id,
                         "signal_timestamp": latest_timestamp,
+                        "entry_reference": float(item["evidence"]["entry_reference"]),
                         "stop_loss": float(item["evidence"]["stop_loss"]),
                         "take_profit": float(item["evidence"]["take_profit"]),
                         "risk_quote": risk_budget,

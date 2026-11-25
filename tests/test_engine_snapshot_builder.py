@@ -29,7 +29,7 @@ class EngineSnapshotBuilderTests(unittest.TestCase):
             for i in range(30)
         ]
 
-    def test_builds_separate_snapshots_for_all_four_implemented_engines(self):
+    def test_builds_separate_snapshots_for_all_registered_engines(self):
         snapshots = build_independent_engine_snapshots(
             self.hourly, self.fifteen, self.five, now=self.now
         )

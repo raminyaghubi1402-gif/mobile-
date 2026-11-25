@@ -31,7 +31,7 @@ from .support_resistance import find_support_resistance
 SYMBOLS = ("BTCIRT", "ETHIRT")
 RESOLUTIONS = {"5m": ("5", 300), "15m": ("15", 900), "1h": ("60", 3600)}
 ENGINE_VERSION = "trend_pullback_v1"
-PAPER_EQUITY_QUOTE = 27_100_000.0  # 10 USDT-equivalent at the user's reference rate.
+PAPER_EQUITY_USDT = 10.0
 RISK_FRACTION = 0.005
 FEE_RATE = NOBITEX_BASE_SPOT_FEE_RATE_IRT
 SLIPPAGE_RATE = 0.001
@@ -328,7 +328,9 @@ def _manage_position(
     return "position_open"
 
 
-def _reserved_quote(state: PaperState, *, exclude_pending_symbol: str) -> float:
+def _reserved_quote(
+    state: PaperState, *, exclude_pending_symbol: str, equity_quote: float
+) -> float:
     """Estimate cash committed to all other open and pending spot positions.
 
     Open positions reserve their entry cost plus entry fee. Other pending
@@ -336,6 +338,8 @@ def _reserved_quote(state: PaperState, *, exclude_pending_symbol: str) -> float:
     An older/corrupt pending record without that reference blocks new allocation
     rather than allowing the shared paper account to over-allocate cash.
     """
+    if not isfinite(equity_quote) or equity_quote <= 0:
+        raise LivePaperMonitorError("paper equity quote must be finite and positive")
     reserved = 0.0
     for symbol, position in state.data["positions"].items():
         if symbol not in SYMBOLS or not isinstance(position, dict):
@@ -378,7 +382,7 @@ def _reserved_quote(state: PaperState, *, exclude_pending_symbol: str) -> float:
         if not isfinite(unit_risk) or unit_risk <= 0:
             raise LivePaperMonitorError("pending paper allocation has invalid unit risk")
         quantity_by_risk = risk_budget / unit_risk
-        quantity_by_cash = PAPER_EQUITY_QUOTE / (
+        quantity_by_cash = equity_quote / (
             estimated_fill * (1 + FEE_RATE)
         )
         reserved += min(quantity_by_risk, quantity_by_cash) * estimated_fill * (
@@ -387,14 +391,18 @@ def _reserved_quote(state: PaperState, *, exclude_pending_symbol: str) -> float:
 
     if not isfinite(reserved) or reserved < 0:
         raise LivePaperMonitorError("total paper cash reservation is invalid")
-    return min(reserved, PAPER_EQUITY_QUOTE)
+    return min(reserved, equity_quote)
 
 
 def _activate_pending(
     symbol: str,
     candles: list[NobitexCandle],
     state: PaperState,
+    *,
+    equity_quote: float,
 ) -> str:
+    if not isfinite(equity_quote) or equity_quote <= 0:
+        raise LivePaperMonitorError("paper equity quote must be finite and positive")
     pending = state.data["pending"].get(symbol)
     if not pending or symbol in state.data["positions"]:
         return "no_pending_entry"
@@ -423,8 +431,8 @@ def _activate_pending(
     if not isfinite(risk_budget) or risk_budget <= 0:
         raise LivePaperMonitorError("pending entry risk budget is invalid")
     available_cash = max(
-        0.0, PAPER_EQUITY_QUOTE - _reserved_quote(
-            state, exclude_pending_symbol=symbol
+        0.0, equity_quote - _reserved_quote(
+            state, exclude_pending_symbol=symbol, equity_quote=equity_quote
         )
     )
     quantity_by_risk = risk_budget / unit_risk
@@ -475,6 +483,16 @@ def run_live_paper_monitor(
     state = PaperState(state_path)
     registry = build_default_strategy_registry()
     reports: dict[str, Any] = {}
+    try:
+        usdt_irt_rate = client.fetch_usdt_irt_rate(now=observed_at)
+        paper_equity_quote = PAPER_EQUITY_USDT * usdt_irt_rate
+        capital_rate_error = None
+    except Exception as exc:
+        # Existing positions remain manageable, but no new allocation may use
+        # a stale or guessed conversion rate.
+        usdt_irt_rate = None
+        paper_equity_quote = None
+        capital_rate_error = f"{type(exc).__name__}: {exc}"
 
     for symbol in SYMBOLS:
         try:
@@ -500,7 +518,13 @@ def run_live_paper_monitor(
             position_status = _manage_position(
                 symbol, validated["5m"], state, journal, now=observed_at
             )
-            pending_status = _activate_pending(symbol, validated["5m"], state)
+            pending_status = (
+                _activate_pending(
+                    symbol, validated["5m"], state, equity_quote=paper_equity_quote
+                )
+                if paper_equity_quote is not None
+                else "pending_entry_paused_usdt_irt_rate_unavailable"
+            )
             engine_snapshots = build_independent_engine_snapshots(
                 validated["1h"], validated["15m"], validated["5m"], now=observed_at
             )
@@ -526,9 +550,16 @@ def run_live_paper_monitor(
             ]
             signals = [decision for decision in engine_decisions if decision.status == "SIGNAL"]
             conflict = len(signals) > 1
-            executable = signals[0] if len(signals) == 1 and not occupied else None
+            executable = (
+                signals[0]
+                if len(signals) == 1 and not occupied and paper_equity_quote is not None
+                else None
+            )
 
-            if occupied:
+            if paper_equity_quote is None:
+                decision_status = "WAIT"
+                reason = "نرخ معتبر و تازهٔ USDT/IRT در دسترس نیست؛ ورود جدید و فعال‌سازی سیگنال معلق متوقف شد."
+            elif occupied:
                 decision_status = "WAIT"
                 reason = occupied_reason
             elif conflict:
@@ -552,7 +583,10 @@ def run_live_paper_monitor(
                 event.decision_id for event in journal.events()
                 if event.event_type == "DECISION"
             }
-            risk_budget = PAPER_EQUITY_QUOTE * RISK_FRACTION
+            risk_budget = (
+                paper_equity_quote * RISK_FRACTION
+                if paper_equity_quote is not None else 0.0
+            )
 
             if not selected:
                 log_decisions = [{
@@ -570,7 +604,9 @@ def run_live_paper_monitor(
                 log_decisions = []
                 for decision in engine_decisions:
                     is_buy = decision is executable
-                    if occupied:
+                    if paper_equity_quote is None:
+                        event_reason = reason
+                    elif occupied:
                         event_reason = occupied_reason
                     elif conflict:
                         event_reason = reason
@@ -620,6 +656,10 @@ def run_live_paper_monitor(
                         "execution_mode": "paper_only",
                         "fees_rate": FEE_RATE,
                         "slippage_rate": SLIPPAGE_RATE,
+                        "paper_equity_usdt": PAPER_EQUITY_USDT,
+                        "usdt_irt_best_bid": usdt_irt_rate,
+                        "paper_equity_quote_irt": paper_equity_quote,
+                        "capital_rate_source": "Nobitex public USDTIRT orderbook best bid",
                     },
                     entry_price=float(item["evidence"]["entry_reference"]) if is_buy else None,
                     stop_loss=float(item["evidence"]["stop_loss"]) if is_buy else None,
@@ -654,6 +694,10 @@ def run_live_paper_monitor(
                 "trend_1h": snapshot["context"]["trend_1h"],
                 "trend_15m": snapshot["context"]["trend_15m"],
                 "regime": snapshot["regime"],
+                "paper_equity_usdt": PAPER_EQUITY_USDT,
+                "usdt_irt_best_bid": usdt_irt_rate,
+                "paper_equity_quote_irt": paper_equity_quote,
+                "capital_rate_error": capital_rate_error,
                 "decision": decision_status,
                 "selected_engines": list(selected),
                 "engine_decisions": engine_report,
@@ -676,6 +720,10 @@ def run_live_paper_monitor(
     return {
         "observed_at": _iso(observed_at),
         "mode": "PAPER_ONLY_NO_EXCHANGE_ORDERS",
+        "paper_equity_usdt": PAPER_EQUITY_USDT,
+        "usdt_irt_best_bid": usdt_irt_rate,
+        "paper_equity_quote_irt": paper_equity_quote,
+        "capital_rate_error": capital_rate_error,
         "symbols": reports,
         "journal_summary": journal.summary(),
         "state_path": str(state.path),

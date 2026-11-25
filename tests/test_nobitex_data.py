@@ -235,6 +235,17 @@ class NobitexUsdtIrtRateTests(unittest.TestCase):
         with self.assertRaises(NobitexDataError):
             adapter.fetch_usdt_irt_rate(now=now)
 
+
+    def test_rejects_boolean_orderbook_numbers(self):
+        now = 1_800_000_000
+        book = {
+            "status": "ok", "lastUpdate": (now - 1) * 1000,
+            "bids": [[True, "10"]], "asks": [["2701000", "8"]],
+        }
+        adapter = NobitexAdapter(opener=lambda request, timeout: FakeResponse(book))
+        with self.assertRaises(NobitexDataError):
+            adapter.fetch_usdt_irt_rate(now=now)
+
     def test_rejects_crossed_or_incomplete_orderbook(self):
         now = 1_800_000_000
         books = (

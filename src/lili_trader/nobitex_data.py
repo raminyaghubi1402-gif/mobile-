@@ -114,7 +114,7 @@ class NobitexAdapter:
                 break
             except HTTPError as exc:
                 if exc.code not in self.RETRYABLE_HTTP_STATUSES or attempt >= self.max_retries:
-                    raise NobitexDataError(f"Nobitex orderbook request failed: {type(exc).__name__}") from exc
+                    raise NobitexDataError(f"Nobitex orderbook request failed: HTTP {exc.code}") from exc
                 headers = exc.headers
                 retry_after = headers.get("Retry-After") if headers else None
                 if exc.fp is not None:

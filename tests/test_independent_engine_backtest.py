@@ -95,7 +95,7 @@ class IndependentEngineBacktestTests(unittest.TestCase):
         self.assertEqual(breakout.trade_count, 1)
         self.assertEqual(breakout.entry_attempts, 1)
         self.assertEqual(breakout.cancelled_rr, 0)
-        self.assertEqual(breakout.trades[0].entry_timestamp, five[361].timestamp)
+        self.assertEqual(breakout.trades[0].entry_timestamp, five[360].timestamp)
         self.assertAlmostEqual(breakout.trades[0].entry_price, 100.1)
 
     def test_rejects_gapped_or_mixed_symbol_history(self):

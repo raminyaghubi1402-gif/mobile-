@@ -100,7 +100,7 @@ class DecisionJournalTests(unittest.TestCase):
             self.assertEqual(len(journal.events()), 1)
             raw = json.loads(path.read_text(encoding="utf-8"))
             raw["payload"]["reason"] = "changed outside journal"
-            path.write_text(json.dumps(raw) + "\\n", encoding="utf-8")
+            path.write_text(json.dumps(raw) + "\n", encoding="utf-8")
             with self.assertRaisesRegex(DecisionJournalError, "hash mismatch"):
                 journal.events()
 

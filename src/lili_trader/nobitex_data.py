@@ -96,13 +96,13 @@ class NobitexAdapter:
 
 
     def fetch_usdt_irt_rate(self, *, now: int | None = None, maximum_age_seconds: int = 120) -> float:
-        """Return a fresh conservative USDT/IRT rate from Nobitex's public order book."""
+        """Return a fresh conservative USDT/IRT rate from Nobitex's public depth endpoint."""
         observed_at = int(time.time()) if now is None else now
         if type(observed_at) is not int or observed_at <= 0:
             raise ValueError("now must be a positive Unix timestamp")
         if type(maximum_age_seconds) is not int or maximum_age_seconds < 0:
             raise ValueError("maximum_age_seconds must be a non-negative integer")
-        request = Request("https://apiv2.nobitex.ir/v3/orderbook/USDTIRT",
+        request = Request("https://apiv2.nobitex.ir/v2/depth/USDTIRT",
                           headers={"User-Agent": "LiLiTrader/0.2"})
         attempt = 0
         while True:

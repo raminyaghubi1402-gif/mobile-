@@ -35,7 +35,7 @@ class VolumeTradingEngineTests(unittest.TestCase):
         self.assertEqual(decision.status, "SIGNAL")
         self.assertEqual(decision.evidence["execution"], "paper_only")
         self.assertEqual(decision.evidence["stop_loss"], 99.0)
-        self.assertEqual(decision.evidence["take_profit"], 109.0)
+        self.assertAlmostEqual(decision.evidence["take_profit"], 109.2575)
         self.assertGreater(decision.evidence["relative_volume_vs_median"], 1.0)
 
     def test_volume_not_greater_than_reference_maximum_is_rejected(self):

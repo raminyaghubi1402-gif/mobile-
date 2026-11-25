@@ -627,7 +627,7 @@ def run_live_paper_monitor(
                             ENGINE_VERSION if decision.strategy_id == "trend_pullback"
                             else f"{decision.strategy_id}_v1"
                         ),
-                        "status": decision.status,
+                        "status": "WAIT" if paper_equity_quote is None else decision.status,
                         "reason": event_reason,
                         "evidence": engine_evidence,
                         "is_buy": is_buy,

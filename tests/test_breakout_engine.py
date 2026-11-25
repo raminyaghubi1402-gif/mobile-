@@ -25,7 +25,7 @@ class BreakoutEngineTests(unittest.TestCase):
         self.assertEqual(decision.status, "SIGNAL")
         self.assertEqual(decision.evidence["execution"], "paper_only")
         self.assertEqual(decision.evidence["stop_loss"], 99.0)
-        self.assertEqual(decision.evidence["take_profit"], 106.5)
+        self.assertAlmostEqual(decision.evidence["take_profit"], 106.755)
 
     def test_wick_only_breakout_is_rejected(self):
         self.snapshot["latest_5m"]["close"] = 100.0

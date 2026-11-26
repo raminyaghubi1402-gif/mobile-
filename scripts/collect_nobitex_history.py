@@ -52,6 +52,16 @@ def fetch_btcusdt_15m_window(adapter: NobitexAdapter) -> list:
             collected[candle.timestamp] = candle
         cursor = chunk_end + interval
 
+    # Retry through the API's countback mode as an independent retrieval path.
+    # Merge only source-returned candles; never synthesize a missing bar.
+    fallback = adapter.fetch_recent(
+        "BTCUSDT", "15", BTCUSDT_15M_REQUIRED_CANDLES,
+        page=1, to_timestamp=latest_closed,
+    )
+    for candle in fallback:
+        if first_expected <= candle.timestamp <= latest_closed:
+            collected.setdefault(candle.timestamp, candle)
+
     expected = range(first_expected, latest_closed + interval, interval)
     missing = [timestamp for timestamp in expected if timestamp not in collected]
     if missing:

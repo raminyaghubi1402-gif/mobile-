@@ -604,16 +604,52 @@ class EngineOwnedPaperPositionTests(unittest.TestCase):
             self.assertEqual(state.data["positions"]["ETHIRT::legacy"]["trade_id"], "legacy-trade")
 
 class PaperStateTests(unittest.TestCase):
-    def test_state_round_trips_pending_and_positions(self):
+    def test_state_round_trips_engine_owned_pending_and_positions(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "state.json"
             state = PaperState(path)
-            state.data["pending"]["BTCIRT"] = {"decision_id": "x"}
-            state.data["positions"]["ETHIRT"] = {"trade_id": "y"}
+            state.data["pending"]["BTCIRT::legacy"] = {
+                "symbol": "BTCIRT", "strategy": "legacy", "decision_id": "x"
+            }
+            state.data["positions"]["ETHIRT::legacy"] = {
+                "symbol": "ETHIRT", "strategy": "legacy", "trade_id": "y"
+            }
             state.save()
             loaded = PaperState(path)
-            self.assertEqual(loaded.data["pending"]["BTCIRT"]["decision_id"], "x")
-            self.assertEqual(loaded.data["positions"]["ETHIRT"]["trade_id"], "y")
+            self.assertEqual(loaded.data["pending"]["BTCIRT::legacy"]["decision_id"], "x")
+            self.assertEqual(loaded.data["positions"]["ETHIRT::legacy"]["trade_id"], "y")
+
+    def test_schema_two_rejects_slot_record_for_another_symbol(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "state.json"
+            path.write_text(
+                '{"schema_version":2,"pending":{"BTCIRT::trend_pullback":'
+                '{"symbol":"ETHIRT","strategy":"trend_pullback"}},"positions":{}}',
+                encoding="utf-8",
+            )
+            with self.assertRaises(LivePaperMonitorError):
+                PaperState(path)
+
+    def test_schema_two_rejects_non_object_engine_records(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "state.json"
+            path.write_text(
+                '{"schema_version":2,"pending":{"BTCIRT::trend_pullback":null},"positions":{}}',
+                encoding="utf-8",
+            )
+            with self.assertRaises(LivePaperMonitorError):
+                PaperState(path)
+
+    def test_legacy_migration_rejects_symbol_mismatch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "state.json"
+            path.write_text(
+                '{"schema_version":1,"pending":{"BTCIRT":{"symbol":"ETHIRT","decision_id":"x"}},'
+                '"positions":{}}',
+                encoding="utf-8",
+            )
+            with self.assertRaises(LivePaperMonitorError):
+                PaperState(path)
 
     def test_corrupt_state_is_not_silently_reset(self):
         with tempfile.TemporaryDirectory() as temp:

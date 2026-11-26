@@ -13,18 +13,17 @@ from lili_trader.history_store import merge_history_csv
 from lili_trader.nobitex_data import NobitexAdapter
 
 
+# Focused validation run: only the most recent complete UTC-aligned day.
+# Expand the history window only after this exact 96-candle test passes.
 SYMBOL_FETCH_COUNTS = {
-    "BTCIRT": {"1": 15_000, "5": 5000, "15": 2000, "60": 2000, "240": 1000, "D": 1000},
-    "ETHIRT": {"1": 15_000, "5": 5000, "15": 2000, "60": 2000, "240": 1000, "D": 1000},
-    # Dedicated research feed: 60 full days of 15-minute BTC/USDT candles.
-    "BTCUSDT": {"15": 5780},
+    "BTCUSDT": {"15": 96},
 }
-BTCUSDT_15M_REQUIRED_CANDLES = 5760
+BTCUSDT_15M_REQUIRED_CANDLES = 96
 MAX_ROWS = 25_000
 
 
 def fetch_btcusdt_15m_window(adapter: NobitexAdapter) -> list:
-    """Fetch an exact 60-day window in bounded from/to requests (<=500 bars each)."""
+    """Fetch an exact one-day window in one bounded from/to request (96 bars)."""
     import time
 
     interval = 900
@@ -65,7 +64,7 @@ def fetch_btcusdt_15m_window(adapter: NobitexAdapter) -> list:
     print(
         f"BTCUSDT 15m continuity PASS: candles={len(incoming)} "
         f"first={incoming[0].timestamp} last={incoming[-1].timestamp} "
-        f"interval_seconds={interval} window_days=60"
+        f"interval_seconds={interval} window_days=1"
     )
     return incoming
 

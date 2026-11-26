@@ -13,8 +13,13 @@ from lili_trader.history_store import merge_history_csv
 from lili_trader.nobitex_data import NobitexAdapter
 
 
-SYMBOLS = ("BTCIRT", "ETHIRT")
-FETCH_COUNTS = {"1": 15_000, "5": 5000, "15": 2000, "60": 2000, "240": 1000, "D": 1000}
+SYMBOL_FETCH_COUNTS = {
+    "BTCIRT": {"1": 15_000, "5": 5000, "15": 2000, "60": 2000, "240": 1000, "D": 1000},
+    "ETHIRT": {"1": 15_000, "5": 5000, "15": 2000, "60": 2000, "240": 1000, "D": 1000},
+    # Dedicated research feed: 60 full days of 15-minute BTC/USDT candles.
+    "BTCUSDT": {"15": 5780},
+}
+BTCUSDT_15M_REQUIRED_CANDLES = 5760
 MAX_ROWS = 25_000
 
 
@@ -23,11 +28,36 @@ def main() -> int:
     history_dir = ROOT / "data" / "history"
     failures = []
     completed_requests = 0
-    for symbol in SYMBOLS:
-        for resolution, fetch_count in FETCH_COUNTS.items():
+    for symbol, fetch_counts in SYMBOL_FETCH_COUNTS.items():
+        for resolution, fetch_count in fetch_counts.items():
             try:
                 incoming = adapter.fetch_history(symbol, resolution, fetch_count)
                 completed_requests += 1
+                if symbol == "BTCUSDT" and resolution == "15":
+                    # Only persist a complete, closed-candle 60-day window.
+                    # The API may include the currently forming 15m candle;
+                    # exclude it and validate every expected 900-second slot.
+                    interval = 900
+                    import time
+                    latest_closed = (int(time.time()) // interval) * interval - interval
+                    first_expected = latest_closed - (BTCUSDT_15M_REQUIRED_CANDLES - 1) * interval
+                    by_timestamp = {candle.timestamp: candle for candle in incoming}
+                    expected = range(first_expected, latest_closed + interval, interval)
+                    missing = [timestamp for timestamp in expected if timestamp not in by_timestamp]
+                    if missing:
+                        raise RuntimeError(
+                            f"BTCUSDT 15m continuity FAIL: expected={BTCUSDT_15M_REQUIRED_CANDLES}, "
+                            f"received={len(by_timestamp)}, missing={len(missing)}, "
+                            f"first_missing={missing[0]}"
+                        )
+                    incoming = [by_timestamp[timestamp] for timestamp in expected]
+                    if len(incoming) != BTCUSDT_15M_REQUIRED_CANDLES:
+                        raise RuntimeError("BTCUSDT 15m exact-window validation failed")
+                    print(
+                        f"BTCUSDT 15m continuity PASS: candles={len(incoming)} "
+                        f"first={incoming[0].timestamp} last={incoming[-1].timestamp} "
+                        f"interval_seconds={interval} window_days=60"
+                    )
                 if not incoming:
                     print(f"{symbol} {resolution}: no new public candles; kept existing history")
                     continue
@@ -41,6 +71,11 @@ def main() -> int:
             except Exception as exc:
                 failures.append(f"{symbol} {resolution}: {type(exc).__name__}: {exc}")
                 print(f"ERROR {failures[-1]}", file=sys.stderr)
+
+        # Gap recovery applies only to the existing BTCIRT/ETHIRT 5m stores.
+        # BTCUSDT is intentionally collected as a strict standalone 15m feed.
+        if symbol not in ("BTCIRT", "ETHIRT"):
+            continue
 
         # If the 5m store has an exact interval gap, make one bounded request
         # around the newest gap. Insert only source-confirmed candles; no flat

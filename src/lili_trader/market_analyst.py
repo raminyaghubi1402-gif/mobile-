@@ -9,6 +9,7 @@ from .support_resistance import find_support_resistance
 from .timeframe_gate import evaluate_timeframe_gate, GateDecision
 from .market_regime import classify_market_regime, select_strategy_candidates
 from .market_structure import analyze_market_structure
+from .market_structure_context import analyze_market_context, analyze_timeframe_alignment
 
 
 @dataclass(frozen=True)
@@ -17,6 +18,7 @@ class FrameResult:
     trend: object
     zones: tuple
     structure: object | None = None
+    context: object | None = None
 
 
 @dataclass(frozen=True)
@@ -30,6 +32,7 @@ class MarketAnalysis:
     candidates: tuple
     gate: object | None
     report_fa: str
+    structure_alignment: object | None = None
 
 
 _CONTEXT = ("1M", "1W", "1D", "4h")
@@ -106,9 +109,23 @@ def analyze_market(symbol: str, candles_by_timeframe: Mapping, *, pivot_window: 
         except (ValueError, TypeError, OverflowError):
             structure = None
             warnings.append(f"تحلیل BOS/CHoCH در {tf} به‌علت دادهٔ نامعتبر متوقف شد.")
-        frames[tf] = FrameResult(tf, trend, zones, structure)
+        try:
+            context = analyze_market_context(rows, pivot_window=pivot_window)
+        except (ValueError, TypeError, OverflowError):
+            context = None
+            warnings.append(f"تکمیل طبقه‌بندی ساختار بازار در {tf} ممکن نشد.")
+        frames[tf] = FrameResult(tf, trend, zones, structure, context)
 
     missing = [tf for tf in _REQUIRED if tf not in frames]
+    structure_alignment = None
+    if not missing:
+        try:
+            structure_alignment = analyze_timeframe_alignment(
+                {tf: _closed(candles_by_timeframe, tf) for tf in _REQUIRED},
+                pivot_window=pivot_window,
+            )
+        except (ValueError, TypeError, OverflowError):
+            warnings.append("مقایسهٔ جهت ساختار بین تایم‌فریم‌ها قابل محاسبه نیست.")
     gate = regime = None
     candidates = ()
     direction = None
@@ -221,6 +238,23 @@ def analyze_market(symbol: str, candles_by_timeframe: Mapping, *, pivot_window: 
                 lines.append(f"  ساختار مستقل: {bias_fa}؛ BOS/CHoCH تأییدشده‌ای ثبت نشده.")
         else:
             lines.append("  ساختار مستقل BOS/CHoCH: قابل محاسبه نیست.")
+        if frame.context:
+            ctx = frame.context
+            range_status_fa = {
+                "unknown": "نامشخص", "candidate": "رنج احتمالی",
+                "range": "رنج تأیید نسبی", "breakout_up": "شکست سقف محدوده",
+                "breakout_down": "شکست کف محدوده",
+            }.get(ctx.range_context.status, ctx.range_context.status)
+            labels = ", ".join(f"{s.label}@{s.price:.8g}" for s in ctx.labels[-4:])
+            lines.append(f"  ساختار تکمیلی: داخلی={len(ctx.internal_swings)}، خارجی={len(ctx.external_swings)}؛ برچسب‌های اخیر: {labels or 'ندارد'}")
+            lines.append(f"  محدوده: {range_status_fa}؛ سقف={ctx.range_context.high}، کف={ctx.range_context.low}؛ برخورد سقف/کف={ctx.range_context.touches_high}/{ctx.range_context.touches_low}")
+            if ctx.protected_high:
+                lines.append(f"  سقف محافظت‌شدهٔ کاندید: {ctx.protected_high.price:.8g}")
+            if ctx.protected_low:
+                lines.append(f"  کف محافظت‌شدهٔ کاندید: {ctx.protected_low.price:.8g}")
+            if ctx.sweeps:
+                recent_sweeps = ctx.sweeps[-3:]
+                lines.append("  جاروب نقدینگی: " + ", ".join(f"{s.kind}@{s.level:.8g} در کندل {s.candle_index}" for s in recent_sweeps))
         if t.direction in ("up", "down"):
             kind = "support" if t.direction == "up" else "resistance"
             relevant = [zone for zone in frame.zones if zone.kind == kind]
@@ -231,6 +265,10 @@ def analyze_market(symbol: str, candles_by_timeframe: Mapping, *, pivot_window: 
         lines.extend(("", f"رژیم: {regime.trend}؛ نوسان: {regime.volatility}؛ {regime.reason}",
                       "استراتژی‌های قابل بررسی (نه سیگنال):"))
         lines.extend(f"- {item.name}: {item.reason}" for item in candidates)
+    if structure_alignment:
+        lines.extend(("", "هم‌راستایی ساختار تایم‌فریم‌ها:",
+                      structure_alignment.reason_fa,
+                      f"اجماع: {structure_alignment.consensus}؛ تایم‌فریم بالاتر: {structure_alignment.higher_timeframe_bias}؛ هم‌جهت: {', '.join(structure_alignment.aligned) or 'ندارد'}؛ متعارض: {', '.join(structure_alignment.conflicting) or 'ندارد'}"))
     lines.extend(("", "کنترل ورود ۱h/۱۵m/۵m:",
                   gate.reason if gate else "به‌دلیل دادهٔ ناقص اجرا نشد.",
                   f"برخورد کندل ۱۵ دقیقه با ناحیه {'تأیید شد' if zone_touched else 'تأیید نشد'}." if gate else ""))
@@ -240,4 +278,5 @@ def analyze_market(symbol: str, candles_by_timeframe: Mapping, *, pivot_window: 
     lines.extend(("", "فقط تحلیل و سناریوی فرضی؛ توصیهٔ مالی نیست و هیچ معامله‌ای اجرا نمی‌شود."))
     return MarketAnalysis(symbol, decision, direction, confidence,
                           tuple(frames[tf] for tf in (*_CONTEXT, *_REQUIRED) if tf in frames),
-                          regime, tuple(candidates), gate, "\n".join(lines))
+                          regime, tuple(candidates), gate, "\n".join(lines),
+                          structure_alignment)

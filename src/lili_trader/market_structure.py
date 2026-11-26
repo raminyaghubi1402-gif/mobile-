@@ -14,6 +14,9 @@ class Swing:
     price: float
     index: int
     timestamp: int | None = None
+    # A pivot is usable only from this candle onward; this makes its
+    # confirmation latency explicit to downstream consumers.
+    confirmation_index: int | None = None
 
 @dataclass(frozen=True)
 class StructureEvent:
@@ -42,9 +45,6 @@ def analyze_market_structure(candles: Sequence, *, pivot_window: int = 2) -> Str
         raise ValueError("pivot_window must be a positive integer")
     if not isinstance(candles, Sequence) or isinstance(candles, (str, bytes)):
         raise TypeError("candles must be a sequence")
-    if len(candles) < 2 * pivot_window + 3:
-        return StructureAnalysis("unknown", None, (), (), None,
-                                 "کندل کافی برای تأیید سوئینگ و شکست ساختار وجود ندارد.")
     rows, prev_ts = [], None
     timestamped_count = 0
     for c in candles:
@@ -76,19 +76,28 @@ def analyze_market_structure(candles: Sequence, *, pivot_window: int = 2) -> Str
         rows.append((o, h, low, cl, ts))
     if timestamped_count not in (0, len(rows)):
         raise ValueError("timestamps must be present on every candle or none")
+    if len(rows) < 2 * pivot_window + 3:
+        return StructureAnalysis(
+            "unknown", None, (), (), rows[-1][3] if rows else None,
+            "کندل کافی برای تأیید سوئینگ و شکست ساختار وجود ندارد."
+        )
 
     all_swings = []
     pivots_by_confirmation = {}
     for p in range(pivot_window, len(rows) - pivot_window):
-        neighbors = rows[p-pivot_window:p] + rows[p+1:p+pivot_window+1]
-        if all(rows[p][1] > x[1] for x in neighbors):
-            s = Swing("high", rows[p][1], p, rows[p][4])
+        left = rows[p-pivot_window:p]
+        right = rows[p+1:p+pivot_window+1]
+        confirmation_index = p + pivot_window
+        # Equal-price plateaus resolve to their rightmost candle: ties on the
+        # left are accepted, ties on the right prevent an earlier pivot.
+        if all(rows[p][1] >= x[1] for x in left) and all(rows[p][1] > x[1] for x in right):
+            s = Swing("high", rows[p][1], p, rows[p][4], confirmation_index)
             all_swings.append(s)
-            pivots_by_confirmation.setdefault(p + pivot_window, []).append(s)
-        if all(rows[p][2] < x[2] for x in neighbors):
-            s = Swing("low", rows[p][2], p, rows[p][4])
+            pivots_by_confirmation.setdefault(confirmation_index, []).append(s)
+        if all(rows[p][2] <= x[2] for x in left) and all(rows[p][2] < x[2] for x in right):
+            s = Swing("low", rows[p][2], p, rows[p][4], confirmation_index)
             all_swings.append(s)
-            pivots_by_confirmation.setdefault(p + pivot_window, []).append(s)
+            pivots_by_confirmation.setdefault(confirmation_index, []).append(s)
     all_swings.sort(key=lambda s: (s.index, s.kind))
 
     confirmed_highs, confirmed_lows = [], []

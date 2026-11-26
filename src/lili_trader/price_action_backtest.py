@@ -469,7 +469,7 @@ def run_three_timeframe_backtest(
                 if hourly_closed_count >= 20:
                     regime_candles = hourly[hourly_closed_count - 20:hourly_closed_count]
                     regime = classify_market_regime(regime_candles, h_trend)
-                    regime_candidates = select_strategy_candidates(regime)
+                    regime_candidates = select_strategy_candidates(regime, allow_short=allow_short)
                     regime_status = "regime_" + regime.trend + "_" + regime.volatility
                     gate_counts[regime_status] = gate_counts.get(regime_status, 0) + 1
                     if not any(c.eligible and c.name != "no_trade_wait"

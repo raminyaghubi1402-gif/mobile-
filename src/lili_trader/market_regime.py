@@ -1,8 +1,9 @@
 """Rule-based explainable market regime and strategy selector (research only)."""
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from math import isfinite
 from collections.abc import Mapping, Sequence
+from .strategy_engines import STRATEGY_CATALOG
 
 @dataclass(frozen=True)
 class MarketRegime:
@@ -87,10 +88,10 @@ def classify_market_regime(candles: Sequence, trend_state, *, volatility_window:
         pos = "lower" if ratio <= 0.33 else ("upper" if ratio >= 0.67 else "middle")
 
     strategies = []
-    if trend == "up" and vol != "high":
-        strategies.extend(("trend_pullback_buy", "support_rejection_buy", "breakout_retest_buy"))
-    elif trend == "down" and vol != "high":
-        strategies.extend(("trend_pullback_sell", "resistance_rejection_sell", "breakdown_retest_sell"))
+    if trend in ("up", "down") and vol != "high":
+        # These are independent engine IDs, not a combined confirmation chain.
+        # Direction and venue constraints are supplied in the engine snapshot.
+        strategies.extend(name for name in STRATEGY_CATALOG if name != "range_trading")
     elif trend == "range" and vol != "high":
         strategies.append("no_trade_range_policy")
     if trend in ("unknown", "transition") or vol == "high":
@@ -99,23 +100,53 @@ def classify_market_regime(candles: Sequence, trend_state, *, volatility_window:
     reason = f"ساختار={trend}، نوسان={vol}، کیفیت={quality}، جایگاه قیمت={pos}؛ تشخیص قطعی یا پیش‌بینی نیست."
     return MarketRegime(trend, vol, quality, pos, tuple(strategies), confidence, reason)
 
-def select_strategy_candidates(regime: MarketRegime) -> tuple[StrategyCandidate, ...]:
-    """Return eligible research candidates; final setup validation remains mandatory."""
-    known = {
-        "trend_pullback_buy", "support_rejection_buy", "breakout_retest_buy",
-        "trend_pullback_sell", "resistance_rejection_sell", "breakdown_retest_sell",
-    }
+def apply_primary_trend(regime: MarketRegime, trend_1h: str, trend_15m: str) -> MarketRegime:
+    """Use 1h direction unless it is explicitly range; then fall back to 15m.
+
+    Volatility and price location remain measured on 15m. Unknown or transition
+    1h states do not silently fall back to a lower timeframe.
+    """
+    valid = {"up", "down", "range", "transition", "unknown"}
+    if trend_1h not in valid or trend_15m not in valid:
+        raise ValueError("timeframe trend must be a known price-action state")
+    primary_trend = trend_15m if trend_1h == "range" else trend_1h
+    primary_timeframe = "15m" if trend_1h == "range" else "1h"
+    if primary_trend in ("up", "down") and regime.volatility not in ("high", "unknown"):
+        allowed = tuple(name for name in STRATEGY_CATALOG if name != "range_trading")
+    elif primary_trend == "range" and regime.volatility not in ("high", "unknown"):
+        allowed = ("no_trade_range_policy",)
+    else:
+        allowed = ("no_trade_wait",)
+    return replace(
+        regime,
+        trend=primary_trend,
+        allowed_strategies=allowed,
+        reason=(f"جهت اصلی از {primary_timeframe}: {primary_trend}؛ "
+                f"روند ۱ساعته={trend_1h}، روند ۱۵دقیقه={trend_15m}. "
+                f"{regime.reason}"),
+    )
+
+
+def select_strategy_candidates(
+    regime: MarketRegime, *, allow_short: bool = False
+) -> tuple[StrategyCandidate, ...]:
+    """Select independent engines by regime; spot-only downtrends fail closed."""
+    if type(allow_short) is not bool:
+        raise ValueError("allow_short must be boolean")
     if regime.trend in ("unknown", "transition") or regime.volatility in ("high", "unknown"):
         return (StrategyCandidate("no_trade_wait", True,
                                  "رژیم نامشخص یا نوسان شدید؛ صبر و حفظ سرمایه."),)
     if regime.trend == "range":
         return (StrategyCandidate("no_trade_range_policy", True,
                                  "طبق سیاست فعلی پروژه، در رنج معامله نمی‌کنیم."),)
-    candidates = []
-    for name in regime.allowed_strategies:
-        if name in known:
-            candidates.append(StrategyCandidate(name, True,
-                "فقط کاندید بررسی است؛ تأیید ستاپ، ناحیه، فضای سود و حد ابطال لازم است."))
+    if regime.trend == "down" and not allow_short:
+        return (StrategyCandidate("no_trade_wait", True,
+                                 "بازار نزولی است و حساب نقدی اجازهٔ فروش استقراضی نمی‌دهد."),)
+    candidates = [
+        StrategyCandidate(name, True,
+            "موتور مستقل برای ارزیابی انتخاب شده است؛ نتیجهٔ آن به تأیید موتورهای دیگر وابسته نیست.")
+        for name in regime.allowed_strategies if name in STRATEGY_CATALOG
+    ]
     if not candidates:
         candidates.append(StrategyCandidate("no_trade_wait", True,
                                            "هیچ استراتژی مناسب این رژیم نیست."))

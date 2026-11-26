@@ -76,6 +76,34 @@ class DecisionJournalTests(unittest.TestCase):
             with self.assertRaisesRegex(DecisionJournalError, "hash mismatch"):
                 journal.events()
 
+
+    def test_cached_journal_refreshes_after_another_writer_appends(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "decisions.jsonl"
+            first = DecisionJournal(path)
+            second = DecisionJournal(path)
+            self.decision(first)
+            self.assertEqual(len(first.events()), 1)
+            second.append_review(
+                decision_id="d-001", occurred_at="2026-11-16T11:00:00+00:00",
+                trade_id="paper-001", outcome="GOOD", failure_tags=[],
+                root_cause="rules followed", corrective_action="no change",
+            )
+            self.assertEqual(len(first.events()), 2)
+            self.assertEqual(first.summary()["reviews"], 1)
+
+    def test_cached_journal_still_detects_tampering(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "decisions.jsonl"
+            journal = DecisionJournal(path)
+            self.decision(journal)
+            self.assertEqual(len(journal.events()), 1)
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            raw["payload"]["reason"] = "changed outside journal"
+            path.write_text(json.dumps(raw) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(DecisionJournalError, "hash mismatch"):
+                journal.events()
+
     def test_review_cannot_precede_decision(self):
         with tempfile.TemporaryDirectory() as directory:
             journal = DecisionJournal(Path(directory) / "decisions.jsonl")

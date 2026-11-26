@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: "45 18 * * 0"
   workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/nobitex-backtest.yml"
+      - "src/lili_trader/**"
+      - "tests/**"
+      - "data/history/**"
   push:
     branches: [main]
     paths:
@@ -40,7 +46,10 @@ jobs:
           set -o pipefail
           mkdir -p data/paper/backtest
           echo "Spot-only historical audit; per-symbol starting capital is 13,550,000 IRT (5 USD at the user-confirmed seed rate 2,710,000 IRT/USD). This is a historical simulation, not a live balance." | tee nobitex-backtest-report.txt
-          PYTHONPATH=src python -m lili_trader --price-action-backtest --stored-history-only --spot-only --sr-diagnostic --symbol ${{ matrix.symbol }} --count 5000 --backtest-cash 13550000 --backtest-currency IRT --decision-journal "data/paper/backtest/${{ matrix.symbol }}.jsonl" 2>&1 | tee -a nobitex-backtest-report.txt
+          PYTHONPATH=src python -m lili_trader --price-action-backtest --stored-history-only --spot-only --symbol ${{ matrix.symbol }} --count 10000 --backtest-cash 13550000 --backtest-currency IRT --decision-journal "data/paper/backtest/${{ matrix.symbol }}.jsonl" 2>&1 | tee -a nobitex-backtest-report.txt
+          echo "" | tee -a nobitex-backtest-report.txt
+          echo "=== Independent per-engine historical Paper tests ===" | tee -a nobitex-backtest-report.txt
+          PYTHONPATH=src python -m lili_trader --independent-engine-backtest --stored-history-only --spot-only --symbol ${{ matrix.symbol }} --count 10000 --backtest-cash 13550000 --backtest-currency IRT 2>&1 | tee -a nobitex-backtest-report.txt
       - name: Save report
         if: always()
         uses: actions/upload-artifact@v4
@@ -49,5 +58,26 @@ jobs:
           path: |
             nobitex-backtest-report.txt
             data/paper/backtest/${{ matrix.symbol }}.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
+
+  gap-recovery-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Probe exact Nobitex candle recovery (read-only)
+        run: python scripts/audit_nobitex_gap_recovery.py
+      - name: Save audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nobitex-live-gap-recovery-audit
+          path: reports/nobitex-gap-recovery-audit.txt
           if-no-files-found: ignore
           retention-days: 7

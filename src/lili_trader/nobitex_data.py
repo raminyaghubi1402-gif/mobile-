@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import time
+from math import isfinite
 from dataclasses import dataclass
 from typing import Callable
 from urllib.error import HTTPError, URLError
@@ -92,6 +93,69 @@ class NobitexAdapter:
         if requested < 0 or requested != requested:
             return fallback
         return min(requested, self.MAX_RETRY_DELAY_SECONDS)
+
+
+    def fetch_usdt_irt_rate(self, *, now: int | None = None, maximum_age_seconds: int = 120) -> float:
+        """Return a fresh conservative USDT/IRT rate from Nobitex's public depth endpoint."""
+        observed_at = int(time.time()) if now is None else now
+        if type(observed_at) is not int or observed_at <= 0:
+            raise ValueError("now must be a positive Unix timestamp")
+        if type(maximum_age_seconds) is not int or maximum_age_seconds < 0:
+            raise ValueError("maximum_age_seconds must be a non-negative integer")
+        request = Request("https://apiv2.nobitex.ir/v2/depth/USDTIRT",
+                          headers={"User-Agent": "LiLiTrader/0.2"})
+        attempt = 0
+        while True:
+            try:
+                with self.opener(request, timeout=self.timeout_seconds) as response:
+                    if getattr(response, "status", 200) != 200:
+                        raise NobitexDataError("Nobitex returned non-200 orderbook status")
+                    payload = json.loads(response.read().decode("utf-8"))
+                break
+            except HTTPError as exc:
+                if exc.code not in self.RETRYABLE_HTTP_STATUSES or attempt >= self.max_retries:
+                    raise NobitexDataError(f"Nobitex orderbook request failed: HTTP {exc.code}") from exc
+                headers = exc.headers
+                retry_after = headers.get("Retry-After") if headers else None
+                if exc.fp is not None:
+                    exc.close()
+                self.sleep(self._retry_delay(attempt, retry_after))
+                attempt += 1
+            except (URLError, TimeoutError, OSError) as exc:
+                if attempt >= self.max_retries:
+                    raise NobitexDataError(f"Nobitex orderbook request failed: {type(exc).__name__}") from exc
+                self.sleep(self._retry_delay(attempt))
+                attempt += 1
+            except (UnicodeError, json.JSONDecodeError) as exc:
+                raise NobitexDataError(f"Nobitex orderbook JSON is invalid: {type(exc).__name__}") from exc
+        if not isinstance(payload, dict) or payload.get("status") != "ok":
+            raise NobitexDataError("Nobitex returned an invalid USDTIRT orderbook")
+        bids, asks, raw_update = payload.get("bids"), payload.get("asks"), payload.get("lastUpdate")
+        if (not isinstance(bids, list) or not bids or not isinstance(bids[0], list)
+                or len(bids[0]) < 2 or not isinstance(asks, list) or not asks
+                or not isinstance(asks[0], list) or len(asks[0]) < 2):
+            raise NobitexDataError("USDTIRT orderbook has no valid best bid/ask")
+        try:
+            raw_numbers = (raw_update, bids[0][0], bids[0][1], asks[0][0], asks[0][1])
+            if any(isinstance(value, bool) for value in raw_numbers):
+                raise ValueError("boolean orderbook value")
+            update_number = float(raw_update)
+            if not isfinite(update_number) or not update_number.is_integer():
+                raise ValueError("invalid orderbook update timestamp")
+            update_ms = int(update_number)
+            best_bid, best_ask = float(bids[0][0]), float(asks[0][0])
+            bid_volume, ask_volume = float(bids[0][1]), float(asks[0][1])
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise NobitexDataError("USDTIRT orderbook contains invalid numeric values") from exc
+        if (update_ms <= 1_000_000_000_000
+                or not all(value > 0 and value < float("inf")
+                           for value in (best_bid, best_ask, bid_volume, ask_volume))
+                or best_ask < best_bid):
+            raise NobitexDataError("USDTIRT orderbook values are invalid or crossed")
+        age = observed_at - update_ms // 1000
+        if age < -5 or age > maximum_age_seconds:
+            raise NobitexDataError("USDTIRT orderbook is future-dated or stale")
+        return best_bid
 
     def fetch_recent(self, symbol: str = "BTCIRT", resolution: str = "60",
                      count: int = 100, *, page: int = 1,

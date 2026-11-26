@@ -1,6 +1,7 @@
 """CLI for Li-Li Trader. Demo mode is synthetic; Nobitex mode reads public data only."""
 import argparse
 import os
+import time
 from datetime import datetime, timedelta, timezone
 from .analysis import Candle, analyze_candle
 
@@ -10,6 +11,27 @@ _TEHRAN = timezone(timedelta(hours=3, minutes=30))
 
 def _format_market_time(timestamp: int) -> str:
     return datetime.fromtimestamp(timestamp, _TEHRAN).strftime("%Y-%m-%d %H:%M")
+
+
+def _closed_backtest_history(candles, timeframe_seconds: int, as_of_timestamp: int):
+    """Return only a conservative snapshot of fully closed historical bars.
+
+    CSV history does not persist when each candle was fetched. The newest row
+    may therefore contain an in-progress candle even if the backtest is run
+    later. Drop that row unconditionally, then reject any older row whose full
+    timeframe had not ended by the shared cutoff.
+    """
+    if type(timeframe_seconds) is not int or timeframe_seconds <= 0:
+        raise ValueError("timeframe_seconds must be a positive integer")
+    if type(as_of_timestamp) is not int or as_of_timestamp <= 0:
+        raise ValueError("as_of_timestamp must be a positive integer")
+    rows = list(candles)
+    if not rows:
+        return []
+    return [
+        candle for candle in rows[:-1]
+        if candle.timestamp + timeframe_seconds <= as_of_timestamp
+    ]
 
 
 def _load_backtest_history(path, symbol: str, resolution: str, count: int, adapter, stored_only: bool):
@@ -199,10 +221,19 @@ def main() -> None:
                 path, args.symbol, resolution, count, adapter, args.stored_history_only
             )
 
-        # Stored daily-collected history extends beyond the API's short recent window.
-        hourly = load_and_refresh("60", min(args.count, 2000))
-        native_fifteen = load_and_refresh("15", min(args.count, 2000))
-        five = load_and_refresh("5", args.count)
+        # Stored CSVs do not record fetch time. Drop each latest row because
+        # it may have been captured before that candle closed, then use one
+        # shared cutoff to exclude any other interval still open at this run.
+        as_of_timestamp = int(time.time())
+        hourly = _closed_backtest_history(
+            load_and_refresh("60", min(args.count, 2000)), 3600, as_of_timestamp,
+        )
+        native_fifteen = _closed_backtest_history(
+            load_and_refresh("15", min(args.count, 2000)), 900, as_of_timestamp,
+        )
+        five = _closed_backtest_history(
+            load_and_refresh("5", args.count), 300, as_of_timestamp,
+        )
         fifteen = extend_fifteen_with_five(native_fifteen, five)
         decision_callback = None
         decision_run_id = None
@@ -308,6 +339,11 @@ def main() -> None:
             print(f"بدون فیلتر SR: معاملات={baseline.trade_count} | خالص={baseline.net_profit:,.2f} | بازده={baseline.return_pct:.2f}% | افت سرمایه={baseline.max_drawdown_pct:.2f}%")
             print("تفاوت خالص (با فیلتر منهای بدون فیلتر): " + f"{result.net_profit - baseline.net_profit:,.2f}")
         print("لی‌لی تریدر — بک‌تست ساختار قیمت ۱h / ۱۵m / ۵m (فقط شبیه‌سازی)")
+        print(
+            "برش زمانی کندل‌های بسته (UTC): "
+            + datetime.fromtimestamp(as_of_timestamp, timezone.utc).isoformat()
+            + " | آخرین ردیف هر تایم‌فریم به‌صورت محافظه‌کارانه حذف شد."
+        )
         derived_fifteen = max(0, len(fifteen) - len(native_fifteen))
         print(f"نماد: {args.symbol} | کندل‌ها: ۱h={len(hourly)}، ۱۵m={len(fifteen)} (نوبیتکس={len(native_fifteen)}، تکمیل‌شده از ۵m={derived_fifteen})، ۵m={len(five)}")
         for label, rows in (("۱h", hourly), ("۱۵m", fifteen), ("۵m", five)):

@@ -176,7 +176,7 @@ def build_trend_pullback_snapshot(
 
 
 class PaperState:
-    """Atomic local state for pending entries and one paper position per symbol."""
+    """Atomic local state for engine-owned pending entries and paper positions."""
 
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
@@ -191,24 +191,56 @@ class PaperState:
                     or not isinstance(loaded.get("positions"), dict)):
                 raise LivePaperMonitorError("paper state schema is invalid; refusing to reset it")
             if loaded["schema_version"] == 1:
-                # Preserve existing symbol-level positions and pending entries
-                # under an explicit legacy engine slot; never discard live paper state.
+                # Preserve old positions, but reject ambiguous or contradictory
+                # symbol/engine identities before moving them into schema v2 slots.
                 for collection in ("pending", "positions"):
                     migrated = {}
                     for key, record in loaded[collection].items():
-                        if not isinstance(record, dict):
+                        if not isinstance(key, str) or not key or not isinstance(record, dict):
                             raise LivePaperMonitorError("legacy paper state record is invalid")
-                        symbol = record.get("symbol", key.split("::", 1)[0])
-                        strategy = record.get("strategy", "legacy")
-                        if symbol not in SYMBOLS or not isinstance(strategy, str) or not strategy:
-                            raise LivePaperMonitorError("legacy paper state identity is invalid")
-                        slot = key if "::" in key else f"{symbol}::{strategy}"
+                        key_symbol, separator, key_strategy = key.partition("::")
+                        if separator:
+                            if key_symbol not in SYMBOLS or not key_strategy:
+                                raise LivePaperMonitorError("legacy paper state slot key is invalid")
+                            symbol = record.get("symbol", key_symbol)
+                            strategy = record.get("strategy", key_strategy)
+                            if symbol != key_symbol or strategy != key_strategy:
+                                raise LivePaperMonitorError("legacy paper state slot identity is inconsistent")
+                        else:
+                            if key not in SYMBOLS:
+                                raise LivePaperMonitorError("legacy paper state symbol key is invalid")
+                            symbol = record.get("symbol", key)
+                            strategy = record.get("strategy", "legacy")
+                            if symbol != key:
+                                raise LivePaperMonitorError("legacy paper state symbol does not match its key")
+                        if not isinstance(strategy, str) or not strategy:
+                            raise LivePaperMonitorError("legacy paper state strategy is invalid")
+                        slot = f"{symbol}::{strategy}"
+                        if slot in migrated:
+                            raise LivePaperMonitorError("legacy paper state contains duplicate engine slots")
                         migrated[slot] = {**record, "symbol": symbol, "strategy": strategy}
                     loaded[collection] = migrated
                 loaded["schema_version"] = 2
             self.data = loaded
+            self._validate_records()
+
+    def _validate_records(self) -> None:
+        if (not isinstance(self.data, dict) or self.data.get("schema_version") != 2
+                or not isinstance(self.data.get("pending"), dict)
+                or not isinstance(self.data.get("positions"), dict)):
+            raise LivePaperMonitorError("paper state schema is invalid; refusing to save it")
+        for collection in ("pending", "positions"):
+            for key, record in self.data[collection].items():
+                if not isinstance(record, dict):
+                    raise LivePaperMonitorError("paper state engine record is invalid")
+                symbol = _record_symbol(key, record)
+                key_symbol, separator, key_strategy = key.partition("::")
+                if (not separator or key_symbol != symbol or not key_strategy
+                        or record.get("strategy") != key_strategy):
+                    raise LivePaperMonitorError("paper state engine slot identity is invalid")
 
     def save(self) -> None:
+        self._validate_records()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = json.dumps(self.data, sort_keys=True, ensure_ascii=False, allow_nan=False, indent=2)
         fd, temporary = tempfile.mkstemp(prefix=self.path.name + ".", dir=str(self.path.parent))
@@ -230,12 +262,23 @@ def _engine_state_key(symbol: str, strategy_id: str) -> str:
 
 
 def _record_symbol(key: str, record: dict[str, Any]) -> str:
-    symbol = record.get("symbol")
-    if symbol is None:
-        symbol = key.split("::", 1)[0]
-    if symbol not in SYMBOLS:
+    if not isinstance(key, str) or not key or not isinstance(record, dict):
+        raise LivePaperMonitorError("paper state engine slot is invalid")
+    key_symbol, separator, key_strategy = key.partition("::")
+    if separator:
+        if key_symbol not in SYMBOLS or not key_strategy:
+            raise LivePaperMonitorError("paper state engine slot key is invalid")
+        symbol = record.get("symbol")
+        strategy = record.get("strategy")
+        if symbol != key_symbol or (strategy is not None and strategy != key_strategy):
+            raise LivePaperMonitorError("paper state engine slot identity does not match its record")
+        return key_symbol
+    if key not in SYMBOLS:
         raise LivePaperMonitorError("paper state contains an unknown symbol")
-    return symbol
+    symbol = record.get("symbol", key)
+    if symbol != key:
+        raise LivePaperMonitorError("legacy paper state symbol does not match its key")
+    return key
 
 
 def _validated_signal_levels(decision: StrategyDecision) -> dict[str, float]:

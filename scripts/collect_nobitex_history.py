@@ -23,6 +23,53 @@ BTCUSDT_15M_REQUIRED_CANDLES = 5760
 MAX_ROWS = 25_000
 
 
+def fetch_btcusdt_15m_window(adapter: NobitexAdapter) -> list:
+    """Fetch an exact 60-day window in bounded from/to requests (<=500 bars each)."""
+    import time
+
+    interval = 900
+    latest_closed = (int(time.time()) // interval) * interval - interval
+    first_expected = latest_closed - (BTCUSDT_15M_REQUIRED_CANDLES - 1) * interval
+    collected = {}
+    cursor = first_expected
+    while cursor <= latest_closed:
+        chunk_end = min(
+            cursor + (500 - 1) * interval,
+            latest_closed,
+        )
+        batch = adapter.fetch_recent(
+            "BTCUSDT", "15", 500,
+            page=1,
+            from_timestamp=cursor,
+            to_timestamp=chunk_end,
+        )
+        for candle in batch:
+            if candle.timestamp < cursor or candle.timestamp > chunk_end:
+                raise RuntimeError("Nobitex returned BTCUSDT candle outside requested chunk")
+            if candle.timestamp in collected:
+                raise RuntimeError(f"duplicate BTCUSDT 15m timestamp: {candle.timestamp}")
+            collected[candle.timestamp] = candle
+        cursor = chunk_end + interval
+
+    expected = range(first_expected, latest_closed + interval, interval)
+    missing = [timestamp for timestamp in expected if timestamp not in collected]
+    if missing:
+        raise RuntimeError(
+            f"BTCUSDT 15m continuity FAIL: expected={BTCUSDT_15M_REQUIRED_CANDLES}, "
+            f"received={len(collected)}, missing={len(missing)}, "
+            f"first_missing={missing[0]}"
+        )
+    incoming = [collected[timestamp] for timestamp in expected]
+    if len(incoming) != BTCUSDT_15M_REQUIRED_CANDLES:
+        raise RuntimeError("BTCUSDT 15m exact-window validation failed")
+    print(
+        f"BTCUSDT 15m continuity PASS: candles={len(incoming)} "
+        f"first={incoming[0].timestamp} last={incoming[-1].timestamp} "
+        f"interval_seconds={interval} window_days=60"
+    )
+    return incoming
+
+
 def main() -> int:
     adapter = NobitexAdapter()
     history_dir = ROOT / "data" / "history"
@@ -31,33 +78,11 @@ def main() -> int:
     for symbol, fetch_counts in SYMBOL_FETCH_COUNTS.items():
         for resolution, fetch_count in fetch_counts.items():
             try:
-                incoming = adapter.fetch_history(symbol, resolution, fetch_count)
-                completed_requests += 1
                 if symbol == "BTCUSDT" and resolution == "15":
-                    # Only persist a complete, closed-candle 60-day window.
-                    # The API may include the currently forming 15m candle;
-                    # exclude it and validate every expected 900-second slot.
-                    interval = 900
-                    import time
-                    latest_closed = (int(time.time()) // interval) * interval - interval
-                    first_expected = latest_closed - (BTCUSDT_15M_REQUIRED_CANDLES - 1) * interval
-                    by_timestamp = {candle.timestamp: candle for candle in incoming}
-                    expected = range(first_expected, latest_closed + interval, interval)
-                    missing = [timestamp for timestamp in expected if timestamp not in by_timestamp]
-                    if missing:
-                        raise RuntimeError(
-                            f"BTCUSDT 15m continuity FAIL: expected={BTCUSDT_15M_REQUIRED_CANDLES}, "
-                            f"received={len(by_timestamp)}, missing={len(missing)}, "
-                            f"first_missing={missing[0]}"
-                        )
-                    incoming = [by_timestamp[timestamp] for timestamp in expected]
-                    if len(incoming) != BTCUSDT_15M_REQUIRED_CANDLES:
-                        raise RuntimeError("BTCUSDT 15m exact-window validation failed")
-                    print(
-                        f"BTCUSDT 15m continuity PASS: candles={len(incoming)} "
-                        f"first={incoming[0].timestamp} last={incoming[-1].timestamp} "
-                        f"interval_seconds={interval} window_days=60"
-                    )
+                    incoming = fetch_btcusdt_15m_window(adapter)
+                else:
+                    incoming = adapter.fetch_history(symbol, resolution, fetch_count)
+                completed_requests += 1
                 if not incoming:
                     print(f"{symbol} {resolution}: no new public candles; kept existing history")
                     continue
@@ -110,9 +135,12 @@ def main() -> int:
 
     if failures:
         print(f"Collection finished with {len(failures)} failure(s) after {completed_requests} successful request group(s).", file=sys.stderr)
+        if any(item.startswith("BTCUSDT 15:") for item in failures):
+            print("Required BTCUSDT 15m history failed validation; refusing to publish or backtest this run.", file=sys.stderr)
+            return 1
         if completed_requests == 0:
             return 1
-        print("Partial history was saved; failed timeframes will be retried on the next scheduled run.")
+        print("Partial BTCIRT/ETHIRT history was saved; failed timeframes will be retried on the next scheduled run.")
         return 0
     print("Public Nobitex history collection completed.")
     return 0

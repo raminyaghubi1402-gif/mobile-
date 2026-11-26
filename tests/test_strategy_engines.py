@@ -4,6 +4,7 @@ from lili_trader.strategy_engines import (
     STRATEGY_CATALOG,
     StrategyDecision,
     StrategyRegistry,
+    _target_for_minimum_reward_risk,
 )
 
 
@@ -26,6 +27,15 @@ class IndependentEngine:
 
 
 class StrategyEngineRegistryTests(unittest.TestCase):
+    def test_minimum_reward_risk_survives_expected_entry_slippage(self):
+        entry_reference = 102.0
+        stop = 98.0
+        target = _target_for_minimum_reward_risk(entry_reference, stop, 1.5)
+        expected_fill = entry_reference * 1.001
+        actual_planned_rr = (target - expected_fill) / (expected_fill - stop)
+        self.assertAlmostEqual(actual_planned_rr, 1.5)
+        self.assertGreater(target, entry_reference + (entry_reference - stop) * 1.5)
+
     def test_catalog_contains_exactly_the_seven_agreed_engines(self):
         self.assertEqual(len(STRATEGY_CATALOG), 7)
         self.assertEqual(len(set(STRATEGY_CATALOG)), 7)
@@ -99,6 +109,72 @@ class StrategyEngineRegistryTests(unittest.TestCase):
             registry.evaluate_selected({}, ("ict", "ict"))
         with self.assertRaises(ValueError):
             registry.evaluate_selected({}, ("made_up",))
+
+
+
+class TrendPullbackEngineTests(unittest.TestCase):
+    def setUp(self):
+        from lili_trader.strategy_engines import TrendPullbackEngine
+        self.engine = TrendPullbackEngine()
+        self.snapshot = {
+            "spot_only": True,
+            "regime": "bullish",
+            "pullback_active": True,
+            "support_zone": {"kind": "support", "lower": 98.0, "upper": 100.0},
+            "latest_5m": {
+                "timestamp": 1_800_000_000,
+                "fetched_at": 1_800_000_301,
+                "open": 100.0, "high": 103.0, "low": 99.0, "close": 102.0,
+            },
+            "structure_5m": {
+                "bias": "up",
+                "last_event": {"kind": "CHOCH_UP", "candle_index": 99},
+                "latest_candle_index": 99,
+            },
+        }
+
+    def test_valid_closed_candle_setup_emits_paper_signal_with_levels(self):
+        decision = self.engine.evaluate(self.snapshot)
+        self.assertEqual(decision.status, "SIGNAL")
+        self.assertEqual(decision.evidence["execution"], "paper_only")
+        self.assertEqual(decision.evidence["stop_loss"], 98.0)
+        self.assertAlmostEqual(decision.evidence["take_profit"], 108.255)
+
+    def test_wick_only_or_stale_structure_event_cannot_trigger(self):
+        self.snapshot["structure_5m"]["last_event"]["candle_index"] = 50
+        self.assertEqual(self.engine.evaluate(self.snapshot).status, "WAIT")
+
+    def test_recent_structure_break_can_be_followed_by_a_later_pullback(self):
+        self.snapshot["structure_5m"]["last_event"]["candle_index"] = 98
+        self.assertEqual(self.engine.evaluate(self.snapshot).status, "SIGNAL")
+
+    def test_no_signal_in_range_or_bearish_regime(self):
+        self.snapshot["regime"] = "range"
+        self.assertEqual(self.engine.evaluate(self.snapshot).status, "WAIT")
+        self.snapshot["regime"] = "bearish"
+        self.assertEqual(self.engine.evaluate(self.snapshot).status, "WAIT")
+
+    def test_spot_only_and_pullback_requirements_are_mandatory(self):
+        self.snapshot["spot_only"] = False
+        self.assertEqual(self.engine.evaluate(self.snapshot).status, "WAIT")
+        self.snapshot["spot_only"] = True
+        self.snapshot["pullback_active"] = False
+        self.assertEqual(self.engine.evaluate(self.snapshot).status, "WAIT")
+
+    def test_bearish_confirmation_candle_is_rejected(self):
+        self.snapshot["latest_5m"]["close"] = 99.0
+        self.assertEqual(self.engine.evaluate(self.snapshot).status, "WAIT")
+
+    def test_missing_zone_or_structure_fails_closed(self):
+        self.snapshot["support_zone"] = None
+        self.assertEqual(self.engine.evaluate(self.snapshot).status, "WAIT")
+
+    def test_unclosed_and_stale_candles_are_rejected(self):
+        self.snapshot["latest_5m"]["fetched_at"] = 1_800_000_299
+        self.assertEqual(self.engine.evaluate(self.snapshot).status, "WAIT")
+        self.snapshot["latest_5m"]["fetched_at"] = 1_800_002_000
+        self.assertEqual(self.engine.evaluate(self.snapshot).status, "WAIT")
+
 
 
 if __name__ == "__main__":

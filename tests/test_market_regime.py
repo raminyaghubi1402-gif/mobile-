@@ -1,6 +1,7 @@
 import unittest
 from types import SimpleNamespace
 from lili_trader.market_regime import classify_market_regime, select_strategy_candidates
+from lili_trader.strategy_engines import STRATEGY_CATALOG
 
 def candles(count=30, step=1.0, width=2.0):
     rows=[]
@@ -17,14 +18,15 @@ class MarketRegimeTests(unittest.TestCase):
         self.assertEqual(state.trend,"unknown")
         self.assertEqual(state.allowed_strategies,())
 
-    def test_uptrend_selects_only_long_candidates(self):
+    def test_uptrend_selects_independent_catalogued_engines(self):
         trend=SimpleNamespace(direction="up",last_two_swing_highs=(110,120),last_two_swing_lows=(100,110))
         state=classify_market_regime(candles(),trend)
-        names=[c.name for c in select_strategy_candidates(state)]
-        self.assertTrue(names)
-        self.assertTrue(all("buy" in name for name in names))
+        names=[candidate.name for candidate in select_strategy_candidates(state)]
+        expected=set(STRATEGY_CATALOG) - {"range_trading"}
+        self.assertEqual(set(names), expected)
+        self.assertEqual(len(names), len(expected))
 
-    def test_downtrend_selects_only_short_candidates(self):
+    def test_downtrend_is_wait_in_spot_only_but_selects_engines_when_short_allowed(self):
         rows=[]
         for i in range(30):
             close=130-i
@@ -32,9 +34,16 @@ class MarketRegimeTests(unittest.TestCase):
                          "low":close-1,"close":close-0.5})
         trend=SimpleNamespace(direction="down",last_two_swing_highs=(120,110),last_two_swing_lows=(110,100))
         state=classify_market_regime(rows,trend)
-        names=[c.name for c in select_strategy_candidates(state)]
-        self.assertTrue(names)
-        self.assertTrue(all(("sell" in name) or name=="no_trade_wait" for name in names))
+        spot_names=[candidate.name for candidate in select_strategy_candidates(state)]
+        self.assertEqual(spot_names, ["no_trade_wait"])
+        short_names=[candidate.name for candidate in select_strategy_candidates(state, allow_short=True)]
+        self.assertEqual(set(short_names), set(STRATEGY_CATALOG) - {"range_trading"})
+
+    def test_selector_rejects_non_boolean_short_permission(self):
+        trend=SimpleNamespace(direction="up",last_two_swing_highs=(110,120),last_two_swing_lows=(100,110))
+        state=classify_market_regime(candles(),trend)
+        with self.assertRaises(ValueError):
+            select_strategy_candidates(state, allow_short=1)
 
     def test_range_policy_is_no_trade(self):
         trend=SimpleNamespace(direction="range",last_two_swing_highs=(110,112),last_two_swing_lows=(100,98))

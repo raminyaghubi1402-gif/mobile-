@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from lili_trader.market_analyst import analyze_market
 from lili_trader.market_regime import classify_market_regime, select_strategy_candidates
+from lili_trader.strategy_engines import STRATEGY_CATALOG
 from lili_trader.market_structure import StructureAnalysis, StructureEvent
 from lili_trader.price_action_trend import TrendState
 from lili_trader.support_resistance import PriceZone
@@ -35,29 +36,25 @@ def structure(direction, event=None):
 class MarketRegimeScenarioMatrix(unittest.TestCase):
     def test_regime_to_strategy_matrix_never_selects_countertrend(self):
         cases = (
-            ("up", "up", {"buy"}, False),
-            ("down", "down", {"sell"}, False),
-            ("range", "range", set(), True),
-            ("unknown", "unknown", set(), True),
+            ("up", "up", False),
+            ("down", "down", False),
+            ("range", "range", True),
+            ("unknown", "unknown", True),
         )
-        for candle_direction, trend_direction, expected_tokens, wait_only in cases:
+        for candle_direction, trend_direction, wait_only in cases:
             with self.subTest(candle_direction=candle_direction):
                 rows = candles(candle_direction)
                 state = trend(trend_direction)
                 regime = classify_market_regime(rows, state)
-                candidates = select_strategy_candidates(regime)
+                candidates = select_strategy_candidates(
+                    regime, allow_short=(trend_direction == "down")
+                )
                 names = {item.name for item in candidates}
                 if wait_only:
                     self.assertTrue(names)
                     self.assertTrue(all("no_trade" in name for name in names))
-                elif expected_tokens == {"buy"}:
-                    self.assertTrue(names)
-                    self.assertTrue(all("buy" in name for name in names))
-                    self.assertFalse(any("sell" in name for name in names))
                 else:
-                    self.assertTrue(names)
-                    self.assertTrue(all("sell" in name for name in names))
-                    self.assertFalse(any("buy" in name for name in names))
+                    self.assertEqual(names, set(STRATEGY_CATALOG) - {"range_trading"})
 
     def test_high_volatility_overrides_trend_and_forces_wait(self):
         rows = candles("up")

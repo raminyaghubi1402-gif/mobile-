@@ -19,12 +19,117 @@ def _load_backtest_history(path, symbol: str, resolution: str, count: int, adapt
     return merge_candle_history(stored, fresh, max_rows=20_000)
 
 
+def _longest_contiguous_segment(candles, timeframe_seconds: int):
+    """Return the longest strictly contiguous candle segment without bridging gaps."""
+    if not candles:
+        return []
+    segments = []
+    start = 0
+    for index in range(1, len(candles)):
+        previous = candles[index - 1]
+        current = candles[index]
+        previous_ts = previous.get("timestamp") if isinstance(previous, dict) else previous.timestamp
+        current_ts = current.get("timestamp") if isinstance(current, dict) else current.timestamp
+        if current_ts - previous_ts != timeframe_seconds:
+            segments.append(candles[start:index])
+            start = index
+    segments.append(candles[start:])
+    return max(segments, key=len)
+
+
+def _candle_timestamp(candle) -> int:
+    raw = candle.get("timestamp") if isinstance(candle, dict) else candle.timestamp
+    if type(raw) is not int or raw < 0:
+        raise ValueError("candle timestamp must be a non-negative integer")
+    return raw
+
+
+def _contiguous_segments(candles, timeframe_seconds: int):
+    """Split a chronological candle series into gap-free segments."""
+    if type(timeframe_seconds) is not int or timeframe_seconds <= 0:
+        raise ValueError("timeframe_seconds must be a positive integer")
+    if not candles:
+        return []
+    segments = []
+    start = 0
+    previous = _candle_timestamp(candles[0])
+    for index in range(1, len(candles)):
+        current = _candle_timestamp(candles[index])
+        delta = current - previous
+        if delta <= 0:
+            raise ValueError(
+                "candle timestamps must be strictly increasing; duplicates and out-of-order rows are invalid"
+            )
+        if delta != timeframe_seconds:
+            segments.append(candles[start:index])
+            start = index
+        previous = current
+    segments.append(candles[start:])
+    return segments
+
+
+def _build_contiguous_engine_backtest_windows(
+    hourly, fifteen, five, *, minimum_warmup: int = 30
+):
+    """Build every overlapping 1h/15m/5m window without crossing any gap.
+
+    Higher-timeframe candles before the 5m segment are retained as warm-up
+    history, but the backtest itself only exposes candles closed by each
+    5m decision timestamp.
+    """
+    if type(minimum_warmup) is not int or minimum_warmup < 30:
+        raise ValueError("minimum_warmup must be an integer >= 30")
+    hourly_segments = _contiguous_segments(hourly, 3600)
+    fifteen_segments = _contiguous_segments(fifteen, 900)
+    five_segments = _contiguous_segments(five, 300)
+    windows = []
+    for h_rows in hourly_segments:
+        h_start = _candle_timestamp(h_rows[0])
+        h_end = _candle_timestamp(h_rows[-1]) + 3600
+        for m_rows in fifteen_segments:
+            m_start = _candle_timestamp(m_rows[0])
+            m_end = _candle_timestamp(m_rows[-1]) + 900
+            for f_rows in five_segments:
+                f_start = _candle_timestamp(f_rows[0])
+                f_end = _candle_timestamp(f_rows[-1]) + 300
+                common_start = max(h_start, m_start, f_start)
+                common_end = min(h_end, m_end, f_end)
+                if common_end <= common_start:
+                    continue
+                five_rows = [
+                    row for row in f_rows
+                    if _candle_timestamp(row) >= common_start
+                    and _candle_timestamp(row) + 300 <= common_end
+                ]
+                if len(five_rows) < minimum_warmup:
+                    continue
+                # The backtest deliberately skips its early warm-up bars. Require
+                # enough higher-timeframe history by the end of this overlap,
+                # not at its first 5m candle, or valid long segments are discarded.
+                last_decision_close = _candle_timestamp(five_rows[-1]) + 300
+                closed_hourly = [
+                    row for row in h_rows
+                    if _candle_timestamp(row) + 3600 <= last_decision_close
+                ]
+                closed_fifteen = [
+                    row for row in m_rows
+                    if _candle_timestamp(row) + 900 <= last_decision_close
+                ]
+                if (len(closed_hourly) < minimum_warmup
+                        or len(closed_fifteen) < minimum_warmup):
+                    continue
+                windows.append((h_rows, m_rows, five_rows))
+    windows.sort(key=lambda window: _candle_timestamp(window[2][0]))
+    return windows
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="لی‌لی تریدر — تحلیل فقط‌خواندنی")
     parser.add_argument("--nobitex", action="store_true", help="دریافت کندل عمومی از نوبیتکس")
     parser.add_argument("--market-analysis", action="store_true", help="تحلیل چندتایم‌فریمی حرفه‌ای با دادهٔ تازهٔ نوبیتکس (فقط‌خواندنی)")
     parser.add_argument("--backtest", action="store_true", help="اجرای بک‌تست قدیمی SMA روی کندل‌های عمومی نوبیتکس")
     parser.add_argument("--price-action-backtest", action="store_true", help="بک‌تست اختصاصی راهبرد ۱h/۱۵m/۵m بدون اندیکاتور")
+    parser.add_argument("--independent-engine-backtest", action="store_true", help="بک‌تست جداگانهٔ هر موتور مستقل روی تاریخچهٔ پیوستهٔ نوبیتکس")
     parser.add_argument("--stored-history-only", action="store_true", help="در بک‌تست فقط تاریخچهٔ CSV ذخیره‌شده را استفاده کن؛ هیچ درخواست تازه‌ای به API نزن")
     parser.add_argument("--spot-only", action="store_true", help="اجبار به معاملات نقدی؛ فروش استقراضی در بک‌تست ممنوع")
     parser.add_argument("--sr-diagnostic", action="store_true", help="مقایسهٔ بک‌تست با فیلتر حمایت‌ومقاومت و بدون آن؛ فقط تشخیصی")
@@ -49,8 +154,8 @@ def main() -> None:
     parser.add_argument("--forward-usd-irt-at", default=None, help="زمان دریافت نرخ اولیه با ISO-8601 و منطقهٔ زمانی")
     parser.add_argument("--forward-max-lag-seconds", type=int, default=180, help="حداکثر عمر کندل اجرایی ۵ دقیقه‌ای")
     args = parser.parse_args()
-    if args.stored_history_only and not args.price_action_backtest:
-        parser.error("--stored-history-only فقط همراه --price-action-backtest قابل استفاده است.")
+    if args.stored_history_only and not (args.price_action_backtest or args.independent_engine_backtest):
+        parser.error("--stored-history-only فقط همراه یکی از حالت‌های بک‌تست تاریخی قابل استفاده است.")
 
     if args.paper_forward:
         from .paper_forward import ForwardPaperError, StaleMarketDataError, run_forward_cycle
@@ -159,7 +264,7 @@ def main() -> None:
     # Price-action backtest operates in the quote currency of Nobitex IRT pairs.
     # Never silently treat USD as IRT: conversion must be explicitly supplied.
     backtest_cash_local = args.backtest_cash
-    if args.price_action_backtest:
+    if args.price_action_backtest or args.independent_engine_backtest:
         if args.backtest_currency == "USD" and args.symbol.upper().endswith("IRT"):
             import math
             if (args.usd_irt_rate is None or args.usd_irt_rate <= 0
@@ -184,6 +289,106 @@ def main() -> None:
         elif args.backtest_currency == "USD":
             parser.error("واحد USD فقط برای نمادهای IRT با نرخ تبدیل صریح پشتیبانی می‌شود؛ واحد بازار را مشخص کنید.")
 
+    if args.independent_engine_backtest:
+        from pathlib import Path
+        from .history_store import load_history_csv, merge_candle_history
+        from .nobitex_data import NobitexAdapter
+        from .timeframe_resample import extend_fifteen_with_five
+        from .independent_engine_backtest import run_independent_engine_backtest
+        from .nobitex_limits import NOBITEX_MINIMUM_SPOT_ORDER_IRT, NOBITEX_BASE_SPOT_FEE_RATE_IRT
+
+        if args.count < 24:
+            parser.error("برای بک‌تست مستقل حداقل ۲۴ کندل ۵ دقیقه‌ای لازم است.")
+        adapter = NobitexAdapter()
+        history_dir = Path(__file__).resolve().parents[2] / "data" / "history"
+
+        def load_engine_history(resolution: str, count: int):
+            path = history_dir / f"{args.symbol}_{resolution}.csv"
+            return _load_backtest_history(
+                path, args.symbol, resolution, count, adapter, args.stored_history_only
+            )
+
+        hourly_all = load_engine_history("60", min(args.count, 2000))
+        native_fifteen = load_engine_history("15", min(args.count, 2000))
+        all_five = load_engine_history("5", args.count)
+        fifteen_all = extend_fifteen_with_five(native_fifteen, all_five)
+        windows = _build_contiguous_engine_backtest_windows(
+            hourly_all, fifteen_all, all_five, minimum_warmup=30
+        )
+        if not windows:
+            parser.error(
+                "هیچ بازهٔ هم‌پوشان و پیوستهٔ معتبر برای هر سه تایم‌فریم با حداقل ۳۰ کندل warm-up پیدا نشد؛ "
+                "هیچ شکافی پر یا حدس زده نمی‌شود."
+            )
+        print("لی‌لی تریدر — بک‌تست مستقل شش موتور روی تمام بازه‌های معتبر (Paper فقط)")
+        print(
+            f"تاریخچه: ۱h={len(hourly_all)} در {len(_contiguous_segments(hourly_all, 3600))} قطعه | "
+            f"۱۵m={len(fifteen_all)} در {len(_contiguous_segments(fifteen_all, 900))} قطعه | "
+            f"۵m={len(all_five)} در {len(_contiguous_segments(all_five, 300))} قطعه"
+        )
+        print(f"بازه‌های معتبر مستقل: {len(windows)}؛ هر قطعه سرمایهٔ مجزای تازه دارد و هیچ معامله‌ای از شکاف عبور نمی‌کند.")
+        for segment_index, (hourly, fifteen, five) in enumerate(windows, 1):
+            if len(five) > args.count:
+                five = five[-args.count:]
+            print(
+                f"\n--- قطعهٔ معتبر {segment_index}/{len(windows)} --- "
+                f"۵m: {_format_market_time(five[0].timestamp)} تا "
+                f"{_format_market_time(five[-1].timestamp + 300)} | "
+                f"تعداد={len(five)} | ۱h={len(hourly)} | ۱۵m={len(fifteen)}"
+            )
+            try:
+                result = run_independent_engine_backtest(
+                    hourly, fifteen, five,
+                    starting_cash=backtest_cash_local,
+                    risk_fraction=0.005,
+                    fee_rate=NOBITEX_BASE_SPOT_FEE_RATE_IRT,
+                    slippage_rate=0.001,
+                    minimum_order_quote=NOBITEX_MINIMUM_SPOT_ORDER_IRT,
+                    maximum_5m_bars=args.count,
+                )
+            except (ValueError, TypeError, ArithmeticError) as exc:
+                parser.error(
+                    f"بک‌تست قطعهٔ {segment_index} با دادهٔ معتبر اجرا نشد: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+            print(
+                f"نماد: {result.symbol} | از {_format_market_time(result.first_timestamp)} "
+                f"تا {_format_market_time(result.last_timestamp)}"
+            )
+            print(
+                f"سرمایهٔ فرضی مستقل برای هر موتور: {result.engines[0].starting_cash:,.2f} IRT | "
+                f"کارمزد پایه: {NOBITEX_BASE_SPOT_FEE_RATE_IRT * 100:.2f}% | "
+                f"حداقل سفارش: {NOBITEX_MINIMUM_SPOT_ORDER_IRT:,.0f} IRT"
+            )
+            for row in result.engines:
+                pf = (
+                    "نامشخص" if row.profit_factor is None else
+                    ("بی‌نهایت/بدون زیان" if row.profit_factor == float("inf") else f"{row.profit_factor:.2f}")
+                )
+                print(
+                    f"{row.strategy_id}: معاملات={row.trade_count} | سیگنال‌ها={row.signal_count} | "
+                    f"تلاش ورود={row.entry_attempts} | لغو RR={row.cancelled_rr} | "
+                    f"لغو حداقل سفارش={row.cancelled_minimum_order} | "
+                    f"خالص={row.net_profit:,.2f} IRT ({row.return_pct:.3f}٪) | "
+                    f"برد={row.win_rate_pct:.1f}٪ | افت سرمایه={row.max_drawdown_pct:.3f}٪ | PF={pf}"
+                )
+                for trade_index, trade in enumerate(row.trades, 1):
+                    print(
+                        f"  معاملهٔ {trade_index}: سیگنال={_format_market_time(trade.signal_timestamp)} | "
+                        f"ورود={_format_market_time(trade.entry_timestamp)} @ {trade.entry_price:,.2f} | "
+                        f"خروج={_format_market_time(trade.exit_timestamp)} @ {trade.exit_price:,.2f} | "
+                        f"خالص={trade.net_pnl:,.2f} IRT | هزینه={trade.fees:,.2f} | "
+                        f"خروج={trade.exit_reason} | مدت={trade.bars_held} کندل | "
+                        f"MFE={trade.max_favorable_r:.2f}R | MAE={trade.max_adverse_r:.2f}R | "
+                        f"گپ ورود={trade.entry_gap_pct:.3f}% | "
+                        f"روند ۱h={trade.trend_1h}، ۱۵m={trade.trend_15m}"
+                    )
+                    print(f"    علت سیگنال: {trade.signal_reason}")
+                    print(f"    شواهد سیگنال: {trade.signal_evidence}")
+            for warning in result.warnings:
+                print(f"هشدار: {warning}")
+        return
+
     if args.price_action_backtest:
         from pathlib import Path
         from .history_store import load_history_csv, merge_candle_history
@@ -202,8 +407,20 @@ def main() -> None:
         # Stored daily-collected history extends beyond the API's short recent window.
         hourly = load_and_refresh("60", min(args.count, 2000))
         native_fifteen = load_and_refresh("15", min(args.count, 2000))
-        five = load_and_refresh("5", args.count)
-        fifteen = extend_fifteen_with_five(native_fifteen, five)
+        all_five = load_and_refresh("5", args.count)
+        continuous_five = _longest_contiguous_segment(all_five, 300)
+        if len(continuous_five) < 10:
+            parser.error("تاریخچهٔ ۵ دقیقه‌ای هیچ بازهٔ پیوستهٔ معتبر با حداقل ۱۰ کندل ندارد؛ بک‌تست اجرا نشد.")
+        if len(continuous_five) > args.count:
+            continuous_five = continuous_five[-args.count:]
+        five = continuous_five
+        fifteen = extend_fifteen_with_five(native_fifteen, all_five)
+        if all_five:
+            print(
+                "بازهٔ پیوستهٔ انتخاب‌شده برای بک‌تست: "
+                f"{len(five)} کندل ۵ دقیقه‌ای، از {five[0].timestamp} تا {five[-1].timestamp}. "
+                f"از {len(all_five)} کندل ذخیره‌شده؛ شکاف‌ها به هم متصل نشده‌اند."
+            )
         decision_callback = None
         decision_run_id = None
         if args.decision_journal is not None:

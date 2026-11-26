@@ -55,6 +55,7 @@ def main() -> int:
                 f"missing={recovery['missing_candles_before']} "
                 f"requests={recovery['attempted_queries']} "
                 f"recovered={len(recovery['recovered_timestamps'])} "
+                f"from_1m={len(recovery['recovered_from_1m'])} "
                 f"remaining={recovery['missing_candles_after']} "
                 f"status={recovery['status']}"
             )

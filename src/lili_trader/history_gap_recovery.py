@@ -6,6 +6,7 @@ synthesizes flat candles or extrapolates prices/volume.
 from __future__ import annotations
 
 import csv
+import json
 from pathlib import Path
 
 from .history_store import merge_history_csv
@@ -84,6 +85,7 @@ def recover_missing_5m_candles(
             "missing_candles_before": 0,
             "attempted_queries": 0,
             "recovered_timestamps": [],
+            "recovered_from_1m": [],
             "gap_intervals_after": 0,
             "missing_candles_after": 0,
             "skipped_intervals": 0,
@@ -98,6 +100,7 @@ def recover_missing_5m_candles(
             "missing_candles_before": 0,
             "attempted_queries": 0,
             "recovered_timestamps": [],
+            "recovered_from_1m": [],
             "gap_intervals_after": 0,
             "missing_candles_after": 0,
             "skipped_intervals": 0,
@@ -113,6 +116,7 @@ def recover_missing_5m_candles(
             "missing_candles_before": 0,
             "attempted_queries": 0,
             "recovered_timestamps": [],
+            "recovered_from_1m": [],
             "gap_intervals_after": 0,
             "missing_candles_after": 0,
             "skipped_intervals": 0,
@@ -126,14 +130,13 @@ def recover_missing_5m_candles(
     skipped_intervals += len(eligible) - len(selected)
 
     recovered_timestamps: list[int] = []
+    recovered_from_1m: list[int] = []
     errors: list[str] = []
     attempted_queries = 0
     for missing in selected:
         attempted_queries += 1
         try:
-            # Countback is bounded to the documented 500-bar API maximum. The
-            # requested end is immediately after the missing range so a candle
-            # at an exact missing timestamp can be returned if it exists.
+            # First request the exact native 5m interval from Nobitex.
             fetched = adapter.fetch_recent(
                 symbol, "5", _MAX_API_CANDLE_COUNT,
                 page=1, from_timestamp=missing[0],
@@ -141,18 +144,90 @@ def recover_missing_5m_candles(
             )
         except Exception as exc:
             errors.append(type(exc).__name__)
-            continue
+            fetched = []
 
         missing_set = set(missing)
         exact = [candle for candle in fetched if candle.timestamp in missing_set]
-        if not exact:
-            continue
-        try:
-            merge_history_csv(file_path, exact, max_rows=_MAX_ROWS)
-        except (OSError, ValueError, TypeError) as exc:
-            errors.append(type(exc).__name__)
-            continue
-        recovered_timestamps.extend(candle.timestamp for candle in exact)
+        if exact:
+            try:
+                merge_history_csv(file_path, exact, max_rows=_MAX_ROWS)
+            except (OSError, ValueError, TypeError) as exc:
+                errors.append(type(exc).__name__)
+                continue
+            recovered_timestamps.extend(candle.timestamp for candle in exact)
+
+        # If native 5m data is unavailable, attempt a strictly lossless
+        # aggregation from the five exact Nobitex 1m candles. Never interpolate
+        # missing minutes, carry prices forward, or borrow another exchange's
+        # prices. Provenance is persisted in a sidecar manifest.
+        remaining = [timestamp for timestamp in missing if timestamp not in recovered_timestamps]
+        for timestamp in remaining:
+            attempted_queries += 1
+            try:
+                minute_rows = adapter.fetch_recent(
+                    symbol, "1", 5, page=1,
+                    from_timestamp=timestamp,
+                    to_timestamp=timestamp + _INTERVAL_SECONDS - 1,
+                )
+            except Exception as exc:
+                errors.append(type(exc).__name__)
+                continue
+
+            expected_minutes = [timestamp + offset * 60 for offset in range(5)]
+            by_timestamp = {row.timestamp: row for row in minute_rows}
+            if (
+                len(minute_rows) != 5
+                or len(by_timestamp) != 5
+                or set(by_timestamp) != set(expected_minutes)
+                or any(row.symbol != symbol or row.resolution != "1" for row in minute_rows)
+                or timestamp % _INTERVAL_SECONDS != 0
+            ):
+                continue
+            ordered = [by_timestamp[value] for value in expected_minutes]
+            from .nobitex_data import NobitexCandle
+            reconstructed = NobitexCandle(
+                symbol=symbol,
+                resolution="5",
+                timestamp=timestamp,
+                open=ordered[0].open,
+                high=max(row.high for row in ordered),
+                low=min(row.low for row in ordered),
+                close=ordered[-1].close,
+                volume=sum(row.volume for row in ordered),
+                source="Nobitex public API 1m aggregation",
+                fetched_at=max(row.fetched_at for row in ordered),
+            )
+            try:
+                merge_history_csv(file_path, [reconstructed], max_rows=_MAX_ROWS)
+                manifest_path = file_path.with_name(file_path.stem + "_recovery_manifest.jsonl")
+                manifest_path.parent.mkdir(parents=True, exist_ok=True)
+                existing = manifest_path.read_text(encoding="utf-8") if manifest_path.exists() else ""
+                record = {
+                    "symbol": symbol,
+                    "resolution": "5",
+                    "timestamp": timestamp,
+                    "source": "Nobitex public API",
+                    "method": "aggregate_exact_1m",
+                    "source_timestamps": expected_minutes,
+                    "ohlcv": {
+                        "open": reconstructed.open,
+                        "high": reconstructed.high,
+                        "low": reconstructed.low,
+                        "close": reconstructed.close,
+                        "volume": reconstructed.volume,
+                    },
+                }
+                temporary = manifest_path.with_suffix(manifest_path.suffix + ".tmp")
+                temporary.write_text(
+                    existing + json.dumps(record, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                temporary.replace(manifest_path)
+            except (OSError, ValueError, TypeError) as exc:
+                errors.append(type(exc).__name__)
+                continue
+            recovered_timestamps.append(timestamp)
+            recovered_from_1m.append(timestamp)
 
     final_timestamps, final_error = _read_timestamps(file_path)
     final_gaps, final_gap_error = _missing_intervals(final_timestamps or [])
@@ -171,6 +246,7 @@ def recover_missing_5m_candles(
         "missing_candles_before": missing_candles_before,
         "attempted_queries": attempted_queries,
         "recovered_timestamps": sorted(set(recovered_timestamps)),
+        "recovered_from_1m": sorted(set(recovered_from_1m)),
         "gap_intervals_after": gap_intervals_after,
         "missing_candles_after": missing_candles_after,
         "skipped_intervals": skipped_intervals,

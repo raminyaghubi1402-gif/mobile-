@@ -85,6 +85,35 @@ jobs:
                   writer.writeheader()
                   writer.writerows(rows)
               os.replace(tmp, current_path)
+
+          # Preserve the provenance sidecars for any 5m bars reconstructed
+          # from five exact Nobitex 1m candles. Deduplicate by symbol/resolution/
+          # timestamp/method so reruns remain idempotent.
+          import json
+          for incoming_path in sorted(snapshot.glob("*_5_recovery_manifest.jsonl")):
+              current_path = history / incoming_path.name
+              records = {}
+              for path in (current_path, incoming_path):
+                  if not path.exists():
+                      continue
+                  for line in path.read_text(encoding="utf-8").splitlines():
+                      if not line.strip():
+                          continue
+                      record = json.loads(line)
+                      key = (
+                          record["symbol"], record["resolution"],
+                          int(record["timestamp"]), record["method"],
+                      )
+                      records[key] = record
+              ordered = sorted(records.values(), key=lambda row: (
+                  row["symbol"], row["resolution"], int(row["timestamp"]), row["method"]
+              ))
+              tmp = current_path.with_suffix(".jsonl.tmp")
+              tmp.write_text(
+                  "".join(json.dumps(row, sort_keys=True) + "\n" for row in ordered),
+                  encoding="utf-8",
+              )
+              os.replace(tmp, current_path)
           PY
 
             git add data/history

@@ -340,5 +340,51 @@ class MarketStructureTests(unittest.TestCase):
         self.assertEqual(reversal.level,32)
 
 
+
+    def test_rejects_numeric_strings_in_ohlc(self):
+        rows = candles_from([10,11,10,12,11,13],[8,9,8,10,9,11])
+        rows[2]["close"] = "9.5"
+        with self.assertRaises(ValueError):
+            analyze_market_structure(rows, pivot_window=1)
+
+    def test_rejects_numeric_string_timestamps(self):
+        rows = candles_from([10,11,10,12,11,13],[8,9,8,10,9,11])
+        rows[2]["timestamp"] = "2"
+        with self.assertRaises(ValueError):
+            analyze_market_structure(rows, pivot_window=1)
+
+    def test_validates_short_history_before_returning_unknown(self):
+        rows = candles_from([10,11,10],[8,9,8])
+        rows[1]["open"] = float("nan")
+        with self.assertRaises(ValueError):
+            analyze_market_structure(rows, pivot_window=1)
+
+    def test_outside_bar_can_be_both_high_and_low_swing(self):
+        rows = candles_from(
+            [10,12,11,13,20,16,15],
+            [8,9,10,11,5,7,8],
+            [9,11,10.5,12,12,13,14])
+        result = analyze_market_structure(rows, pivot_window=1)
+        same_index = [s for s in result.swings if s.index == 4]
+        self.assertEqual({s.kind for s in same_index}, {"high", "low"})
+
+
+    def test_dual_pivot_high_and_low_can_be_broken_independently(self):
+        # The outside bar at index 10 is both a confirmed swing high and low.
+        # Breaking its high must not mark its low as broken as well.
+        rows = candles_from(
+            [10,15,12,14,16,13,18,15,20,17,35,19,40,39,20,22],
+            [6,8,10,9,11,12,13,14,15,16,15,17,18,19,14,16],
+            [9,14,11,13,15,12.5,17,14.5,19,16.5,25,18,38,38,14.5,21])
+        result = analyze_market_structure(rows, pivot_window=1)
+        same_index = [s for s in result.swings if s.index == 10]
+        self.assertEqual({s.kind for s in same_index}, {"high", "low"})
+        high_break = next(e for e in result.events
+                          if e.kind == "BOS_UP" and e.broken_swing_index == 10)
+        low_break = next(e for e in result.events
+                         if e.kind == "CHOCH_DOWN" and e.broken_swing_index == 10)
+        self.assertEqual(high_break.candle_index, 12)
+        self.assertEqual(low_break.candle_index, 14)
+
 if __name__=="__main__":
     unittest.main()

@@ -63,7 +63,11 @@ jobs:
           fields = ["timestamp", "open", "high", "low", "close", "volume"]
           max_rows = 25_000
 
-          for incoming_path in sorted(list(snapshot.glob("BTCIRT_*.csv")) + list(snapshot.glob("ETHIRT_*.csv"))):
+          for incoming_path in sorted(
+              list(snapshot.glob("BTCIRT_*.csv"))
+              + list(snapshot.glob("ETHIRT_*.csv"))
+              + list(snapshot.glob("BTCUSDT_*.csv"))
+          ):
               current_path = history / incoming_path.name
               rows_by_timestamp = {}
               for path in (current_path, incoming_path):

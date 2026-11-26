@@ -30,7 +30,9 @@ def fetch_btcusdt_15m_window(adapter: NobitexAdapter) -> list:
     latest_closed = (int(time.time()) // interval) * interval - interval
     first_expected = latest_closed - (BTCUSDT_15M_REQUIRED_CANDLES - 1) * interval
     collected = {}
-    cursor = first_expected
+    # Request one guard candle before the target window because the upstream
+    # UDF endpoint may treat the "from" boundary as exclusive.
+    cursor = first_expected - interval
     while cursor <= latest_closed:
         chunk_end = min(
             cursor + (500 - 1) * interval,

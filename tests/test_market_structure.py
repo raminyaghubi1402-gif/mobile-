@@ -79,6 +79,41 @@ class MarketStructureTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             analyze_market_structure(rows, pivot_window=1)
 
+    def test_short_input_is_still_validated_and_returns_latest_close(self):
+        rows=candles_from([10,11,10],[8,9,8])
+        result=analyze_market_structure(rows,pivot_window=2)
+        self.assertEqual(result.bias,"unknown")
+        self.assertEqual(result.latest_close,9)
+        rows[1]["low"]=rows[1]["high"]+1
+        with self.assertRaises(ValueError):
+            analyze_market_structure(rows,pivot_window=2)
+
+    def test_swing_reports_pivot_and_first_confirmation_candle(self):
+        rows=candles_from([10,12,11,20,13,14,15],
+                          [5,6,7,8,9,10,11],
+                          [9,11,10,19,12,13,14])
+        for row in rows:
+            row["timestamp"] = 1000 + row["timestamp"] * 60
+        result=analyze_market_structure(rows,pivot_window=1)
+        swing=next(s for s in result.swings if s.kind=="high" and s.index==3)
+        self.assertEqual(swing.timestamp,1180)
+        self.assertEqual(swing.confirmation_index,4)
+        self.assertEqual(swing.confirmation_timestamp,1240)
+
+    def test_swing_confirmation_index_moves_with_pivot_window(self):
+        rows=candles_from([10,12,11,20,13,14,15,16],
+                          [5,6,7,8,9,10,11,12])
+        for row in rows:
+            row.pop("timestamp")
+        one=analyze_market_structure(rows,pivot_window=1)
+        two=analyze_market_structure(rows,pivot_window=2)
+        high_one=next(s for s in one.swings if s.kind=="high" and s.index==3)
+        high_two=next(s for s in two.swings if s.kind=="high" and s.index==3)
+        self.assertEqual(high_one.confirmation_index,4)
+        self.assertEqual(high_two.confirmation_index,5)
+        self.assertIsNone(high_one.confirmation_timestamp)
+        self.assertIsNone(high_two.confirmation_timestamp)
+
     def test_pivot_not_available_before_confirmation(self):
         # High at index 3 needs one right-side candle: only visible at index 4.
         rows=candles_from([10,12,11,20,13,14,15],

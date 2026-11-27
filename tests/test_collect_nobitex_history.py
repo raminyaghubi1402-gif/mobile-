@@ -128,6 +128,10 @@ class NobitexHistoryCollectorTests(unittest.TestCase):
         self.assertNotIn("git push origin HEAD:main", workflow)
         self.assertIn("gh pr create --draft", workflow)
         self.assertIn(
+            'gh workflow run ci.yml --ref "$HISTORY_BRANCH"',
+            workflow,
+        )
+        self.assertIn(
             'gh workflow run nobitex-backtest.yml --ref "$HISTORY_BRANCH"',
             workflow,
         )

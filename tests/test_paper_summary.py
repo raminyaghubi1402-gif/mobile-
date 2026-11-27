@@ -7,7 +7,7 @@ from lili_trader.paper_summary import render_paper_summary
 
 
 class PaperSummaryTests(unittest.TestCase):
-    def test_summary_reports_both_accounts_and_journal_payload_actions(self):
+    def test_summary_separates_timely_decisions_from_late_skipped_signals(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             account = {
@@ -28,8 +28,18 @@ class PaperSummaryTests(unittest.TestCase):
             }
             (root / "account.json").write_text(json.dumps(account), encoding="utf-8")
             events = [
-                {"event_type": "DECISION", "payload": {"action": "WAIT"}},
-                {"event_type": "DECISION", "payload": {"action": "BUY"}},
+                {"event_type": "DECISION", "payload": {
+                    "symbol": "BTCIRT", "action": "WAIT",
+                    "evidence": {"skipped_late_signal": True},
+                }},
+                {"event_type": "DECISION", "payload": {
+                    "symbol": "ETHIRT", "action": "WAIT",
+                    "evidence": {"skipped_late_signal": False},
+                }},
+                {"event_type": "DECISION", "payload": {
+                    "symbol": "BTCIRT", "action": "BUY",
+                    "evidence": {"skipped_late_signal": False},
+                }},
                 {"event_type": "OUTCOME", "payload": {"net_pnl_quote": 100.0}},
                 {"event_type": "OUTCOME", "payload": {"net_pnl_quote": -30.0}},
                 {"event_type": "REVIEW", "payload": {"outcome": "BAD"}},
@@ -44,13 +54,17 @@ class PaperSummaryTests(unittest.TestCase):
             )
             self.assertIn("BTCIRT", report)
             self.assertIn("ETHIRT", report)
-            self.assertIn("Journal decisions: **2**", report)
+            self.assertIn("New decision records", report)
+            self.assertIn("Journal decision records (including late skips): **3**", report)
+            self.assertIn("Timely decisions evaluated: **2**", report)
+            self.assertIn("Late signals skipped (not entries): **1** (BTCIRT: 1, ETHIRT: 0)", report)
             self.assertIn("Journal outcomes: **2** (wins: 1, losses: 1)", report)
             self.assertIn("Net realized PnL (IRT): **70.00**", report)
             self.assertIn("Human reviews: **1**", report)
             self.assertIn('{"BUY": 1, "WAIT": 1}', report)
             self.assertIn("Trigger: `schedule`", report)
             self.assertIn("Cycle status: `skipped_stale_data`", report)
+            self.assertIn("never counted as timely entry decisions", report)
 
     def test_missing_state_and_journal_are_reported_without_inventing_data(self):
         with tempfile.TemporaryDirectory() as directory:

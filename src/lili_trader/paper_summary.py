@@ -32,7 +32,7 @@ def render_paper_summary(
             f"- Last cycle (UTC): `{account.get('last_cycle_at', 'unknown')}`",
             f"- USD/IRT seed: `{account.get('usd_irt_rate', 'unknown')}`",
             "",
-            "| Symbol | Last market data (UTC) | New decisions | Closed trades | Open position | Realized equity (IRT) | Marked equity (IRT) |",
+            "| Symbol | Last market data (UTC) | New decision records | Closed trades | Open position | Realized equity (IRT) | Marked equity (IRT) |",
             "|---|---:|---:|---:|---:|---:|---:|",
         ])
         for symbol in ("BTCIRT", "ETHIRT"):
@@ -56,6 +56,9 @@ def render_paper_summary(
 
     if journal_path.exists():
         decisions = 0
+        timely_decisions = 0
+        late_skips = 0
+        late_by_symbol: dict[str, int] = {}
         outcomes = 0
         reviews = 0
         wins = 0
@@ -70,8 +73,19 @@ def render_paper_summary(
             event_type = event.get("event_type")
             if event_type == "DECISION":
                 decisions += 1
-                action = payload.get("action", "unknown")
-                actions[action] = actions.get(action, 0) + 1
+                evidence = payload.get("evidence", {})
+                skipped_late = (
+                    isinstance(evidence, dict)
+                    and evidence.get("skipped_late_signal") is True
+                )
+                if skipped_late:
+                    late_skips += 1
+                    symbol = payload.get("symbol", "unknown")
+                    late_by_symbol[symbol] = late_by_symbol.get(symbol, 0) + 1
+                else:
+                    timely_decisions += 1
+                    action = payload.get("action", "unknown")
+                    actions[action] = actions.get(action, 0) + 1
             elif event_type == "OUTCOME":
                 outcomes += 1
                 pnl = float(payload.get("net_pnl_quote", 0.0))
@@ -80,13 +94,21 @@ def render_paper_summary(
                 losses += pnl < 0
             elif event_type == "REVIEW":
                 reviews += 1
+        late_symbol_text = ", ".join(
+            f"{symbol}: {late_by_symbol.get(symbol, 0)}"
+            for symbol in ("BTCIRT", "ETHIRT")
+        )
         lines.extend([
             "",
-            f"- Journal decisions: **{decisions}**",
+            f"- Journal decision records (including late skips): **{decisions}**",
+            f"- Timely decisions evaluated: **{timely_decisions}**",
+            f"- Late signals skipped (not entries): **{late_skips}** ({late_symbol_text})",
             f"- Journal outcomes: **{outcomes}** (wins: {wins}, losses: {losses})",
             f"- Net realized PnL (IRT): **{net_pnl:,.2f}**",
             f"- Human reviews: **{reviews}**",
-            f"- Decision actions: `{json.dumps(actions, ensure_ascii=False, sort_keys=True)}`",
+            f"- Timely decision actions: `{json.dumps(actions, ensure_ascii=False, sort_keys=True)}`",
+            "",
+            "Late signals are reported separately and are never counted as timely entry decisions.",
         ])
     else:
         lines.extend(["", "- Journal: no decision file has been created yet."])

@@ -34,6 +34,24 @@ class BacktestResult:
     warnings: tuple[str, ...]
 
 
+def _strict_number(value: object, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{label} must be a numeric value")
+    number = float(value)
+    if not isfinite(number):
+        raise ValueError(f"{label} must be finite")
+    return number
+
+
+def _strict_timestamp(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("timestamp must be a numeric integer")
+    numeric = float(value)
+    if not isfinite(numeric) or numeric < 0 or not numeric.is_integer():
+        raise ValueError("timestamp must be a non-negative integer")
+    return int(numeric)
+
+
 def run_sma_backtest(
     candles: Sequence[object],
     *,
@@ -54,29 +72,35 @@ def run_sma_backtest(
     """
     if not candles:
         raise ValueError("at least one candle is required")
-    if not isfinite(starting_cash) or starting_cash <= 0:
+    starting_cash = _strict_number(starting_cash, "starting_cash")
+    if starting_cash <= 0:
         raise ValueError("starting_cash must be finite and positive")
-    if isinstance(fast_period, bool) or isinstance(slow_period, bool) or fast_period < 1 or slow_period <= fast_period:
-        raise ValueError("periods must be positive and slow_period > fast_period")
+    if (type(fast_period) is not int or type(slow_period) is not int
+            or fast_period < 1 or slow_period <= fast_period):
+        raise ValueError("periods must be positive integers and slow_period > fast_period")
     for name, value, upper in (
         ("risk_fraction", risk_fraction, 1.0),
         ("stop_loss_fraction", stop_loss_fraction, 1.0),
         ("take_profit_fraction", take_profit_fraction, 10.0),
     ):
-        if not isfinite(value) or value <= 0 or value >= upper:
+        value = _strict_number(value, name)
+        if value <= 0 or value >= upper:
             raise ValueError(f"{name} is outside its allowed range")
     for name, value, upper in (("fee_rate", fee_rate, 1.0),
                                ("slippage_rate", slippage_rate, 0.1)):
-        if not isfinite(value) or value < 0 or value >= upper:
+        value = _strict_number(value, name)
+        if value < 0 or value >= upper:
             raise ValueError(f"{name} is outside its allowed range")
 
     bars = []
     last_timestamp = -1
     for candle in candles:
         try:
-            ts = int(candle.timestamp)
-            o, h, low, close = (float(candle.open), float(candle.high),
-                                float(candle.low), float(candle.close))
+            ts = _strict_timestamp(candle.timestamp)
+            o, h, low, close = (_strict_number(candle.open, "open"),
+                                _strict_number(candle.high, "high"),
+                                _strict_number(candle.low, "low"),
+                                _strict_number(candle.close, "close"))
         except (AttributeError, TypeError, ValueError, OverflowError) as exc:
             raise ValueError("invalid candle structure") from exc
         if ts <= last_timestamp:

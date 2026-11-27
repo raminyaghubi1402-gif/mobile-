@@ -1,121 +1,107 @@
 #!/usr/bin/env python3
-"""Collect read-only public Nobitex candles into versioned CSV history."""
+"""Collect read-only, closed Nobitex candles for the supported BTCIRT/ETHIRT markets."""
 from __future__ import annotations
 
 from pathlib import Path
 import sys
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from lili_trader.history_gap_recovery import recover_missing_5m_candles
 from lili_trader.history_store import merge_history_csv
-from lili_trader.nobitex_data import NobitexAdapter
+from lili_trader.nobitex_data import NobitexAdapter, NobitexCandle
 
 
-# Focused validation run: only the most recent complete UTC-aligned day.
-# Expand the history window only after this exact 96-candle test passes.
+# Keep the persisted history aligned with the live monitor's required
+# resolutions. A single 500-bar request per series refreshes recent history;
+# older stored rows are retained by merge_history_csv.
 SYMBOL_FETCH_COUNTS = {
-    "BTCUSDT": {"15": 96},
+    "BTCIRT": {"5": 500, "15": 500, "60": 500},
+    "ETHIRT": {"5": 500, "15": 500, "60": 500},
 }
-BTCUSDT_15M_REQUIRED_CANDLES = 96
+MAX_CANDLE_AGE_SECONDS = {"5": 900, "15": 1800, "60": 7200}
 MAX_ROWS = 25_000
 
 
-def fetch_btcusdt_15m_window(adapter: NobitexAdapter) -> list:
-    """Fetch an exact one-day window in one bounded from/to request (96 bars)."""
-    import time
+def closed_fresh_candles(
+    candles: list[NobitexCandle],
+    *,
+    symbol: str,
+    resolution: str,
+    now: int,
+) -> list[NobitexCandle]:
+    """Keep only real, fully closed, fresh candles from the requested series."""
+    if type(now) is not int or now <= 0:
+        raise ValueError("now must be a positive Unix timestamp")
+    if resolution not in MAX_CANDLE_AGE_SECONDS:
+        raise ValueError("unsupported history-collector resolution")
 
-    interval = 900
-    latest_closed = (int(time.time()) // interval) * interval - interval
-    first_expected = latest_closed - (BTCUSDT_15M_REQUIRED_CANDLES - 1) * interval
-    collected = {}
-    # Request one guard candle before the target window because the upstream
-    # UDF endpoint may treat the "from" boundary as exclusive.
-    cursor = first_expected - interval
-    while cursor <= latest_closed:
-        chunk_end = min(
-            cursor + (500 - 1) * interval,
-            latest_closed,
-        )
-        batch = adapter.fetch_recent(
-            "BTCUSDT", "15", 500,
-            page=1,
-            from_timestamp=cursor,
-            to_timestamp=chunk_end,
-        )
-        for candle in batch:
-            if candle.timestamp < cursor or candle.timestamp > chunk_end:
-                raise RuntimeError("Nobitex returned BTCUSDT candle outside requested chunk")
-            if candle.timestamp in collected:
-                raise RuntimeError(f"duplicate BTCUSDT 15m timestamp: {candle.timestamp}")
-            collected[candle.timestamp] = candle
-        cursor = chunk_end + interval
+    interval = NobitexAdapter.RESOLUTION_SECONDS[resolution]
+    seen: set[int] = set()
+    closed: list[NobitexCandle] = []
+    for candle in candles:
+        if not isinstance(candle, NobitexCandle):
+            raise TypeError("history response contains a non-Nobitex candle")
+        if candle.symbol != symbol or candle.resolution != resolution:
+            raise ValueError("history response contains the wrong symbol or resolution")
+        if type(candle.timestamp) is not int or candle.timestamp <= 0:
+            raise ValueError("history response contains an invalid timestamp")
+        if type(candle.fetched_at) is not int or candle.fetched_at <= 0:
+            raise ValueError("history response is missing its fetch timestamp")
+        if candle.timestamp in seen:
+            raise ValueError("history response contains a duplicate timestamp")
+        seen.add(candle.timestamp)
 
-    # Retry through the API's countback mode as an independent retrieval path.
-    # Merge only source-returned candles; never synthesize a missing bar.
-    fallback = adapter.fetch_recent(
-        "BTCUSDT", "15", BTCUSDT_15M_REQUIRED_CANDLES,
-        page=1, to_timestamp=latest_closed,
-    )
-    for candle in fallback:
-        if first_expected <= candle.timestamp <= latest_closed:
-            collected.setdefault(candle.timestamp, candle)
+        candle_close_time = candle.timestamp + interval
+        if candle_close_time <= candle.fetched_at and candle_close_time <= now:
+            closed.append(candle)
 
-    expected = range(first_expected, latest_closed + interval, interval)
-    missing = [timestamp for timestamp in expected if timestamp not in collected]
-    if missing:
+    closed.sort(key=lambda candle: candle.timestamp)
+    if not closed:
+        raise RuntimeError(f"{symbol} {resolution}: no fully closed source candles returned")
+
+    latest_close_time = closed[-1].timestamp + interval
+    age = now - latest_close_time
+    if age < 0 or age > MAX_CANDLE_AGE_SECONDS[resolution]:
         raise RuntimeError(
-            f"BTCUSDT 15m continuity FAIL: expected={BTCUSDT_15M_REQUIRED_CANDLES}, "
-            f"received={len(collected)}, missing={len(missing)}, "
-            f"first_missing={missing[0]}"
+            f"{symbol} {resolution}: latest closed candle is stale "
+            f"(age_seconds={age}, maximum={MAX_CANDLE_AGE_SECONDS[resolution]})"
         )
-    incoming = [collected[timestamp] for timestamp in expected]
-    if len(incoming) != BTCUSDT_15M_REQUIRED_CANDLES:
-        raise RuntimeError("BTCUSDT 15m exact-window validation failed")
-    print(
-        f"BTCUSDT 15m continuity PASS: candles={len(incoming)} "
-        f"first={incoming[0].timestamp} last={incoming[-1].timestamp} "
-        f"interval_seconds={interval} window_days=1"
-    )
-    return incoming
+    return closed
 
 
 def main() -> int:
     adapter = NobitexAdapter()
     history_dir = ROOT / "data" / "history"
-    failures = []
-    completed_requests = 0
+    failures: list[str] = []
+
     for symbol, fetch_counts in SYMBOL_FETCH_COUNTS.items():
         for resolution, fetch_count in fetch_counts.items():
             try:
-                if symbol == "BTCUSDT" and resolution == "15":
-                    incoming = fetch_btcusdt_15m_window(adapter)
-                else:
-                    incoming = adapter.fetch_history(symbol, resolution, fetch_count)
-                completed_requests += 1
-                if not incoming:
-                    print(f"{symbol} {resolution}: no new public candles; kept existing history")
-                    continue
+                incoming = adapter.fetch_history(symbol, resolution, fetch_count)
+                closed = closed_fresh_candles(
+                    incoming,
+                    symbol=symbol,
+                    resolution=resolution,
+                    now=int(time.time()),
+                )
                 path = history_dir / f"{symbol}_{resolution}.csv"
-                merged = merge_history_csv(path, incoming, max_rows=MAX_ROWS)
+                merged = merge_history_csv(path, closed, max_rows=MAX_ROWS)
                 print(
                     f"{symbol} {resolution}: received={len(incoming)} "
-                    f"stored={len(merged)} oldest={merged[0].timestamp} "
-                    f"newest={merged[-1].timestamp}"
+                    f"closed={len(closed)} stored={len(merged)} "
+                    f"oldest={merged[0].timestamp} newest={merged[-1].timestamp}"
                 )
             except Exception as exc:
-                failures.append(f"{symbol} {resolution}: {type(exc).__name__}: {exc}")
+                failures.append(
+                    f"{symbol} {resolution}: {type(exc).__name__}: {exc}"
+                )
                 print(f"ERROR {failures[-1]}", file=sys.stderr)
 
-        # Gap recovery applies only to the existing BTCIRT/ETHIRT 5m stores.
-        # BTCUSDT is intentionally collected as a strict standalone 15m feed.
-        if symbol not in ("BTCIRT", "ETHIRT"):
-            continue
-
-        # If the 5m store has an exact interval gap, make one bounded request
-        # around the newest gap. Insert only source-confirmed candles; no flat
-        # synthetic candles or extrapolated values are ever created.
+        # Gap recovery applies only to exact, source-confirmed BTCIRT/ETHIRT
+        # 5m gaps. It never synthesizes or interpolates missing candles.
         try:
             recovery = recover_missing_5m_candles(
                 history_dir / f"{symbol}_5.csv", symbol, adapter,
@@ -132,28 +118,25 @@ def main() -> int:
             )
             if recovery["errors"]:
                 print(
-                    f"{symbol} 5m recovery errors: "
-                    f"{','.join(recovery['errors'])}",
+                    f"{symbol} 5m recovery errors: {','.join(recovery['errors'])}",
                     file=sys.stderr,
                 )
         except Exception as exc:
-            # Recovery is opportunistic. A failure must not corrupt the store
-            # or prevent the normal collection for the other symbol.
+            # Recovery is opportunistic; the original closed rows remain intact.
             print(
                 f"WARNING {symbol} 5m gap recovery failed: {type(exc).__name__}",
                 file=sys.stderr,
             )
 
     if failures:
-        print(f"Collection finished with {len(failures)} failure(s) after {completed_requests} successful request group(s).", file=sys.stderr)
-        if any(item.startswith("BTCUSDT 15:") for item in failures):
-            print("Required BTCUSDT 15m history failed validation; refusing to publish or backtest this run.", file=sys.stderr)
-            return 1
-        if completed_requests == 0:
-            return 1
-        print("Partial BTCIRT/ETHIRT history was saved; failed timeframes will be retried on the next scheduled run.")
-        return 0
-    print("Public Nobitex history collection completed.")
+        print(
+            f"Collection failed closed: {len(failures)} required series failed. "
+            "The workflow must not publish a partial history snapshot or run a backtest.",
+            file=sys.stderr,
+        )
+        return 1
+
+    print("Public Nobitex BTCIRT/ETHIRT closed-candle history collection completed.")
     return 0
 
 

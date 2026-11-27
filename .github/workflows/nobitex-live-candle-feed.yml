@@ -13,7 +13,7 @@ on:
         description: "Maximum sample duration (1–3600 seconds)"
         required: true
         type: number
-        default: 300
+        default: 90
 
 permissions:
   contents: read
@@ -37,7 +37,7 @@ jobs:
         run: python -m pip install --disable-pip-version-check websocket-client
       - name: Validate requested duration
         env:
-          DURATION: ${{ inputs.duration_seconds || 300 }}
+          DURATION: ${{ inputs.duration_seconds || 90 }}
         run: |
           python - <<'PY'
           import os
@@ -47,7 +47,7 @@ jobs:
           PY
       - name: Collect public Nobitex candle updates
         env:
-          DURATION: ${{ inputs.duration_seconds || 300 }}
+          DURATION: ${{ inputs.duration_seconds || 90 }}
         run: |
           python scripts/stream_nobitex_candles.py \
             --duration-seconds "$DURATION" \

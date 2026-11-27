@@ -70,7 +70,7 @@ class FakeWebSocketApp:
             for message in self.sent
             if "subscribe" in json.loads(message)
         ]
-        timestamp = 1_800_000_000
+        timestamp = 1_800_001_800
         payload = {
             "t": timestamp,
             "o": 100.0,
@@ -112,7 +112,7 @@ class NobitexCandlePublicationTests(unittest.TestCase):
     def setUp(self):
         self.channel = "public:candle-BTCIRT-5"
         self.payload = {
-            "t": 1_800_000_000,
+            "t": 1_800_001_800,
             "o": 100.0,
             "h": 105.0,
             "l": 99.0,
@@ -128,10 +128,10 @@ class NobitexCandlePublicationTests(unittest.TestCase):
 
     def test_open_and_closed_updates_are_distinguished_by_exchange_time(self):
         opened = parse_candle_publication(
-            self.channel, self.payload, received_at=1_800_000_100
+            self.channel, self.payload, received_at=1_800_001_900
         )
         closed = parse_candle_publication(
-            self.channel, self.payload, received_at=1_800_000_300
+            self.channel, self.payload, received_at=1_800_002_100
         )
         self.assertFalse(opened["is_closed"])
         self.assertTrue(closed["is_closed"])
@@ -141,22 +141,22 @@ class NobitexCandlePublicationTests(unittest.TestCase):
             parse_candle_publication(
                 "public:candle-BTCUSDT-5",
                 self.payload,
-                received_at=1_800_000_100,
+                received_at=1_800_001_900,
             )
         with self.assertRaises(NobitexWebSocketError):
             parse_candle_publication(
-                self.channel, {"t": 1_800_000_000}, received_at=1_800_000_100
+                self.channel, {"t": 1_800_001_800}, received_at=1_800_001_900
             )
 
     def test_rejects_boolean_fractional_and_misaligned_timestamps(self):
-        for timestamp in (True, 1_800_000_000.5, 1_800_000_001):
+        for timestamp in (True, 1_800_001_800.5, 1_800_001_801):
             with self.subTest(timestamp=timestamp), self.assertRaises(
                 NobitexWebSocketError
             ):
                 parse_candle_publication(
                     self.channel,
                     dict(self.payload, t=timestamp),
-                    received_at=1_800_000_100,
+                    received_at=1_800_001_900,
                 )
 
     def test_rejects_boolean_nonfinite_and_string_ohlcv(self):
@@ -165,7 +165,7 @@ class NobitexCandlePublicationTests(unittest.TestCase):
                 parse_candle_publication(
                     self.channel,
                     dict(self.payload, c=value),
-                    received_at=1_800_000_100,
+                    received_at=1_800_001_900,
                 )
 
     def test_rejects_invalid_ohlc_and_negative_volume(self):
@@ -179,15 +179,28 @@ class NobitexCandlePublicationTests(unittest.TestCase):
                 NobitexWebSocketError
             ):
                 parse_candle_publication(
-                    self.channel, payload, received_at=1_800_000_100
+                    self.channel, payload, received_at=1_800_001_900
                 )
+
+    def test_one_hour_candles_align_to_tehran_clock_not_utc(self):
+        channel = "public:candle-BTCIRT-60"
+        accepted = parse_candle_publication(
+            channel, self.payload, received_at=1_800_001_900
+        )
+        self.assertEqual(accepted["resolution"], "60")
+        with self.assertRaises(NobitexWebSocketError):
+            parse_candle_publication(
+                channel,
+                dict(self.payload, t=1_800_000_000),
+                received_at=1_800_001_900,
+            )
 
     def test_rejects_future_candle_and_invalid_receive_time(self):
         with self.assertRaises(NobitexWebSocketError):
             parse_candle_publication(
                 self.channel,
-                dict(self.payload, t=1_800_000_300),
-                received_at=1_800_000_100,
+                dict(self.payload, t=1_800_002_100),
+                received_at=1_800_001_900,
             )
         with self.assertRaises(NobitexWebSocketError):
             parse_candle_publication(
@@ -219,7 +232,7 @@ class NobitexCandleStreamProtocolTests(unittest.TestCase):
 
         stream = NobitexCandleWebSocket(
             websocket_app_factory=factory,
-            wall_clock=lambda: 1_800_000_100,
+            wall_clock=lambda: 1_800_001_900,
             monotonic=clock.monotonic,
             sleep=lambda seconds: clock.advance(seconds),
         )
@@ -289,7 +302,7 @@ class NobitexCandleStreamProtocolTests(unittest.TestCase):
 
         stream = NobitexCandleWebSocket(
             websocket_app_factory=factory,
-            wall_clock=lambda: 1_800_000_100,
+            wall_clock=lambda: 1_800_001_900,
             monotonic=clock.monotonic,
             sleep=lambda seconds: clock.advance(seconds),
         )

@@ -9,6 +9,7 @@
 - اشتراک: `{"id":2,"subscribe":{"channel":"public:candle-BTCIRT-5"}}`
 - کانال‌ها: `public:candle-{BTCIRT|ETHIRT}-{5|15|60}`
 - فیلدهای کندل: `t,o,h,l,c,v`؛ زمان `t` بر حسب ثانیه Unix است.
+- هم‌ترازی کندل‌ها بر اساس ساعت بازار تهران (UTC+03:30) اعتبارسنجی می‌شود؛ کندل‌های ۱h نوبیتکس در دادهٔ تاریخی با مرز ساعت تهران ثبت شده‌اند، نه مرز ساعت UTC.
 - مستند رسمی می‌گوید انتشار OHLC تقریباً هر ۱۰ ثانیه انجام می‌شود؛ هر پیام الزاماً کندل بسته‌شده نیست.
 - پیام keepalive خالی `{}` با همان پیام پاسخ داده می‌شود.
 
@@ -19,7 +20,7 @@
 
 ```bash
 python -m pip install websocket-client
-python scripts/stream_nobitex_candles.py --duration-seconds 300
+python scripts/stream_nobitex_candles.py --duration-seconds 90
 ```
 
 خروجی JSONL در `data/market/live/nobitex-candle-stream.jsonl` ذخیره می‌شود. هر پیام دریافتی یک snapshot مستقل است؛ به‌روزرسانی‌های متعدد با timestamp یکسان برای کندل باز طبیعی‌اند. فیلد `is_closed` از زمان دریافت و پایان بازهٔ کندل محاسبه می‌شود.

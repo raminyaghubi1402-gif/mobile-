@@ -10,12 +10,15 @@ import json
 import math
 import threading
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
 WEBSOCKET_URL = "wss://ws.nobitex.ir/connection/websocket"
 MARKETS = ("BTCIRT", "ETHIRT")
 RESOLUTIONS = {"5": 300, "15": 900, "60": 3600}
+# Nobitex hourly candles align to Tehran wall-clock hours (UTC+03:30), not UTC hours.
+TEHRAN_TIMEZONE = timezone(timedelta(hours=3, minutes=30))
 
 
 class NobitexWebSocketError(RuntimeError):
@@ -52,8 +55,15 @@ def parse_candle_publication(
     ):
         raise NobitexWebSocketError("candle timestamp must be a finite integer")
     timestamp = int(raw_timestamp)
-    if timestamp <= 0 or timestamp % RESOLUTIONS[resolution] != 0:
+    if timestamp <= 0:
         raise NobitexWebSocketError("candle timestamp is invalid or misaligned")
+    try:
+        market_time = datetime.fromtimestamp(timestamp, tz=TEHRAN_TIMEZONE)
+    except (OverflowError, OSError, ValueError):
+        raise NobitexWebSocketError("candle timestamp is outside the supported range") from None
+    resolution_minutes = RESOLUTIONS[resolution] // 60
+    if market_time.second != 0 or market_time.minute % resolution_minutes != 0:
+        raise NobitexWebSocketError("candle timestamp is invalid or misaligned in Tehran market time")
     if type(received_at) is not int or received_at <= 0:
         raise NobitexWebSocketError("received_at must be a positive integer")
     if timestamp > received_at + 5:

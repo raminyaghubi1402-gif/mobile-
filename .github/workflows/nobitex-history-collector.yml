@@ -14,6 +14,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
   actions: write
 
 concurrency:
@@ -31,28 +32,44 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Collect public Nobitex history
+      - name: Collect fresh, closed BTCIRT/ETHIRT history
         run: python scripts/collect_nobitex_history.py
       - name: Preserve collected snapshot
         run: |
           mkdir -p "$RUNNER_TEMP/collected-history"
           cp -a data/history/. "$RUNNER_TEMP/collected-history/"
-      - name: Merge snapshot safely and push
+      - name: Open or update Draft history PR (never write to main)
         id: commit_history
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HISTORY_BRANCH: automation/nobitex-history-data
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          pushed=false
-          changed=false
-          for attempt in 1 2 3 4 5; do
-            git fetch origin main
-            git reset --hard origin/main
+          git fetch origin main
+          # The collector modified the checked-out main worktree. Its complete
+          # snapshot is already preserved outside the repository; reset before
+          # switching to the dedicated data-review branch.
+          git reset --hard origin/main
+          git clean -fd data/history
 
-            python - "$RUNNER_TEMP/collected-history" <<'PY'
+          if git ls-remote --exit-code --heads origin "refs/heads/$HISTORY_BRANCH" >/dev/null 2>&1; then
+            git fetch origin "$HISTORY_BRANCH"
+            git checkout -B "$HISTORY_BRANCH" "origin/$HISTORY_BRANCH"
+            remote_branch_sha="$(git rev-parse HEAD)"
+            # Bring the review branch forward without rebasing or force-pushing.
+            git merge --no-edit origin/main
+          else
+            git checkout -b "$HISTORY_BRANCH" origin/main
+            remote_branch_sha="$(git rev-parse HEAD)"
+          fi
+
+          python - "$RUNNER_TEMP/collected-history" <<'PY'
           import csv
+          import json
           import os
           import sys
           from pathlib import Path
@@ -63,11 +80,13 @@ jobs:
           fields = ["timestamp", "open", "high", "low", "close", "volume"]
           max_rows = 25_000
 
-          for incoming_path in sorted(
+          # Only the two supported Nobitex markets are allowed into the
+          # maintained history branch.
+          incoming_csv = (
               list(snapshot.glob("BTCIRT_*.csv"))
               + list(snapshot.glob("ETHIRT_*.csv"))
-              + list(snapshot.glob("BTCUSDT_*.csv"))
-          ):
+          )
+          for incoming_path in sorted(incoming_csv):
               current_path = history / incoming_path.name
               rows_by_timestamp = {}
               for path in (current_path, incoming_path):
@@ -79,10 +98,13 @@ jobs:
                           raise SystemExit(f"Invalid CSV columns: {path}")
                       for row in reader:
                           timestamp = int(row["timestamp"])
-                          # The collected snapshot takes precedence for duplicate
-                          # timestamps (e.g. the latest candle correction).
+                          # The newly collected snapshot takes precedence for
+                          # duplicate timestamps, preserving source corrections.
                           rows_by_timestamp[timestamp] = row
-              rows = [rows_by_timestamp[t] for t in sorted(rows_by_timestamp)[-max_rows:]]
+              rows = [
+                  rows_by_timestamp[t]
+                  for t in sorted(rows_by_timestamp)[-max_rows:]
+              ]
               tmp = current_path.with_suffix(".csv.tmp")
               with tmp.open("w", encoding="utf-8", newline="") as handle:
                   writer = csv.DictWriter(handle, fieldnames=fields)
@@ -90,11 +112,12 @@ jobs:
                   writer.writerows(rows)
               os.replace(tmp, current_path)
 
-          # Preserve the provenance sidecars for any 5m bars reconstructed
-          # from five exact Nobitex 1m candles. Deduplicate by symbol/resolution/
-          # timestamp/method so reruns remain idempotent.
-          import json
-          for incoming_path in sorted(snapshot.glob("*_5_recovery_manifest.jsonl")):
+          # Preserve provenance only for exact 5m recovery on the supported
+          # markets. No sidecars from other symbols are imported.
+          for symbol in ("BTCIRT", "ETHIRT"):
+              incoming_path = snapshot / f"{symbol}_5_recovery_manifest.jsonl"
+              if not incoming_path.exists():
+                  continue
               current_path = history / incoming_path.name
               records = {}
               for path in (current_path, incoming_path):
@@ -104,13 +127,16 @@ jobs:
                       if not line.strip():
                           continue
                       record = json.loads(line)
+                      if record.get("symbol") != symbol or record.get("resolution") != "5":
+                          raise SystemExit(f"Invalid recovery provenance in {path}")
                       key = (
                           record["symbol"], record["resolution"],
                           int(record["timestamp"]), record["method"],
                       )
                       records[key] = record
               ordered = sorted(records.values(), key=lambda row: (
-                  row["symbol"], row["resolution"], int(row["timestamp"]), row["method"]
+                  row["symbol"], row["resolution"],
+                  int(row["timestamp"]), row["method"]
               ))
               tmp = current_path.with_suffix(".jsonl.tmp")
               tmp.write_text(
@@ -120,29 +146,34 @@ jobs:
               os.replace(tmp, current_path)
           PY
 
-            git add data/history
-            if git diff --cached --quiet; then
-              echo "No new candles to store."
-              changed=false
-              pushed=true
-              break
-            fi
-            git commit -m "data: collect public Nobitex candle history"
-            if git push origin HEAD:main; then
-              pushed=true
-              changed=true
-              break
-            fi
-            echo "Push raced with another commit; retrying safely ($attempt/5)."
-          done
-
-          if [ "$pushed" != "true" ]; then
-            echo "Could not push collected history after 5 safe merge attempts."
-            exit 1
+          git add data/history
+          data_changed=false
+          if ! git diff --cached --quiet; then
+            git commit -m "data: update public Nobitex BTCIRT and ETHIRT history"
+            data_changed=true
           fi
-          echo "changed=$changed" >> "$GITHUB_OUTPUT"
-      - name: Trigger backtest against accumulated history
+
+          # Push only to the dedicated review branch. Never push to main and
+          # never force-push. A concurrent branch update fails closed.
+          if [ "$(git rev-parse HEAD)" != "$remote_branch_sha" ]; then
+            git push origin "HEAD:$HISTORY_BRANCH"
+          fi
+
+          if [ "$data_changed" = "true" ]; then
+            pr_number="$(gh pr list --state open --base main --head "$HISTORY_BRANCH" --json number --jq '.[0].number // empty')"
+            if [ -z "$pr_number" ]; then
+              gh pr create --draft --base main --head "$HISTORY_BRANCH" \
+                --title "Update Nobitex BTCIRT/ETHIRT candle history" \
+                --body "Automated Draft PR containing only public Nobitex BTCIRT and ETHIRT candles. The collector filters out unclosed or stale bars, preserves real source gaps, and never interpolates. Review and historical validation are required; this PR is never auto-merged."
+            else
+              echo "Updated existing Draft history PR #$pr_number."
+            fi
+          fi
+
+          echo "changed=$data_changed" >> "$GITHUB_OUTPUT"
+      - name: Run historical backtest on the Draft history branch
         if: steps.commit_history.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run nobitex-backtest.yml --ref main
+          HISTORY_BRANCH: automation/nobitex-history-data
+        run: gh workflow run nobitex-backtest.yml --ref "$HISTORY_BRANCH"

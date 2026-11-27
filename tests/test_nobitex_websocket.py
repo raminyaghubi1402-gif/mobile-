@@ -275,5 +275,36 @@ class NobitexCandleStreamProtocolTests(unittest.TestCase):
         self.assertIn("connect_error", result["errors"])
 
 
+    def test_reusing_stream_resets_counts_between_samples(self):
+        clock = FakeClock()
+        channels = list(channel_map())
+
+        def factory(url, **callbacks):
+            return FakeWebSocketApp(
+                url,
+                **callbacks,
+                clock=clock,
+                published_channels=channels,
+            )
+
+        stream = NobitexCandleWebSocket(
+            websocket_app_factory=factory,
+            wall_clock=lambda: 1_800_000_100,
+            monotonic=clock.monotonic,
+            sleep=lambda seconds: clock.advance(seconds),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            first = stream.stream(
+                duration_seconds=1, output_path=Path(directory) / "first.jsonl"
+            )
+            second = stream.stream(
+                duration_seconds=1, output_path=Path(directory) / "second.jsonl"
+            )
+
+        self.assertEqual(first["total_publications"], 6)
+        self.assertEqual(second["total_publications"], 6)
+        self.assertEqual(second["errors"], [])
+
+
 if __name__ == "__main__":
     unittest.main()

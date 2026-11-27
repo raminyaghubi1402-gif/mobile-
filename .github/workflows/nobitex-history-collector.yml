@@ -28,6 +28,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -49,7 +51,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git fetch origin main
+          git fetch origin +refs/heads/main:refs/remotes/origin/main
           # The collector modified the checked-out main worktree. Its complete
           # snapshot is already preserved outside the repository; reset before
           # switching to the dedicated data-review branch.
@@ -57,7 +59,7 @@ jobs:
           git clean -fd data/history
 
           if git ls-remote --exit-code --heads origin "refs/heads/$HISTORY_BRANCH" >/dev/null 2>&1; then
-            git fetch origin "$HISTORY_BRANCH"
+            git fetch origin "refs/heads/$HISTORY_BRANCH:refs/remotes/origin/$HISTORY_BRANCH"
             git checkout -B "$HISTORY_BRANCH" "origin/$HISTORY_BRANCH"
             remote_branch_sha="$(git rev-parse HEAD)"
             # Bring the review branch forward without rebasing or force-pushing.

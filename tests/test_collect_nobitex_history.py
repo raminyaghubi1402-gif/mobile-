@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 from lili_trader.nobitex_data import NobitexAdapter, NobitexCandle
 from scripts.collect_nobitex_history import (
@@ -114,6 +115,34 @@ class NobitexHistoryCollectorTests(unittest.TestCase):
                 resolution="15",
                 now=now,
             )
+
+    def test_history_workflow_uses_a_draft_branch_and_never_pushes_main(self):
+        workflow_path = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "nobitex-history-collector.yml"
+        )
+        workflow = workflow_path.read_text(encoding="utf-8")
+        self.assertIn('git push origin "HEAD:$HISTORY_BRANCH"', workflow)
+        self.assertNotIn("git push origin HEAD:main", workflow)
+        self.assertIn("gh pr create --draft", workflow)
+        self.assertIn(
+            'gh workflow run nobitex-backtest.yml --ref "$HISTORY_BRANCH"',
+            workflow,
+        )
+
+    def test_history_workflow_merges_only_supported_market_csvs(self):
+        workflow_path = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "nobitex-history-collector.yml"
+        )
+        workflow = workflow_path.read_text(encoding="utf-8")
+        self.assertIn('snapshot.glob("BTCIRT_*.csv")', workflow)
+        self.assertIn('snapshot.glob("ETHIRT_*.csv")', workflow)
+        self.assertNotIn('snapshot.glob("BTCUSDT_*.csv")', workflow)
 
 
 if __name__ == "__main__":

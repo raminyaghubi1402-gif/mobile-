@@ -1,0 +1,62 @@
+name: Nobitex live candle WebSocket sample
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/nobitex-live-candle-feed.yml"
+      - "src/lili_trader/nobitex_websocket.py"
+      - "scripts/stream_nobitex_candles.py"
+      - "tests/test_nobitex_websocket.py"
+  workflow_dispatch:
+    inputs:
+      duration_seconds:
+        description: "Maximum sample duration (1–3600 seconds)"
+        required: true
+        type: number
+        default: 90
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nobitex-live-candle-feed-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  stream:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install WebSocket transport
+        run: python -m pip install --disable-pip-version-check websocket-client
+      - name: Validate requested duration
+        env:
+          DURATION: ${{ inputs.duration_seconds || 90 }}
+        run: |
+          python - <<'PY'
+          import os
+          value = int(os.environ["DURATION"])
+          if not 1 <= value <= 3600:
+              raise SystemExit("duration_seconds must be between 1 and 3600")
+          PY
+      - name: Collect public Nobitex candle updates
+        env:
+          DURATION: ${{ inputs.duration_seconds || 90 }}
+        run: |
+          python scripts/stream_nobitex_candles.py \
+            --duration-seconds "$DURATION" \
+            --output data/market/live/nobitex-candle-stream.jsonl
+      - name: Upload raw candle observations
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nobitex-live-candle-sample-${{ github.run_id }}
+          path: data/market/live/nobitex-candle-stream.jsonl
+          if-no-files-found: warn
+          retention-days: 14

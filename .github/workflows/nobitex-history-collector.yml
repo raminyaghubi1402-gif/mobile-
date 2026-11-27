@@ -173,9 +173,11 @@ jobs:
           fi
 
           echo "changed=$data_changed" >> "$GITHUB_OUTPUT"
-      - name: Run historical backtest on the Draft history branch
+      - name: Run CI and historical backtest on the Draft history branch
         if: steps.commit_history.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           HISTORY_BRANCH: automation/nobitex-history-data
-        run: gh workflow run nobitex-backtest.yml --ref "$HISTORY_BRANCH"
+        run: |
+          gh workflow run ci.yml --ref "$HISTORY_BRANCH"
+          gh workflow run nobitex-backtest.yml --ref "$HISTORY_BRANCH"

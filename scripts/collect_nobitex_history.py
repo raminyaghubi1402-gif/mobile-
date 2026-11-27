@@ -22,21 +22,30 @@ BTCUSDT_15M_REQUIRED_CANDLES = 96
 MAX_ROWS = 25_000
 
 
-def fetch_btcusdt_15m_window(adapter: NobitexAdapter) -> list:
-    """Fetch an exact one-day window in one bounded from/to request (96 bars)."""
+def fetch_btcusdt_15m_window(adapter: NobitexAdapter, *, now: int | None = None) -> list:
+    """Fetch one exact closed 15m day, including the final candle's full time range."""
     import time
 
+    observed_at = int(time.time()) if now is None else now
+    if type(observed_at) is not int or observed_at <= 0:
+        raise ValueError("now must be a positive Unix timestamp")
+
     interval = 900
-    latest_closed = (int(time.time()) // interval) * interval - interval
+    latest_closed = (observed_at // interval) * interval - interval
     first_expected = latest_closed - (BTCUSDT_15M_REQUIRED_CANDLES - 1) * interval
+    # Nobitex defines `to` as the end of the requested time range. Include
+    # the complete final candle, but accept only candle-start timestamps up
+    # to latest_closed so no in-progress/future candle can enter the window.
+    range_end = latest_closed + interval - 1
     collected = {}
+
     # Request one guard candle before the target window because the upstream
     # UDF endpoint may treat the "from" boundary as exclusive.
     cursor = first_expected - interval
-    while cursor <= latest_closed:
+    while cursor <= range_end:
         chunk_end = min(
             cursor + (500 - 1) * interval,
-            latest_closed,
+            range_end,
         )
         batch = adapter.fetch_recent(
             "BTCUSDT", "15", 500,
@@ -45,21 +54,31 @@ def fetch_btcusdt_15m_window(adapter: NobitexAdapter) -> list:
             to_timestamp=chunk_end,
         )
         for candle in batch:
-            if candle.timestamp < cursor or candle.timestamp > chunk_end:
-                raise RuntimeError("Nobitex returned BTCUSDT candle outside requested chunk")
+            if candle.timestamp % interval != 0:
+                raise RuntimeError(
+                    f"unaligned BTCUSDT 15m timestamp: {candle.timestamp}"
+                )
+            if candle.timestamp < cursor or candle.timestamp > latest_closed:
+                raise RuntimeError(
+                    "Nobitex returned BTCUSDT candle outside requested closed-candle window"
+                )
             if candle.timestamp in collected:
                 raise RuntimeError(f"duplicate BTCUSDT 15m timestamp: {candle.timestamp}")
             collected[candle.timestamp] = candle
         cursor = chunk_end + interval
 
-    # Retry through the API's countback mode as an independent retrieval path.
+    # Retry through countback using the same full-candle end boundary.
     # Merge only source-returned candles; never synthesize a missing bar.
     fallback = adapter.fetch_recent(
         "BTCUSDT", "15", BTCUSDT_15M_REQUIRED_CANDLES,
-        page=1, to_timestamp=latest_closed,
+        page=1, to_timestamp=range_end,
     )
     for candle in fallback:
         if first_expected <= candle.timestamp <= latest_closed:
+            if candle.timestamp % interval != 0:
+                raise RuntimeError(
+                    f"unaligned BTCUSDT 15m timestamp: {candle.timestamp}"
+                )
             collected.setdefault(candle.timestamp, candle)
 
     expected = range(first_expected, latest_closed + interval, interval)
@@ -79,7 +98,6 @@ def fetch_btcusdt_15m_window(adapter: NobitexAdapter) -> list:
         f"interval_seconds={interval} window_days=1"
     )
     return incoming
-
 
 def main() -> int:
     adapter = NobitexAdapter()

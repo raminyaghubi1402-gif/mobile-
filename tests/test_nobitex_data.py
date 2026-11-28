@@ -142,11 +142,18 @@ class NobitexPaginationTests(unittest.TestCase):
                     return FakeResponse(payload([timestamp]))
 
                 with self.assertRaisesRegex(
-                    NobitexDataError, "not aligned to its resolution"
+                    NobitexDataError, "not aligned to the Nobitex session boundary"
                 ):
                     NobitexAdapter(opener=opener).fetch_recent(
                         "BTCIRT", resolution, 1
                     )
+
+    def test_fetch_recent_accepts_tehran_aligned_hourly_timestamp(self):
+        def opener(request, timeout):
+            return FakeResponse(payload([1800]))
+
+        candles = NobitexAdapter(opener=opener).fetch_recent("BTCIRT", "60", 1)
+        self.assertEqual([candle.timestamp for candle in candles], [1800])
 
     def test_fetch_recent_rejects_boolean_ohlcv_values(self):
         for field in ("o", "h", "l", "c", "v"):

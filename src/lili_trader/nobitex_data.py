@@ -36,6 +36,10 @@ class NobitexAdapter:
     BASE_URL = "https://apiv2.nobitex.ir/market/udf/history"
     ALLOWED_RESOLUTIONS = {"1", "5", "15", "30", "60", "180", "240", "360", "720", "D", "2D", "3D"}
     RESOLUTION_SECONDS = {"1": 60, "5": 300, "15": 900, "30": 1800, "60": 3600, "180": 10800, "240": 14400, "360": 21600, "720": 43200, "D": 86400, "2D": 172800, "3D": 259200}
+    # Nobitex UDF minute/hour candles follow Tehran clock boundaries.
+    # In Unix seconds, 5m/15m bars are epoch-aligned, while 1h bars start
+    # at :30 UTC (Tehran's UTC offset is half-hour based).
+    CANDLE_START_OFFSETS = {"5": 0, "15": 0, "60": 1800}
     RETRYABLE_HTTP_STATUSES = {408, 425, 429, 500, 502, 503, 504}
     MAX_RETRY_DELAY_SECONDS = 2.0
 
@@ -255,9 +259,11 @@ class NobitexAdapter:
                         or timestamp_value >= float("inf")):
                     raise ValueError("invalid timestamp")
                 timestamp = int(timestamp_value)
-                if timestamp % self.RESOLUTION_SECONDS[resolution] != 0:
+                expected_offset = self.CANDLE_START_OFFSETS.get(resolution)
+                if (expected_offset is not None
+                        and timestamp % self.RESOLUTION_SECONDS[resolution] != expected_offset):
                     raise NobitexDataError(
-                        "candle timestamp is not aligned to its resolution"
+                        "candle timestamp is not aligned to the Nobitex session boundary"
                     )
                 raw_values = (
                     arrays[1][i], arrays[2][i], arrays[3][i],

@@ -31,6 +31,7 @@ from .support_resistance import find_support_resistance
 SYMBOLS = ("BTCIRT", "ETHIRT")
 RESOLUTIONS = {"5m": ("5", 300), "15m": ("15", 900), "1h": ("60", 3600)}
 ENGINE_VERSION = "trend_pullback_v1"
+LIVE_PAPER_ENGINE_IDS = ("trend_pullback",)
 PAPER_EQUITY_USDT = 10.0
 RISK_FRACTION = 0.005
 FEE_RATE = NOBITEX_BASE_SPOT_FEE_RATE_IRT
@@ -304,6 +305,26 @@ def _validated_signal_levels(decision: StrategyDecision) -> dict[str, float]:
     if (target - entry) / (entry - stop) + 1e-9 < 1.5:
         raise ValueError("signal reward/risk is below the 1.5 minimum")
     return values
+
+
+def _select_live_paper_engine_ids(
+    regime: Any,
+    registered_ids: tuple[str, ...],
+    eligible_ids: set[str],
+) -> tuple[str, ...]:
+    """Keep the forward paper path on the single approved engine.
+
+    Other implemented engines remain available to isolated research/backtests,
+    but cannot create live-paper decisions or allocate shared paper risk yet.
+    """
+    if regime.trend != "up" or regime.volatility not in {"low", "normal"}:
+        return ()
+    registered = set(registered_ids)
+    eligible = set(eligible_ids)
+    return tuple(
+        engine_id for engine_id in LIVE_PAPER_ENGINE_IDS
+        if engine_id in registered and engine_id in eligible
+    )
 
 
 def _decision_id(
@@ -724,10 +745,8 @@ def run_live_paper_monitor(
             )
             candidates = select_strategy_candidates(regime, allow_short=False)
             eligible_ids = {candidate.name for candidate in candidates if candidate.eligible}
-            selected = tuple(
-                engine_id for engine_id in registry.registered_ids
-                if regime.trend == "up" and regime.volatility in {"low", "normal"}
-                and engine_id in eligible_ids
+            selected = _select_live_paper_engine_ids(
+                regime, registry.registered_ids, eligible_ids
             )
 
             engine_decisions = []

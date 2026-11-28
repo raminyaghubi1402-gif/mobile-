@@ -62,8 +62,8 @@ class NobitexPaginationTests(unittest.TestCase):
             seen_pages.append(page)
             seen_to.append(query["to"][0])
             if page == 1:
-                return FakeResponse(payload(list(range(501, 1001))))
-            return FakeResponse(payload(list(range(1, 501))))
+                return FakeResponse(payload([index * 300 for index in range(501, 1001)]))
+            return FakeResponse(payload([index * 300 for index in range(1, 501)]))
 
         candles = NobitexAdapter(opener=opener).fetch_history(
             "BTCIRT", "5", 501
@@ -72,7 +72,7 @@ class NobitexPaginationTests(unittest.TestCase):
         self.assertEqual(seen_pages, [1, 2])
         self.assertEqual(len(set(seen_to)), 1, "all pages must share one snapshot timestamp")
         self.assertEqual(len(timestamps), 501)
-        self.assertEqual(timestamps, list(range(500, 1001)))
+        self.assertEqual(timestamps, [index * 300 for index in range(500, 1001)])
 
     def test_fetch_history_continues_after_a_short_intermediate_page(self):
         seen_pages = []
@@ -82,18 +82,18 @@ class NobitexPaginationTests(unittest.TestCase):
             page = int(query["page"][0])
             seen_pages.append(page)
             if page == 1:
-                return FakeResponse(payload(list(range(1001, 1501))))
+                return FakeResponse(payload([index * 900 for index in range(1001, 1501)]))
             if page == 2:
-                return FakeResponse(payload(list(range(830, 1001))))
-            return FakeResponse(payload(list(range(330, 830))))
+                return FakeResponse(payload([index * 900 for index in range(830, 1001)]))
+            return FakeResponse(payload([index * 900 for index in range(330, 830)]))
 
         candles = NobitexAdapter(opener=opener).fetch_history(
             "BTCIRT", "15", 1500
         )
         self.assertEqual(seen_pages, [1, 2, 3])
         self.assertEqual(len(candles), 1171)
-        self.assertEqual(candles[0].timestamp, 330)
-        self.assertEqual(candles[-1].timestamp, 1500)
+        self.assertEqual(candles[0].timestamp, 330 * 900)
+        self.assertEqual(candles[-1].timestamp, 1500 * 900)
 
     def test_fetch_history_stops_when_page_cursor_repeats_same_data(self):
         seen_pages = []
@@ -101,7 +101,7 @@ class NobitexPaginationTests(unittest.TestCase):
         def opener(request, timeout):
             query = parse_qs(urlparse(request.full_url).query)
             seen_pages.append(int(query["page"][0]))
-            return FakeResponse(payload(list(range(501, 1001))))
+            return FakeResponse(payload([index * 300 for index in range(501, 1001)]))
 
         candles = NobitexAdapter(opener=opener).fetch_history(
             "BTCIRT", "5", 1500
@@ -117,7 +117,7 @@ class NobitexPaginationTests(unittest.TestCase):
             page = int(query["page"][0])
             seen_pages.append(page)
             if page == 1:
-                return FakeResponse(payload(list(range(501, 1001))))
+                return FakeResponse(payload([index * 300 for index in range(501, 1001)]))
             return FakeResponse({"s": "no_data"})
 
         candles = NobitexAdapter(opener=opener).fetch_history(
@@ -134,6 +134,19 @@ class NobitexPaginationTests(unittest.TestCase):
 
                 with self.assertRaises(NobitexDataError):
                     NobitexAdapter(opener=opener).fetch_recent("BTCIRT", "5", 1)
+
+    def test_fetch_recent_rejects_timestamps_not_aligned_to_resolution(self):
+        for resolution, timestamp in (("5", 301), ("15", 901), ("60", 3601)):
+            with self.subTest(resolution=resolution, timestamp=timestamp):
+                def opener(request, timeout):
+                    return FakeResponse(payload([timestamp]))
+
+                with self.assertRaisesRegex(
+                    NobitexDataError, "not aligned to its resolution"
+                ):
+                    NobitexAdapter(opener=opener).fetch_recent(
+                        "BTCIRT", resolution, 1
+                    )
 
     def test_fetch_recent_rejects_boolean_ohlcv_values(self):
         for field in ("o", "h", "l", "c", "v"):
@@ -173,8 +186,8 @@ class NobitexPaginationTests(unittest.TestCase):
             query = parse_qs(urlparse(request.full_url).query)
             page = int(query["page"][0])
             seen_pages.append(page)
-            start = 10_000 - page * 500
-            return FakeResponse(payload(list(range(start, start + 500))))
+            start = (10_000 - page * 500) * 60
+            return FakeResponse(payload([start + index * 60 for index in range(500)]))
 
         candles = NobitexAdapter(opener=opener).fetch_history("BTCIRT", "1", 5001)
         self.assertEqual(seen_pages, list(range(1, 12)))

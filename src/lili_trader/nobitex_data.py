@@ -254,6 +254,11 @@ class NobitexAdapter:
                         or timestamp_value <= 0
                         or timestamp_value >= float("inf")):
                     raise ValueError("invalid timestamp")
+                timestamp = int(timestamp_value)
+                if timestamp % self.RESOLUTION_SECONDS[resolution] != 0:
+                    raise NobitexDataError(
+                        "candle timestamp is not aligned to its resolution"
+                    )
                 raw_values = (
                     arrays[1][i], arrays[2][i], arrays[3][i],
                     arrays[4][i], volume[i],

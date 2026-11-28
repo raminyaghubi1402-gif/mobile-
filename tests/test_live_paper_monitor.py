@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from types import SimpleNamespace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from lili_trader.live_paper_monitor import (
     _activate_pending,
     _committed_risk_quote,
     _manage_position,
+    _select_live_paper_engine_ids,
     _validated_signal_levels,
 )
 
@@ -657,6 +659,47 @@ class PaperStateTests(unittest.TestCase):
             path.write_text("{broken", encoding="utf-8")
             with self.assertRaises(LivePaperMonitorError):
                 PaperState(path)
+
+
+class LiveEngineSelectionTests(unittest.TestCase):
+    def setUp(self):
+        self.registered = (
+            "trend_pullback", "breakout", "breakout_retest",
+            "support_resistance_rejection", "volume_trading", "ict",
+        )
+        self.eligible = set(self.registered)
+
+    def test_only_trend_pullback_can_enter_live_paper_dispatch(self):
+        regime = SimpleNamespace(trend="up", volatility="normal")
+        self.assertEqual(
+            _select_live_paper_engine_ids(regime, self.registered, self.eligible),
+            ("trend_pullback",),
+        )
+
+    def test_other_engines_cannot_be_selected_even_if_registered_and_eligible(self):
+        regime = SimpleNamespace(trend="up", volatility="normal")
+        registered_without_trend_pullback = tuple(
+            item for item in self.registered if item != "trend_pullback"
+        )
+        self.assertEqual(
+            _select_live_paper_engine_ids(
+                regime, registered_without_trend_pullback, self.eligible
+            ),
+            (),
+        )
+
+    def test_bearish_range_and_high_volatility_remain_no_trade(self):
+        for trend, volatility in (
+            ("down", "normal"),
+            ("range", "normal"),
+            ("up", "high"),
+        ):
+            with self.subTest(trend=trend, volatility=volatility):
+                regime = SimpleNamespace(trend=trend, volatility=volatility)
+                self.assertEqual(
+                    _select_live_paper_engine_ids(regime, self.registered, self.eligible),
+                    (),
+                )
 
 
 if __name__ == "__main__":

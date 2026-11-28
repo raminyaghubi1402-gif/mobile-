@@ -74,6 +74,8 @@ class HistoryGapRecoveryTests(unittest.TestCase):
         self.assertEqual(result["status"], "unresolved")
         self.assertEqual(result["missing_candles_before"], 1)
         self.assertEqual(result["missing_candles_after"], 1)
+        self.assertEqual(result["missing_timestamps_before"], [900])
+        self.assertEqual(result["missing_timestamps_after"], [900])
         self.assertEqual(result["recovered_timestamps"], [])
         self.assertEqual(self.path.read_text(encoding="utf-8"), original)
 

@@ -45,10 +45,12 @@ def main() -> int:
                 f"{symbol}: status={result['status']}",
                 f"  gaps_before={result['gap_intervals_before']}",
                 f"  missing_before={result['missing_candles_before']}",
+                f"  missing_timestamps_before={result.get('missing_timestamps_before', [])}",
                 f"  requests={result['attempted_queries']}",
                 f"  recovered_5m={len(result['recovered_timestamps'])}",
                 f"  recovered_from_1m={len(result['recovered_from_1m'])}",
                 f"  remaining={result['missing_candles_after']}",
+                f"  missing_timestamps_after={result.get('missing_timestamps_after', [])}",
                 f"  recovered_timestamps={result['recovered_timestamps']}",
                 f"  errors={result['errors']}",
             ])
